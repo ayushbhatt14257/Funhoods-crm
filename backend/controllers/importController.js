@@ -8,123 +8,108 @@ function readSheet(buffer, sheetName) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const sheet = wb.Sheets[sheetName];
   if (!sheet) return null;
-  // Row 1 = legend, Row 2 = headers, Row 3 = sample (skipped), data from row 4
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 1 }); // start at row 2 (0-indexed 1)
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 1 });
   const headers = rows[0];
-  const dataRows = rows.slice(2); // skip header row + sample row
+  const dataRows = rows.slice(2);
   return dataRows
     .filter((r) => r.some((c) => c !== undefined && c !== ''))
     .map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i]])));
 }
 
-// POST /api/import/products  (multipart, field "file")
-async function importProducts(req, res) {
+const SHEET_NAMES = { products: 'Products', dealers: 'Dealers', aliases: 'Aliases', inventory: 'Opening_Inventory' };
+
+async function preview(req, res) {
+  const type = req.params.type;
+  const sheetName = SHEET_NAMES[type];
+  if (!sheetName) return res.status(400).json({ message: 'Unknown import type' });
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const rows = readSheet(req.file.buffer, 'Products');
-  if (!rows) return res.status(400).json({ message: 'Sheet "Products" not found in file' });
+
+  const rows = readSheet(req.file.buffer, sheetName);
+  if (!rows) return res.status(400).json({ message: `Sheet "${sheetName}" not found in file` });
+  if (!rows.length) return res.status(400).json({ message: 'No data rows found (check row 4 onwards is filled in)' });
+
+  res.json({ type, rows });
+}
+
+async function saveProductRow(r) {
+  const code = String(r.product_code || '').toUpperCase().trim();
+  if (!code) throw new Error('product_code is required');
+  const outer = +r.carton_outer_pcs || 0;
+  const doc = {
+    code,
+    name: r.product_name || '',
+    size: r.size || '',
+    category: r.category || '',
+    cartonOuter: outer,
+    cartonInner: r.carton_inner_pcs ? +r.carton_inner_pcs : Math.round(outer / 2),
+    rate: +r.rate_rs || 0,
+    gst_pct: [5, 12, 18].includes(+r.gst_pct) ? +r.gst_pct : 5,
+    photo: r.photo_url || '',
+    active: String(r.active_Y_N || 'Y').toUpperCase() !== 'N',
+  };
+  const saved = await Product.findOneAndUpdate({ code }, doc, { upsert: true, new: true });
+  await Inventory.findOneAndUpdate({ code }, {}, { upsert: true });
+  return { key: code, ok: true, _id: saved._id };
+}
+
+async function saveDealerRow(r) {
+  const code = String(r.dealer_code || '').toUpperCase().trim();
+  if (!code) throw new Error('dealer_code is required');
+  const doc = {
+    code,
+    name: r.dealer_name || '',
+    city: r.city || '',
+    state: r.state || '',
+    payment: r.payment_terms || 'Advance',
+    gstin: r.gstin || '',
+    contact: r.contact_person || '',
+    mobile: r.mobile || '',
+    addr: r.address || '',
+  };
+  const saved = await Dealer.findOneAndUpdate({ code }, doc, { upsert: true, new: true });
+  return { key: code, ok: true, _id: saved._id };
+}
+
+async function saveAliasRow(r) {
+  const alias = String(r.nickname_text || '').toLowerCase().trim();
+  const code = String(r.maps_to_product_code || '').toUpperCase().trim();
+  if (!alias || !code) throw new Error('nickname_text and maps_to_product_code are required');
+  const product = await Product.findOne({ code });
+  if (!product) throw new Error(`Product ${code} not found`);
+  await Alias.findOneAndUpdate({ alias }, { alias, code }, { upsert: true });
+  return { key: alias, ok: true };
+}
+
+async function saveInventoryRow(r) {
+  const code = String(r.product_code || '').toUpperCase().trim();
+  if (!code) throw new Error('product_code is required');
+  const product = await Product.findOne({ code });
+  if (!product) throw new Error('Product not found — import Products sheet first');
+  await Inventory.findOneAndUpdate({ code }, { physical: +r.physical_stock_pcs || 0 }, { upsert: true });
+  return { key: code, ok: true };
+}
+
+const SAVERS = { products: saveProductRow, dealers: saveDealerRow, aliases: saveAliasRow, inventory: saveInventoryRow };
+const KEY_FIELD = { products: 'product_code', dealers: 'dealer_code', aliases: 'nickname_text', inventory: 'product_code' };
+
+// POST /api/import/:type/confirm  { rows: [...] } — saves rows the user reviewed/edited in the preview step
+async function confirm(req, res) {
+  const type = req.params.type;
+  const saveRow = SAVERS[type];
+  if (!saveRow) return res.status(400).json({ message: 'Unknown import type' });
+
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ message: 'No rows to import' });
 
   const results = [];
   for (const r of rows) {
     try {
-      const code = String(r.product_code || '').toUpperCase().trim();
-      if (!code) continue;
-      const outer = +r.carton_outer_pcs || 0;
-      const doc = {
-        code,
-        name: r.product_name || '',
-        size: r.size || '',
-        category: r.category || '',
-        cartonOuter: outer,
-        cartonInner: r.carton_inner_pcs ? +r.carton_inner_pcs : Math.round(outer / 2),
-        rate: +r.rate_rs || 0,
-        gst_pct: [5, 12, 18].includes(+r.gst_pct) ? +r.gst_pct : 5,
-        photo: r.photo_url || '',
-        active: String(r.active_Y_N || 'Y').toUpperCase() !== 'N',
-      };
-      const saved = await Product.findOneAndUpdate({ code }, doc, { upsert: true, new: true });
-      await Inventory.findOneAndUpdate({ code }, {}, { upsert: true });
-      results.push({ code, ok: true, _id: saved._id });
+      results.push(await saveRow(r));
     } catch (err) {
-      results.push({ code: r.product_code, ok: false, error: err.message });
+      results.push({ key: r[KEY_FIELD[type]] || '?', ok: false, error: err.message });
     }
   }
   res.json({ imported: results.filter((r) => r.ok).length, results });
 }
 
-// POST /api/import/dealers
-async function importDealers(req, res) {
-  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const rows = readSheet(req.file.buffer, 'Dealers');
-  if (!rows) return res.status(400).json({ message: 'Sheet "Dealers" not found in file' });
-
-  const results = [];
-  for (const r of rows) {
-    try {
-      const code = String(r.dealer_code || '').toUpperCase().trim();
-      if (!code) continue;
-      const doc = {
-        code,
-        name: r.dealer_name || '',
-        city: r.city || '',
-        state: r.state || '',
-        payment: r.payment_terms || 'Advance',
-        gstin: r.gstin || '',
-        contact: r.contact_person || '',
-        mobile: r.mobile || '',
-        addr: r.address || '',
-      };
-      const saved = await Dealer.findOneAndUpdate({ code }, doc, { upsert: true, new: true });
-      results.push({ code, ok: true, _id: saved._id });
-    } catch (err) {
-      results.push({ code: r.dealer_code, ok: false, error: err.message });
-    }
-  }
-  res.json({ imported: results.filter((r) => r.ok).length, results });
-}
-
-// POST /api/import/aliases
-async function importAliases(req, res) {
-  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const rows = readSheet(req.file.buffer, 'Aliases');
-  if (!rows) return res.status(400).json({ message: 'Sheet "Aliases" not found in file' });
-
-  const results = [];
-  for (const r of rows) {
-    try {
-      const alias = String(r.nickname_text || '').toLowerCase().trim();
-      const code = String(r.maps_to_product_code || '').toUpperCase().trim();
-      if (!alias || !code) continue;
-      const product = await Product.findOne({ code });
-      if (!product) { results.push({ alias, ok: false, error: `Product ${code} not found` }); continue; }
-      await Alias.findOneAndUpdate({ alias }, { alias, code }, { upsert: true });
-      results.push({ alias, ok: true });
-    } catch (err) {
-      results.push({ alias: r.nickname_text, ok: false, error: err.message });
-    }
-  }
-  res.json({ imported: results.filter((r) => r.ok).length, results });
-}
-
-// POST /api/import/inventory
-async function importInventory(req, res) {
-  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  const rows = readSheet(req.file.buffer, 'Opening_Inventory');
-  if (!rows) return res.status(400).json({ message: 'Sheet "Opening_Inventory" not found in file' });
-
-  const results = [];
-  for (const r of rows) {
-    try {
-      const code = String(r.product_code || '').toUpperCase().trim();
-      if (!code) continue;
-      const product = await Product.findOne({ code });
-      if (!product) { results.push({ code, ok: false, error: 'Product not found — import Products sheet first' }); continue; }
-      await Inventory.findOneAndUpdate({ code }, { physical: +r.physical_stock_pcs || 0 }, { upsert: true });
-      results.push({ code, ok: true });
-    } catch (err) {
-      results.push({ code: r.product_code, ok: false, error: err.message });
-    }
-  }
-  res.json({ imported: results.filter((r) => r.ok).length, results });
-}
-
-module.exports = { importProducts, importDealers, importAliases, importInventory };
+module.exports = { preview, confirm };

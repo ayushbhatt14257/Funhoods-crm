@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import Modal from '../components/Modal';
 import PIPreview from '../components/PIPreview';
+import NewDealerModal from '../components/NewDealerModal';
 import { ModeInfoPanel } from './WhatsAppOrderMode';
 
 export default function StructuredOrderMode() {
@@ -118,7 +119,12 @@ export default function StructuredOrderMode() {
       <ModeInfoPanel />
 
       {showDealerPicker && (
-        <DealerPickerModal dealers={dealers} onPick={(d) => { setDealer(d); setShowDealerPicker(false); }} onClose={() => setShowDealerPicker(false)} />
+        <DealerPickerModal
+          dealers={dealers}
+          onPick={(d) => { setDealer(d); setShowDealerPicker(false); }}
+          onClose={() => setShowDealerPicker(false)}
+          onDealerCreated={(d) => setDealers((prev) => [d, ...prev])}
+        />
       )}
       {showProductPicker && (
         <ProductPickerModal products={products} onPick={(p) => setConfirmingProduct(p)} onClose={() => setShowProductPicker(false)} />
@@ -130,11 +136,25 @@ export default function StructuredOrderMode() {
   );
 }
 
-function DealerPickerModal({ dealers, onPick, onClose }) {
+function DealerPickerModal({ dealers, onPick, onClose, onDealerCreated }) {
   const [q, setQ] = useState('');
+  const [showNewDealer, setShowNewDealer] = useState(false);
   const filtered = dealers.filter((d) => !q || d.name.toLowerCase().includes(q.toLowerCase()) || d.city.toLowerCase().includes(q.toLowerCase()));
+
+  if (showNewDealer) {
+    return (
+      <NewDealerModal
+        onClose={() => setShowNewDealer(false)}
+        onCreated={(d) => { onDealerCreated(d); onPick(d); }}
+      />
+    );
+  }
+
   return (
     <Modal title="Pick dealer" onClose={onClose}>
+      <div className="btnrow" style={{ marginTop: 0, marginBottom: 11 }}>
+        <button className="btn o sm" onClick={() => setShowNewDealer(true)}>+ New dealer</button>
+      </div>
       <input placeholder="Search dealer or city" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 11 }} autoFocus />
       {filtered.length ? filtered.map((d) => (
         <div

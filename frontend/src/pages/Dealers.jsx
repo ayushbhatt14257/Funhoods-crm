@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import Modal from '../components/Modal';
+import NewDealerModal from '../components/NewDealerModal';
 
 const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '', type: 'Retailer', payment: 'Advance', creditLimit: 0, slab: 'C' };
 
@@ -11,7 +12,7 @@ export default function Dealers() {
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
-  const [isNew, setIsNew] = useState(false);
+  const [showNewDealer, setShowNewDealer] = useState(false);
 
   async function load() {
     const data = await api.get(`/dealers${q ? `?q=${encodeURIComponent(q)}` : ''}`);
@@ -19,13 +20,12 @@ export default function Dealers() {
   }
   useEffect(() => { load(); }, [q]);
 
-  function openEdit(d) { setEditing(d); setIsNew(false); setForm({ ...emptyForm, ...d }); }
-  function openNew() { setEditing({}); setIsNew(true); setForm(emptyForm); }
+  function openEdit(d) { setEditing(d); setForm({ ...emptyForm, ...d }); }
 
   async function save() {
     try {
-      if (isNew) { await api.post('/dealers', form); showToast('Dealer added', 'g'); }
-      else { await api.put(`/dealers/${editing.code}`, form); showToast('Dealer updated', 'g'); }
+      await api.put(`/dealers/${editing.code}`, form);
+      showToast('Dealer updated', 'g');
       setEditing(null); load();
     } catch (err) { showToast(err.message, 'err'); }
   }
@@ -36,34 +36,54 @@ export default function Dealers() {
     catch (err) { showToast(err.message, 'err'); }
   }
 
+  async function uploadDoc(field, file) {
+    if (!file || !editing) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const updated = await api.putForm(`/dealers/${editing.code}/${field}`, fd);
+      showToast('Document uploaded', 'g');
+      setEditing(updated);
+      load();
+    } catch (err) { showToast(err.message, 'err'); }
+  }
+
   return (
     <div>
       <div className="ph"><div className="eyebrow">Your customers</div><h2>Dealers</h2></div>
       <div className="btnrow" style={{ marginBottom: 14 }}>
         <input placeholder="Search dealer or city" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
-        <button className="btn" onClick={openNew}>+ New dealer</button>
+        <button className="btn" onClick={() => setShowNewDealer(true)}>+ New dealer</button>
       </div>
       <div className="tblwrap">
         <table className="dt">
-          <thead><tr><th>Code</th><th>Name</th><th>City</th><th>Payment</th><th>Type</th><th></th></tr></thead>
+          <thead><tr><th>Code</th><th>Name</th><th>City</th><th>Payment</th><th>Type</th><th>Docs</th><th></th></tr></thead>
           <tbody>
             {dealers.map((d) => (
               <tr key={d.code}>
                 <td className="mono">{d.code}</td><td>{d.name}</td><td>{d.city}</td>
                 <td><span className="badge">{d.payment}</span></td><td>{d.type}</td>
+                <td>
+                  {d.gstCertUrl ? <span className="badge g" style={{ marginRight: 4 }}>GST ✓</span> : <span className="badge r" style={{ marginRight: 4 }}>GST ✕</span>}
+                  {d.aadharUrl ? <span className="badge g">Aadhaar ✓</span> : <span className="badge r">Aadhaar ✕</span>}
+                </td>
                 <td><button className="btn o sm" onClick={() => openEdit(d)}>Edit</button></td>
               </tr>
             ))}
-            {!dealers.length && <tr><td colSpan={6}><div className="empty">No dealers yet</div></td></tr>}
+            {!dealers.length && <tr><td colSpan={7}><div className="empty">No dealers yet</div></td></tr>}
           </tbody>
         </table>
       </div>
 
+      {showNewDealer && (
+        <NewDealerModal onClose={() => setShowNewDealer(false)} onCreated={() => { setShowNewDealer(false); load(); }} />
+      )}
+
       {editing && (
-        <Modal title={isNew ? 'New dealer' : editing.name} onClose={() => setEditing(null)}>
+        <Modal title={editing.name} onClose={() => setEditing(null)}>
           <div className="row2">
             <div className="fg"><label>Business name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div className="fg"><label>Party code {isNew ? '(auto if blank)' : '(locked)'}</label><input value={form.code} disabled={!isNew} onChange={(e) => setForm({ ...form, code: e.target.value })} /></div>
+            <div className="fg"><label>Party code (locked)</label><input value={form.code} disabled /></div>
           </div>
           <div className="row2">
             <div className="fg"><label>Contact person</label><input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} /></div>
@@ -96,10 +116,24 @@ export default function Dealers() {
             </div>
             <div className="fg"><label>Credit limit ₹</label><input type="number" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} /></div>
           </div>
+
+          <div className="row2">
+            <div className="fg">
+              <label>GST certificate {editing.gstCertUrl ? '(replace)' : '(missing)'}</label>
+              {editing.gstCertUrl && <a href={editing.gstCertUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>View current file</a>}
+              <input type="file" accept=".pdf,image/*" onChange={(e) => uploadDoc('gst-cert', e.target.files[0])} />
+            </div>
+            <div className="fg">
+              <label>Aadhaar card {editing.aadharUrl ? '(replace)' : '(missing)'}</label>
+              {editing.aadharUrl && <a href={editing.aadharUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>View current file</a>}
+              <input type="file" accept=".pdf,image/*" onChange={(e) => uploadDoc('aadhar', e.target.files[0])} />
+            </div>
+          </div>
+
           <div className="btnrow">
             <button className="btn" onClick={save}>Save</button>
             <button className="btn o" onClick={() => setEditing(null)}>Cancel</button>
-            {!isNew && <button className="btn rd" style={{ marginLeft: 'auto' }} onClick={() => remove(editing.code)}>Delete</button>}
+            <button className="btn rd" style={{ marginLeft: 'auto' }} onClick={() => remove(editing.code)}>Delete</button>
           </div>
         </Modal>
       )}

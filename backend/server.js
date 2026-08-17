@@ -14,6 +14,7 @@ const inventoryRoutes = require('./routes/inventoryRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const importRoutes = require('./routes/importRoutes');
 const ledgerRoutes = require('./routes/ledgerRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/ledger', ledgerRoutes);
+app.use('/api/users', userRoutes);
 
 // Central error handler (catches thrown errors from async routes not already try/caught)
 app.use((err, req, res, next) => {

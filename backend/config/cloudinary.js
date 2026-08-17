@@ -20,4 +20,15 @@ const storage = new CloudinaryStorage({
 
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
-module.exports = { cloudinary, upload };
+// Dealer documents (GST certificate, Aadhaar) — allows PDF in addition to images.
+const dealerDocStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'funhoods-crm/dealer-docs',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+    resource_type: 'auto',
+  },
+});
+const uploadDealerDoc = multer({ storage: dealerDocStorage, limits: { fileSize: 8 * 1024 * 1024 } });
+
+module.exports = { cloudinary, upload, uploadDealerDoc };

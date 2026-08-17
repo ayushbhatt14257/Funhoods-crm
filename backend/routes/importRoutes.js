@@ -10,9 +10,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 router.use(protect);
 router.use(allow('mhead', 'accounts', 'founder'));
 
-router.post('/products', upload.single('file'), ctrl.importProducts);
-router.post('/dealers', upload.single('file'), ctrl.importDealers);
-router.post('/aliases', upload.single('file'), ctrl.importAliases);
-router.post('/inventory', upload.single('file'), ctrl.importInventory);
+router.post('/:type/preview', upload.single('file'), ctrl.preview);
+router.post('/:type/confirm', ctrl.confirm);
 
 module.exports = router;

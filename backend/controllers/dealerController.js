@@ -22,6 +22,9 @@ async function getOne(req, res) {
 async function create(req, res) {
   try {
     const body = req.body;
+    if (!body.contact || !body.mobile || !body.addr) {
+      return res.status(400).json({ message: 'Contact person, mobile, and address are required' });
+    }
     if (!body.code) {
       const count = await Dealer.countDocuments();
       body.code = 'DLR' + String(count + 1).padStart(4, '0');
@@ -57,4 +60,22 @@ async function remove(req, res) {
   res.json({ message: 'Deleted', wasUsedInPastPI: !!usedInPI });
 }
 
-module.exports = { list, getOne, create, update, remove };
+// PUT /api/dealers/:code/gst-cert  (multipart, field "file")
+async function uploadGstCert(req, res) {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+  const code = req.params.code.toUpperCase();
+  const dealer = await Dealer.findOneAndUpdate({ code }, { gstCertUrl: req.file.path }, { new: true });
+  if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
+  res.json(dealer);
+}
+
+// PUT /api/dealers/:code/aadhar  (multipart, field "file")
+async function uploadAadhar(req, res) {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+  const code = req.params.code.toUpperCase();
+  const dealer = await Dealer.findOneAndUpdate({ code }, { aadharUrl: req.file.path }, { new: true });
+  if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
+  res.json(dealer);
+}
+
+module.exports = { list, getOne, create, update, remove, uploadGstCert, uploadAadhar };

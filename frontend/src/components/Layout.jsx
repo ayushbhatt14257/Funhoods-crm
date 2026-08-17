@@ -19,6 +19,7 @@ const NAV = [
   { group: 'Setup' },
   { to: '/import', label: 'Bulk Import', icon: '⬆️', roles: ['mhead', 'accounts', 'founder'] },
   { to: '/settings', label: 'Company Settings', icon: '⚙️', roles: ['founder'] },
+  { to: '/users', label: 'Users', icon: '👤', roles: ['field', 'mhead', 'accounts', 'dispatch', 'founder'] },
 ];
 
 export default function Layout() {
