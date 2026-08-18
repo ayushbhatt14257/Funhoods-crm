@@ -74,6 +74,8 @@ export default function Dashboard() {
       if (readyDispatch.length) flagList.push({ label: 'PIs awaiting dispatch', n: readyDispatch.length, c: 'y' });
       const overdueDealers = balances.filter((b) => b.balance > 0 && b.oldestInvoiceAgeDays > 90);
       if (overdueDealers.length) flagList.push({ label: 'Dealers on HOLD (90+ days)', n: overdueDealers.length, c: 'r' });
+      const overdueDispatch = invoices.filter((i) => i.status === 'Dispatched' && daysAgo(i.dispatchDate || i.createdAt) >= 7);
+      if (overdueDispatch.length) flagList.push({ label: 'Dispatched 7+ days, not marked delivered', n: overdueDispatch.length, c: 'r' });
       setFlags(flagList);
 
       // Activity feed — most-recently-updated PIs and invoices, newest first (no dedicated audit log yet)

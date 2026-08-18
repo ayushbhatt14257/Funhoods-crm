@@ -38,6 +38,7 @@ const piSchema = new mongoose.Schema(
     },
     by: String, // user name who created it
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    remark: { type: String, default: '' },
   },
   { timestamps: true }
 );

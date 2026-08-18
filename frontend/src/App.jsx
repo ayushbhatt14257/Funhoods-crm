@@ -16,6 +16,7 @@ import InvoiceDetail from './pages/InvoiceDetail';
 import Inventory from './pages/Inventory';
 import SettingsPage from './pages/Settings';
 import Users from './pages/Users';
+import Notifications from './pages/Notifications';
 import Import from './pages/Import';
 
 function PrivateRoute({ children }) {
@@ -51,6 +52,7 @@ function AppRoutes() {
         <Route path="import" element={<Import />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="users" element={<Users />} />
+        <Route path="notifications" element={<Notifications />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -12,6 +12,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
   const [lines, setLines] = useState([]);
   const [gstConfirmed, setGstConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [remark, setRemark] = useState('');
 
   useEffect(() => { api.get('/settings').then(setSettings); }, []);
 
@@ -48,6 +49,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
       const pi = await api.post('/pi', {
         dealerCode: dealer.code,
         lines: computed.map((l) => ({ code: l.code, pcs: l.pcs, outers: l.outers, inners: l.inners, rate: l.rate })),
+        remark,
       });
       if (status === 'Sent') await api.patch(`/pi/${pi.no}/status`, { status: 'Sent' });
       showToast(`PI ${pi.no} saved`, 'g');
@@ -66,7 +68,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
       <div className="pi">
         <div className="head">
           <div className="l">
-            <h3>{s.company || 'Funhoods'}</h3>
+            <img src="/funhoods-logo.jpg" alt={s.company || 'Funhoods'} style={{ height: 40, marginBottom: 4 }} />
             <div>{s.address || '—'}</div>
             <div>Phone: {s.phone || '—'} · Email: {s.email || '—'}</div>
             <div><b>GSTIN: {s.gstin || '—'}</b></div>
@@ -143,6 +145,11 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
         <div className="terms">
           This is a PROFORMA — Tax Invoice will be issued at time of dispatch based on actual quantity shipped. Please verify GST rate with your CA.
         </div>
+      </div>
+
+      <div className="fg" style={{ marginTop: 12 }}>
+        <label>Remark (optional — internal note, prints on PI)</label>
+        <textarea rows={2} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="e.g. Urgent delivery requested, or special packing instructions" />
       </div>
 
       {hasNonStandardGst && (

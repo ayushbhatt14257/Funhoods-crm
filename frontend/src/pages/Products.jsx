@@ -77,25 +77,25 @@ export default function Products() {
         <input placeholder="Search product name or code" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
         <button className="btn" onClick={openNew}>+ New product</button>
       </div>
-      <div className="tblwrap">
-        <table className="dt">
-          <thead><tr><th></th><th>Code</th><th>Name</th><th>Size</th><th>Rate ₹</th><th>GST%</th><th>Carton (O/I)</th><th></th></tr></thead>
-          <tbody>
-            {products.map((p) => (
-              <tr key={p.code}>
-                <td>{p.photo ? <img src={p.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
-                <td className="mono">{p.code}</td>
-                <td>{p.name}</td>
-                <td>{p.size}</td>
-                <td>{p.rate}</td>
-                <td>{p.gst_pct}</td>
-                <td>{p.cartonOuter}/{p.cartonInner}</td>
-                <td><button className="btn o sm" onClick={() => openEdit(p)}>Edit</button></td>
-              </tr>
-            ))}
-            {!products.length && <tr><td colSpan={8}><div className="empty">No products yet</div></td></tr>}
-          </tbody>
-        </table>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 14 }}>
+        {products.map((p) => (
+          <div key={p.code} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ aspectRatio: '1', background: p.photo ? `url(${p.photo}) center/cover` : 'var(--paper-d)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 44 }}>
+              {!p.photo && '📦'}
+            </div>
+            <div style={{ padding: 12 }}>
+              <div className="mono muted" style={{ fontSize: 10.5 }}>{p.code}{p.size ? ` · ${p.size}` : ''}</div>
+              <div style={{ fontWeight: 600, fontSize: 14.5, margin: '2px 0 6px' }}>{p.name}</div>
+              <div style={{ fontSize: 12.5, display: 'flex', justifyContent: 'space-between' }}>
+                <span>₹{p.rate}</span><span>GST {p.gst_pct}%</span>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Carton: {p.cartonOuter} outer / {p.cartonInner} inner</div>
+              {p.category && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.category}</div>}
+              <button className="btn o sm" style={{ marginTop: 9, width: '100%' }} onClick={() => openEdit(p)}>Edit</button>
+            </div>
+          </div>
+        ))}
+        {!products.length && <div className="empty" style={{ gridColumn: '1/-1' }}>No products yet</div>}
       </div>
 
       {editing && (

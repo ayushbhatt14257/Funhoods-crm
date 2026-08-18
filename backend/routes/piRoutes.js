@@ -8,6 +8,7 @@ router.use(protect);
 
 router.post('/parse', allow('field', 'mhead', 'accounts', 'founder'), ctrl.parseOrder);
 router.post('/', allow('field', 'mhead', 'accounts', 'founder'), ctrl.create);
+router.put('/:no', allow('field', 'mhead', 'accounts', 'founder'), ctrl.update);
 router.get('/', ctrl.list);
 router.get('/:no', ctrl.getOne);
 router.patch('/:no/status', allow('field', 'mhead', 'accounts', 'founder'), ctrl.setStatus);
