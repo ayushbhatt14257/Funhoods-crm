@@ -65,7 +65,7 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
 
       <div className="totals">
         <div className="line"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
-        <div className="line"><span>Transport {freightTerm ? `(${freightTerm})` : ''}</span><span>₹{transport.toFixed(2)}</span></div>
+        {isInvoice && <div className="line"><span>Transport {freightTerm ? `(${freightTerm})` : ''}</span><span>₹{transport.toFixed(2)}</span></div>}
         <div className="line grand"><span>GRAND TOTAL</span><span>₹{total.toFixed(2)}</span></div>
       </div>
 

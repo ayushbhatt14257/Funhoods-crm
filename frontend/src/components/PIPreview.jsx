@@ -13,8 +13,6 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
   const [gstConfirmed, setGstConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remark, setRemark] = useState('');
-  const [transport, setTransport] = useState(0);
-  const [freightTerm, setFreightTerm] = useState('To Pay');
 
   useEffect(() => { api.get('/settings').then(setSettings); }, []);
 
@@ -39,8 +37,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
     return { ...l, tax, gross, total, rateEdited: l.rate !== l.listRate };
   });
   const subtotal = computed.reduce((s, l) => s + l.total, 0);
-  const transportAmt = +transport || 0;
-  const grandTotal = subtotal + transportAmt;
+  const grandTotal = subtotal;
   const hasNonStandardGst = lines.some((l) => l.gstPct !== 5);
   const totalPieces = lines.reduce((s, l) => s + l.pcs, 0);
 
@@ -52,8 +49,6 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
         dealerCode: dealer.code,
         lines: computed.map((l) => ({ code: l.code, pcs: l.pcs, outers: l.outers, inners: l.inners, rate: l.rate })),
         remark,
-        transport: transportAmt,
-        freightTerm,
       });
       if (status === 'Sent') await api.patch(`/pi/${pi.no}/status`, { status: 'Sent' });
       showToast(`PI ${pi.no} saved`, 'g');
@@ -127,18 +122,8 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
 
         <div className="note b" style={{ fontSize: 12 }}>Rate column is editable per line — use this for special/negotiated discounts. Default is the Products master price; edited rates are flagged in orange.</div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, margin: '12px 0 6px', flexWrap: 'wrap' }}>
-          <label style={{ fontFamily: 'var(--mono)', fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Transport ₹</label>
-          <input type="number" min={0} step="0.01" value={transport} onChange={(e) => setTransport(e.target.value)} style={{ width: 100, padding: '5px 8px', fontSize: 12.5 }} />
-          <div className="toggle2">
-            <button type="button" className={freightTerm === 'To Pay' ? 'on' : ''} onClick={() => setFreightTerm('To Pay')}>To Pay</button>
-            <button type="button" className={freightTerm === 'Paid' ? 'on' : ''} onClick={() => setFreightTerm('Paid')}>Paid</button>
-          </div>
-        </div>
-
         <div className="totals">
           <div className="line"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
-          <div className="line"><span>Transport ({freightTerm})</span><span>₹{transportAmt.toFixed(2)}</span></div>
           <div className="line grand"><span>GRAND TOTAL</span><span>₹{grandTotal.toFixed(2)}</span></div>
         </div>
 

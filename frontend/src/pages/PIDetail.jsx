@@ -16,8 +16,6 @@ export default function PIDetail() {
   const [editing, setEditing] = useState(false);
   const [editLines, setEditLines] = useState([]);
   const [editRemark, setEditRemark] = useState('');
-  const [editTransport, setEditTransport] = useState(0);
-  const [editFreightTerm, setEditFreightTerm] = useState('To Pay');
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -42,8 +40,6 @@ export default function PIDetail() {
   function startEdit() {
     setEditLines(pi.lines.map((l) => ({ code: l.code, name: l.name, pcs: l.pcs, rate: l.rate, listRate: l.listRate })));
     setEditRemark(pi.remark || '');
-    setEditTransport(pi.transport || 0);
-    setEditFreightTerm(pi.freightTerm || 'To Pay');
     setEditing(true);
   }
   function editField(i, field, val) {
@@ -57,8 +53,6 @@ export default function PIDetail() {
       const updated = await api.put(`/pi/${no}`, {
         lines: editLines.map((l) => ({ code: l.code, pcs: l.pcs, rate: l.rate })),
         remark: editRemark,
-        transport: editTransport,
-        freightTerm: editFreightTerm,
       });
       setPi(updated);
       setEditing(false);
@@ -94,14 +88,6 @@ export default function PIDetail() {
             </tbody>
           </table>
         </div>
-        <div className="row2" style={{ marginTop: 12 }}>
-          <div className="fg"><label>Transport ₹</label><input type="number" min={0} value={editTransport} onChange={(e) => setEditTransport(+e.target.value || 0)} /></div>
-          <div className="fg"><label>Freight term</label>
-            <select value={editFreightTerm} onChange={(e) => setEditFreightTerm(e.target.value)}>
-              <option>To Pay</option><option>Paid</option>
-            </select>
-          </div>
-        </div>
         <div className="fg">
           <label>Remark</label>
           <textarea rows={2} value={editRemark} onChange={(e) => setEditRemark(e.target.value)} />
@@ -126,8 +112,6 @@ export default function PIDetail() {
         dealer={dealer}
         lines={pi.lines}
         subtotal={pi.subtotal}
-        transport={pi.transport || 0}
-        freightTerm={pi.freightTerm}
         total={pi.total}
         remark={pi.remark}
         settings={settings}
