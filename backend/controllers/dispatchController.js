@@ -52,7 +52,7 @@ async function dispatchFromPI(req, res) {
       return res.status(400).json({ message: 'PI must be Confirmed before dispatch' });
     }
 
-    const { lines: dispatchInput, transporter, vehicle, lr, eway, driver, freight, cartonMap } = req.body;
+    const { lines: dispatchInput, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap } = req.body;
     if (!transporter) return res.status(400).json({ message: 'Mode of transport is required' });
 
     const dispatchLines = [];
@@ -94,6 +94,7 @@ async function dispatchFromPI(req, res) {
       transporter, vehicle: vehicle || '', lr: lr || '', eway: eway || '', driver: driver || '',
       cartons: cartonMap.length,
       freight: frt,
+    freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       packing,
       dispatchDate: todayISODate(),
     });
@@ -134,7 +135,7 @@ async function dispatchFromPI(req, res) {
 // Dispatches without any PI. Tax Invoice generated the same way; piRef left blank.
 async function dispatchManual(req, res) {
   try {
-    const { dealerCode, lines: inputLines, transporter, vehicle, lr, eway, driver, freight, cartonMap } = req.body;
+    const { dealerCode, lines: inputLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap } = req.body;
     const dealer = await Dealer.findOne({ code: dealerCode });
     if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
     if (!transporter) return res.status(400).json({ message: 'Mode of transport is required' });
@@ -179,6 +180,7 @@ async function dispatchManual(req, res) {
       transporter, vehicle: vehicle || '', lr: lr || '', eway: eway || '', driver: driver || '',
       cartons: cartonMap.length,
       freight: frt,
+    freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       packing,
       dispatchDate: todayISODate(),
     });

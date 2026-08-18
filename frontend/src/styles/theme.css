@@ -138,9 +138,23 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .pi .totals .line{display:flex;justify-content:space-between;padding:3px 0}
 .pi .totals .line.grand{font-weight:700;font-size:14px;border-top:2px solid var(--spruce);padding-top:6px;margin-top:6px;color:var(--spruce)}
 .pi .terms{margin-top:14px;font-size:10.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:9px;line-height:1.6}
+.pi .toggle2{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.pi .toggle2 button{border:none;background:var(--white);padding:6px 12px;font-size:12px;cursor:pointer;color:var(--muted)}
+.pi .toggle2 button.on{background:var(--spruce);color:#fff;font-weight:600}
+@media(max-width:800px){
+  .pi{padding:14px}
+  .pi .head{flex-direction:column}
+  .pi .head .r{text-align:left}
+  .pi .bill{grid-template-columns:1fr}
+  .pi table.lines{display:block;overflow-x:auto;white-space:nowrap}
+  .pi .totals{width:100%}
+}
 @media print{
-  .sidebar,.topbar-mobile,.btnrow,.toast,.modal,.ph{display:none!important}
-  .card{border:none;padding:0}
+  body *{visibility:hidden}
+  #print-area,#print-area *{visibility:visible}
+  #print-area{position:absolute;left:0;top:0;width:100%}
+  .sidebar,.topbar-mobile,.btnrow,.toast,.modal,.ph,.card>h3{display:none!important}
+  .card{border:none;padding:0;box-shadow:none}
   body{background:#fff}
 }
 .loginwrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--spruce);padding:20px}

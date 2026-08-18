@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
+import Letterhead from '../components/Letterhead';
 
 export default function PIDetail() {
   const { no } = useParams();
@@ -10,12 +11,22 @@ export default function PIDetail() {
   const { user } = useAuth();
   const nav = useNavigate();
   const [pi, setPi] = useState(null);
+  const [dealer, setDealer] = useState(null);
+  const [settings, setSettings] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editLines, setEditLines] = useState([]);
   const [editRemark, setEditRemark] = useState('');
+  const [editTransport, setEditTransport] = useState(0);
+  const [editFreightTerm, setEditFreightTerm] = useState('To Pay');
   const [saving, setSaving] = useState(false);
 
-  async function load() { setPi(await api.get(`/pi/${no}`)); }
+  async function load() {
+    const data = await api.get(`/pi/${no}`);
+    setPi(data);
+    const [d, s] = await Promise.all([api.get(`/dealers/${data.dealer}`), api.get('/settings')]);
+    setDealer(d);
+    setSettings(s);
+  }
   useEffect(() => { load(); }, [no]);
 
   async function confirmPI() {
@@ -31,6 +42,8 @@ export default function PIDetail() {
   function startEdit() {
     setEditLines(pi.lines.map((l) => ({ code: l.code, name: l.name, pcs: l.pcs, rate: l.rate, listRate: l.listRate })));
     setEditRemark(pi.remark || '');
+    setEditTransport(pi.transport || 0);
+    setEditFreightTerm(pi.freightTerm || 'To Pay');
     setEditing(true);
   }
   function editField(i, field, val) {
@@ -44,6 +57,8 @@ export default function PIDetail() {
       const updated = await api.put(`/pi/${no}`, {
         lines: editLines.map((l) => ({ code: l.code, pcs: l.pcs, rate: l.rate })),
         remark: editRemark,
+        transport: editTransport,
+        freightTerm: editFreightTerm,
       });
       setPi(updated);
       setEditing(false);
@@ -52,7 +67,7 @@ export default function PIDetail() {
     finally { setSaving(false); }
   }
 
-  if (!pi) return null;
+  if (!pi || !dealer || !settings) return null;
   const canConfirm = pi.status === 'Sent' && ['mhead', 'accounts', 'founder'].includes(user.role);
   const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status);
   const canCancel = !['Cancelled', 'Fully Dispatched'].includes(pi.status);
@@ -79,7 +94,15 @@ export default function PIDetail() {
             </tbody>
           </table>
         </div>
-        <div className="fg" style={{ marginTop: 12 }}>
+        <div className="row2" style={{ marginTop: 12 }}>
+          <div className="fg"><label>Transport ₹</label><input type="number" min={0} value={editTransport} onChange={(e) => setEditTransport(+e.target.value || 0)} /></div>
+          <div className="fg"><label>Freight term</label>
+            <select value={editFreightTerm} onChange={(e) => setEditFreightTerm(e.target.value)}>
+              <option>To Pay</option><option>Paid</option>
+            </select>
+          </div>
+        </div>
+        <div className="fg">
           <label>Remark</label>
           <textarea rows={2} value={editRemark} onChange={(e) => setEditRemark(e.target.value)} />
         </div>
@@ -94,28 +117,28 @@ export default function PIDetail() {
 
   return (
     <div>
-      <div className="ph"><div className="eyebrow">PI detail</div><h2>{pi.no}</h2><p>{pi.dealerName}</p></div>
-      {pi.remark && <div className="note b" style={{ fontSize: 13 }}><b>Remark:</b> {pi.remark}</div>}
-      <div className="tblwrap">
-        <table className="dt">
-          <thead><tr><th>Item</th><th>Ordered</th><th>Pending</th><th>Total ₹</th></tr></thead>
-          <tbody>
-            {pi.lines.map((l, i) => (
-              <tr key={i}>
-                <td>{l.name}<br /><span className="mono" style={{ fontSize: 10, color: 'var(--muted)' }}>{l.code}</span></td>
-                <td>{l.pcs}</td>
-                <td>{l.pending != null ? l.pending : l.pcs}</td>
-                <td>{Math.round(l.total).toLocaleString('en-IN')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <div className="ph"><div className="eyebrow">PI detail</div><h2>{pi.no}</h2><p>{pi.dealerName} · <span className="badge">{pi.status}</span></p></div>
+
+      <Letterhead
+        kind="PI"
+        docNo={pi.no}
+        date={pi.date || pi.createdAt}
+        dealer={dealer}
+        lines={pi.lines}
+        subtotal={pi.subtotal}
+        transport={pi.transport || 0}
+        freightTerm={pi.freightTerm}
+        total={pi.total}
+        remark={pi.remark}
+        settings={settings}
+      />
+
       <div className="btnrow">
         {canEdit && <button className="btn o" onClick={startEdit}>Edit PI</button>}
         {canConfirm && <button className="btn g" onClick={confirmPI}>Mark confirmed by customer</button>}
         {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?pi=${pi.no}`)}>→ Book dispatch</button>}
         {canCancel && <button className="btn rd" onClick={cancelPI}>Cancel PI</button>}
+        <button className="btn o" onClick={() => window.print()}>🖨️ Print / Save PDF</button>
       </div>
       <div className="note b" style={{ fontSize: 12, marginTop: 14 }}>Tax Invoice is generated at dispatch (actual shipped qty), not at PI stage.</div>
     </div>

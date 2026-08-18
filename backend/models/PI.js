@@ -30,6 +30,7 @@ const piSchema = new mongoose.Schema(
     lines: [lineSchema],
     subtotal: { type: Number, default: 0 },
     transport: { type: Number, default: 0 },
+    freightTerm: { type: String, enum: ['To Pay', 'Paid'], default: 'To Pay' },
     total: { type: Number, default: 0 },
     status: {
       type: String,

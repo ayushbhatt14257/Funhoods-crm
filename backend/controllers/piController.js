@@ -70,16 +70,17 @@ async function notifyRateEdits(lines, pi, editorName) {
   }
 }
 
-// POST /api/pi  { dealerCode, lines: [{code, pcs?, outers?, inners?, rate?}], remark? }
+// POST /api/pi  { dealerCode, lines: [{code, pcs?, outers?, inners?, rate?}], remark?, transport?, freightTerm? }
 async function create(req, res) {
   try {
-    const { dealerCode, lines: inputLines, remark } = req.body;
+    const { dealerCode, lines: inputLines, remark, transport, freightTerm } = req.body;
     const dealer = await Dealer.findOne({ code: dealerCode });
     if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
     if (!Array.isArray(inputLines) || !inputLines.length) return res.status(400).json({ message: 'At least one line required' });
 
     const lines = await buildLines(inputLines);
     const subtotal = lines.reduce((s, l) => s + l.total, 0);
+    const transportAmt = +transport || 0;
     const count = await PI.countDocuments();
     const no = 'PI-' + new Date().toISOString().slice(2, 7).replace('-', '') + '-' + String(count + 1).padStart(4, '0');
 
@@ -89,8 +90,9 @@ async function create(req, res) {
       dealerName: dealer.name,
       lines,
       subtotal,
-      transport: 0,
-      total: subtotal,
+      transport: transportAmt,
+      freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
+      total: subtotal + transportAmt,
       status: 'Draft',
       by: req.user.name,
       createdBy: req.user._id,
@@ -129,14 +131,16 @@ async function update(req, res) {
       return res.status(400).json({ message: 'Only Draft or Sent PIs can be edited — this one is already confirmed/dispatched.' });
     }
 
-    const { lines: inputLines, remark } = req.body;
+    const { lines: inputLines, remark, transport, freightTerm } = req.body;
     if (Array.isArray(inputLines) && inputLines.length) {
       const lines = await buildLines(inputLines);
       pi.lines = lines;
       pi.subtotal = lines.reduce((s, l) => s + l.total, 0);
-      pi.total = pi.subtotal + (pi.transport || 0);
       await notifyRateEdits(lines, pi, req.user.name);
     }
+    if (transport != null) pi.transport = +transport || 0;
+    if (['To Pay', 'Paid'].includes(freightTerm)) pi.freightTerm = freightTerm;
+    pi.total = pi.subtotal + (pi.transport || 0);
     if (remark != null) pi.remark = remark;
 
     await pi.save();

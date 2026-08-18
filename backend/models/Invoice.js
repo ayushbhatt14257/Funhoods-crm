@@ -53,6 +53,7 @@ const invoiceSchema = new mongoose.Schema(
     driver: { type: String, default: '' },
     cartons: { type: Number, default: 0 },
     freight: { type: Number, default: 0 },
+    freightTerm: { type: String, enum: ['To Pay', 'Paid'], default: 'To Pay' },
     packing: [packingCartonSchema],
     dispatchDate: Date,
     deliveredDate: Date,

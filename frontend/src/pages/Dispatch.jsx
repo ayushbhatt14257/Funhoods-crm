@@ -23,6 +23,7 @@ export default function Dispatch() {
   const [dispatchLines, setDispatchLines] = useState([]); // {code, name, pending/order qty, dispatchNow}
   const [transporter, setTransporter] = useState('');
   const [freight, setFreight] = useState(0);
+  const [freightTerm, setFreightTerm] = useState('To Pay');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [vehicle, setVehicle] = useState(''); const [lr, setLr] = useState(''); const [eway, setEway] = useState(''); const [driver, setDriver] = useState('');
   const [cartonMap, setCartonMap] = useState([]);
@@ -49,7 +50,7 @@ export default function Dispatch() {
   }
 
   function resetEntryFields() {
-    setTransporter(''); setFreight(0); setShowAdvanced(false);
+    setTransporter(''); setFreight(0); setFreightTerm('To Pay'); setShowAdvanced(false);
     setVehicle(''); setLr(''); setEway(''); setDriver(''); setCartonMap([]);
   }
 
@@ -132,7 +133,7 @@ export default function Dispatch() {
     try {
       const res = await api.post(`/dispatch/from-pi/${pi.no}`, {
         lines: dispatchLines.map((l) => ({ code: l.code, dispatchNow: l.dispatchNow })),
-        transporter, vehicle, lr, eway, driver, freight,
+        transporter, vehicle, lr, eway, driver, freight, freightTerm,
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
       });
       showToast('Dispatched · Tax Invoice raised', 'g');
@@ -149,7 +150,7 @@ export default function Dispatch() {
       const res = await api.post('/dispatch/manual', {
         dealerCode: manualDealer,
         lines: valid.map((l) => ({ code: l.code, pcs: l.dispatchNow })),
-        transporter, vehicle, lr, eway, driver, freight,
+        transporter, vehicle, lr, eway, driver, freight, freightTerm,
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
       });
       showToast('Manual dispatch complete · Tax Invoice raised', 'g');
@@ -262,6 +263,11 @@ export default function Dispatch() {
             <datalist id="modes">{TRANSPORT_MODES.map((m) => <option key={m} value={m} />)}</datalist>
           </div>
           <div className="fg"><label>Freight ₹</label><input type="number" value={freight} onChange={(e) => setFreight(+e.target.value)} /></div>
+          <div className="fg"><label>Freight term</label>
+            <select value={freightTerm} onChange={(e) => setFreightTerm(e.target.value)}>
+              <option>To Pay</option><option>Paid</option>
+            </select>
+          </div>
         </div>
         <button className="btn o sm" onClick={() => setShowAdvanced((s) => !s)}>{showAdvanced ? 'Hide' : '+ Show'} advanced (vehicle/LR/eway)</button>
         {showAdvanced && (
