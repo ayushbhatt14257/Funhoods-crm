@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import NotificationBell from './NotificationBell';
 
 const NAV = [
   { group: 'Overview' },
@@ -32,10 +33,11 @@ export default function Layout() {
     <div className="applayout">
       <div className={`sidebackdrop ${open ? 'on' : ''}`} onClick={() => setOpen(false)} />
       <aside className={`sidebar ${open ? 'open' : ''}`}>
-        <div className="brand">
+        <div className="brand" style={{ justifyContent: 'space-between' }}>
           <span style={{ background: '#fff', borderRadius: 6, padding: '3px 7px' }}>
             <img src="/funhoods-logo.jpg" alt="Funhoods" />
           </span>
+          {user.role === 'founder' && <NotificationBell />}
         </div>
         <nav className="sidenav">
           {NAV.map((item, i) =>
@@ -70,7 +72,10 @@ export default function Layout() {
             </span>
             <span>CRM</span>
           </div>
-          <button className="hburger" onClick={() => setOpen((o) => !o)}>☰ Menu</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {user.role === 'founder' && <NotificationBell />}
+            <button className="hburger" onClick={() => setOpen((o) => !o)}>☰ Menu</button>
+          </div>
         </div>
         <main>
           <Outlet />
