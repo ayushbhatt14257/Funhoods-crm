@@ -25,6 +25,9 @@ async function create(req, res) {
     if (!body.contact || !body.mobile || !body.addr) {
       return res.status(400).json({ message: 'Contact person, mobile, and address are required' });
     }
+    if (!body.gstin || !body.gstin.trim()) {
+      return res.status(400).json({ message: 'GSTIN is required' });
+    }
     if (!body.code) {
       const count = await Dealer.countDocuments();
       body.code = 'DLR' + String(count + 1).padStart(4, '0');

@@ -3,11 +3,11 @@ import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import Modal from './Modal';
 
-// onCreated(dealer) fires after the dealer is created AND both documents are uploaded.
+// onCreated(dealer) fires after the dealer is created AND any documents are uploaded.
 export default function NewDealerModal({ onCreated, onClose }) {
   const { showToast } = useToast();
   const [form, setForm] = useState({
-    name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '',
+    name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '',
     creditLimit: '', type: 'Retailer',
   });
   const [gstCertFile, setGstCertFile] = useState(null);
@@ -20,27 +20,28 @@ export default function NewDealerModal({ onCreated, onClose }) {
     if (!form.name || !form.contact || !form.mobile || !form.addr) {
       return showToast('Business name, contact person, mobile, and address are required', 'err');
     }
-    if (!gstCertFile) return showToast('GST certificate is required (PDF or image)', 'err');
+    if (!form.gstin.trim()) return showToast('GSTIN is required', 'err');
 
     setSaving(true);
     try {
-      const dealer = await api.post('/dealers', {
+      let dealer = await api.post('/dealers', {
         ...form,
         creditLimit: form.creditLimit ? +form.creditLimit : 0,
       });
 
-      const gstFd = new FormData();
-      gstFd.append('file', gstCertFile);
-      let finalDealer = await api.putForm(`/dealers/${dealer.code}/gst-cert`, gstFd);
-
+      if (gstCertFile) {
+        const gstFd = new FormData();
+        gstFd.append('file', gstCertFile);
+        dealer = await api.putForm(`/dealers/${dealer.code}/gst-cert`, gstFd);
+      }
       if (aadharFile) {
         const aadharFd = new FormData();
         aadharFd.append('file', aadharFile);
-        finalDealer = await api.putForm(`/dealers/${dealer.code}/aadhar`, aadharFd);
+        dealer = await api.putForm(`/dealers/${dealer.code}/aadhar`, aadharFd);
       }
 
       showToast(`Dealer ${dealer.code} created`, 'g');
-      onCreated(finalDealer);
+      onCreated(dealer);
     } catch (err) {
       showToast(err.message, 'err');
     } finally {
@@ -68,11 +69,14 @@ export default function NewDealerModal({ onCreated, onClose }) {
         <div className="fg"><label>State</label><input value={form.state} onChange={set('state')} /></div>
         <div className="fg"><label>Pin</label><input value={form.pin} onChange={set('pin')} /></div>
       </div>
-      <div className="fg"><label>Max credit limit ₹ (optional)</label><input type="number" value={form.creditLimit} onChange={set('creditLimit')} /></div>
+      <div className="row2">
+        <div className="fg"><label>GSTIN *</label><input value={form.gstin} onChange={set('gstin')} placeholder="e.g. 23AAECG1234R1ZK" /></div>
+        <div className="fg"><label>Max credit limit ₹ (optional)</label><input type="number" value={form.creditLimit} onChange={set('creditLimit')} /></div>
+      </div>
 
       <div className="row2">
         <div className="fg">
-          <label>GST certificate * (PDF or image)</label>
+          <label>GST certificate (optional — PDF or image)</label>
           <input type="file" accept=".pdf,image/*" onChange={(e) => setGstCertFile(e.target.files[0])} />
         </div>
         <div className="fg">
