@@ -21,9 +21,31 @@ async function parseOrder(req, res) {
 // Shared line-builder: takes raw input lines + returns computed PI line objects.
 // Supports outer/inner cartons OR a direct "pcs" override (e.g. loose pieces not matching a full carton).
 async function buildLines(inputLines) {
+  // First merge any duplicate product codes into one entry — summing pcs/outers/inners.
+  // Two separate lines of the same SKU on one PI break dispatch carton-mapping (which is
+  // keyed by product code), so they're combined here regardless of how they were entered.
+  const merged = [];
+  const indexByCode = {};
+  for (const il of inputLines) {
+    const code = String(il.code).toUpperCase();
+    if (indexByCode[code] != null) {
+      const existing = merged[indexByCode[code]];
+      existing.outers = (+existing.outers || 0) + (+il.outers || 0);
+      existing.inners = (+existing.inners || 0) + (+il.inners || 0);
+      if (il.pcs != null || existing.pcs != null) {
+        existing.pcs = (existing.pcs != null ? +existing.pcs : 0) + (il.pcs != null ? +il.pcs : 0);
+      }
+      // Keep the edited rate if either occurrence had one explicitly set.
+      if (il.rate != null) existing.rate = il.rate;
+    } else {
+      indexByCode[code] = merged.length;
+      merged.push({ ...il, code });
+    }
+  }
+
   const lines = [];
-  for (let i = 0; i < inputLines.length; i++) {
-    const il = inputLines[i];
+  for (let i = 0; i < merged.length; i++) {
+    const il = merged[i];
     const product = await Product.findOne({ code: il.code.toUpperCase() });
     if (!product) throw new Error(`Product ${il.code} not found`);
 

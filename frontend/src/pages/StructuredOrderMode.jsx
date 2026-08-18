@@ -26,7 +26,22 @@ export default function StructuredOrderMode() {
   function addLine(product, outers, inners, directPcs) {
     if (!outers && !inners && !directPcs) return showToast('Enter outer/inner cartons, or exact pieces', 'err');
     const pcs = directPcs ? directPcs : outers * product.cartonOuter + inners * product.cartonInner;
-    setLines([...lines, { product, outers: directPcs ? 0 : outers, inners: directPcs ? 0 : inners, pcs }]);
+
+    const existingIdx = lines.findIndex((l) => l.product.code === product.code);
+    if (existingIdx >= 0) {
+      const next = [...lines];
+      const ex = next[existingIdx];
+      next[existingIdx] = {
+        ...ex,
+        outers: ex.outers + (directPcs ? 0 : outers),
+        inners: ex.inners + (directPcs ? 0 : inners),
+        pcs: ex.pcs + pcs,
+      };
+      setLines(next);
+      showToast(`${product.name} was already added — quantities combined`, 'g');
+    } else {
+      setLines([...lines, { product, outers: directPcs ? 0 : outers, inners: directPcs ? 0 : inners, pcs }]);
+    }
     setConfirmingProduct(null);
     setShowProductPicker(false);
   }
