@@ -21,7 +21,6 @@ export default function NewDealerModal({ onCreated, onClose }) {
       return showToast('Business name, contact person, mobile, and address are required', 'err');
     }
     if (!gstCertFile) return showToast('GST certificate is required (PDF or image)', 'err');
-    if (!aadharFile) return showToast('Aadhaar card is required (PDF or image)', 'err');
 
     setSaving(true);
     try {
@@ -32,11 +31,13 @@ export default function NewDealerModal({ onCreated, onClose }) {
 
       const gstFd = new FormData();
       gstFd.append('file', gstCertFile);
-      await api.putForm(`/dealers/${dealer.code}/gst-cert`, gstFd);
+      let finalDealer = await api.putForm(`/dealers/${dealer.code}/gst-cert`, gstFd);
 
-      const aadharFd = new FormData();
-      aadharFd.append('file', aadharFile);
-      const finalDealer = await api.putForm(`/dealers/${dealer.code}/aadhar`, aadharFd);
+      if (aadharFile) {
+        const aadharFd = new FormData();
+        aadharFd.append('file', aadharFile);
+        finalDealer = await api.putForm(`/dealers/${dealer.code}/aadhar`, aadharFd);
+      }
 
       showToast(`Dealer ${dealer.code} created`, 'g');
       onCreated(finalDealer);
@@ -75,7 +76,7 @@ export default function NewDealerModal({ onCreated, onClose }) {
           <input type="file" accept=".pdf,image/*" onChange={(e) => setGstCertFile(e.target.files[0])} />
         </div>
         <div className="fg">
-          <label>Aadhaar card * (PDF or image)</label>
+          <label>Aadhaar card (optional — PDF or image)</label>
           <input type="file" accept=".pdf,image/*" onChange={(e) => setAadharFile(e.target.files[0])} />
         </div>
       </div>

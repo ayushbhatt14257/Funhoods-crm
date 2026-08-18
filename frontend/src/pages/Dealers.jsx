@@ -65,7 +65,7 @@ export default function Dealers() {
                 <td><span className="badge">{d.payment}</span></td><td>{d.type}</td>
                 <td>
                   {d.gstCertUrl ? <span className="badge g" style={{ marginRight: 4 }}>GST ✓</span> : <span className="badge r" style={{ marginRight: 4 }}>GST ✕</span>}
-                  {d.aadharUrl ? <span className="badge g">Aadhaar ✓</span> : <span className="badge r">Aadhaar ✕</span>}
+                  {d.aadharUrl ? <span className="badge g">Aadhaar ✓</span> : <span className="badge">Aadhaar —</span>}
                 </td>
                 <td><button className="btn o sm" onClick={() => openEdit(d)}>Edit</button></td>
               </tr>
@@ -124,7 +124,7 @@ export default function Dealers() {
               <input type="file" accept=".pdf,image/*" onChange={(e) => uploadDoc('gst-cert', e.target.files[0])} />
             </div>
             <div className="fg">
-              <label>Aadhaar card {editing.aadharUrl ? '(replace)' : '(missing)'}</label>
+              <label>Aadhaar card {editing.aadharUrl ? '(replace)' : '(optional — not on file)'}</label>
               {editing.aadharUrl && <a href={editing.aadharUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>View current file</a>}
               <input type="file" accept=".pdf,image/*" onChange={(e) => uploadDoc('aadhar', e.target.files[0])} />
             </div>
