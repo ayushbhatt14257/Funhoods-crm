@@ -121,6 +121,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
         </table>
 
         <div className="note b" style={{ fontSize: 12 }}>Rate column is editable per line — use this for special/negotiated discounts. Default is the Products master price; edited rates are flagged in orange.</div>
+        <div className="note y" style={{ fontSize: 12 }}>Transport/freight isn't added here — it gets entered later at dispatch time, once the goods actually leave and the transporter is confirmed.</div>
 
         <div className="totals">
           <div className="line"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
