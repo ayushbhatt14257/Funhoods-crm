@@ -4,16 +4,52 @@ const Dealer = require('../models/Dealer');
 const Alias = require('../models/Alias');
 const Inventory = require('../models/Inventory');
 
-function readSheet(buffer, sheetName) {
-  const wb = XLSX.read(buffer, { type: 'buffer' });
+// Expected header keys per import type — used to auto-locate the header row,
+// so the file works whether or not it has a legend/note row above the headers.
+const EXPECTED_HEADERS = {
+  products: ['product_code', 'product_name', 'carton_outer_pcs', 'rate_rs'],
+  dealers: ['dealer_code', 'dealer_name'],
+  aliases: ['nickname_text', 'maps_to_product_code'],
+  inventory: ['product_code', 'physical_stock_pcs'],
+};
+
+function normCell(v) {
+  return String(v ?? '').trim().toLowerCase();
+}
+
+function readSheet(buffer, sheetName, type) {
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const sheet = wb.Sheets[sheetName];
-  if (!sheet) return null;
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 1 });
-  const headers = rows[0];
-  const dataRows = rows.slice(2);
-  return dataRows
+  if (!sheet) return { error: `Sheet "${sheetName}" not found in file` };
+
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  const expected = EXPECTED_HEADERS[type] || [];
+
+  // Scan the first 10 rows for whichever one contains the most expected header names —
+  // that's the real header row, regardless of whether a legend/note row sits above it.
+  let headerRowIdx = -1;
+  let bestScore = 0;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const normalized = rows[i].map(normCell);
+    const score = expected.filter((h) => normalized.includes(h)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      headerRowIdx = i;
+    }
+  }
+
+  if (headerRowIdx === -1 || bestScore < Math.min(2, expected.length)) {
+    return { error: `Could not find the expected header row (looking for columns like "${expected[0]}"). Make sure the column headers match the template exactly.` };
+  }
+
+  const headers = rows[headerRowIdx].map((h) => String(h ?? '').trim());
+  const dataRows = rows.slice(headerRowIdx + 1);
+
+  const parsed = dataRows
     .filter((r) => r.some((c) => c !== undefined && c !== ''))
     .map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i]])));
+
+  return { rows: parsed };
 }
 
 const SHEET_NAMES = { products: 'Products', dealers: 'Dealers', aliases: 'Aliases', inventory: 'Opening_Inventory' };
@@ -24,11 +60,11 @@ async function preview(req, res) {
   if (!sheetName) return res.status(400).json({ message: 'Unknown import type' });
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
 
-  const rows = readSheet(req.file.buffer, sheetName);
-  if (!rows) return res.status(400).json({ message: `Sheet "${sheetName}" not found in file` });
-  if (!rows.length) return res.status(400).json({ message: 'No data rows found (check row 4 onwards is filled in)' });
+  const result = readSheet(req.file.buffer, sheetName, type);
+  if (result.error) return res.status(400).json({ message: result.error });
+  if (!result.rows.length) return res.status(400).json({ message: 'No data rows found below the header row' });
 
-  res.json({ type, rows });
+  res.json({ type, rows: result.rows });
 }
 
 async function saveProductRow(r) {
