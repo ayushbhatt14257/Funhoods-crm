@@ -17,6 +17,8 @@ export default function PIDetail() {
   const [editLines, setEditLines] = useState([]);
   const [editRemark, setEditRemark] = useState('');
   const [saving, setSaving] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [addCode, setAddCode] = useState('');
 
   async function load() {
     const data = await api.get(`/pi/${no}`);
@@ -37,9 +39,11 @@ export default function PIDetail() {
     catch (err) { showToast(err.message, 'err'); }
   }
 
-  function startEdit() {
-    setEditLines(pi.lines.map((l) => ({ code: l.code, name: l.name, pcs: l.pcs, rate: l.rate, listRate: l.listRate })));
+  async function startEdit() {
+    setEditLines(pi.lines.map((l) => ({ code: l.code, name: l.name, pcs: l.pcs, rate: l.rate, listRate: l.listRate, gstPct: l.gstPct || 5 })));
     setEditRemark(pi.remark || '');
+    setAddCode('');
+    if (!products.length) setProducts(await api.get('/products'));
     setEditing(true);
   }
   function editField(i, field, val) {
@@ -47,7 +51,22 @@ export default function PIDetail() {
     next[i] = { ...next[i], [field]: +val || 0 };
     setEditLines(next);
   }
+  function removeEditLine(i) {
+    setEditLines(editLines.filter((_, idx) => idx !== i));
+  }
+  function addProductToEdit() {
+    if (!addCode) return;
+    if (editLines.some((l) => l.code === addCode)) return showToast('That item is already on this PI — edit its quantity instead', 'err');
+    const p = products.find((x) => x.code === addCode);
+    if (!p) return;
+    setEditLines([...editLines, { code: p.code, name: p.name, pcs: p.cartonOuter || 1, rate: p.rate, listRate: p.rate, gstPct: p.gst_pct || 5 }]);
+    setAddCode('');
+  }
+
+  const editTotal = editLines.reduce((s, l) => s + l.pcs * l.rate * (1 + (l.gstPct || 5) / 100), 0);
+
   async function saveEdit() {
+    if (!editLines.length) return showToast('PI needs at least one item', 'err');
     setSaving(true);
     try {
       const updated = await api.put(`/pi/${no}`, {
@@ -68,12 +87,13 @@ export default function PIDetail() {
   const canEdit = ['Draft', 'Sent'].includes(pi.status);
 
   if (editing) {
+    const availableToAdd = products.filter((p) => !editLines.some((l) => l.code === p.code));
     return (
       <div>
         <div className="ph"><div className="eyebrow">Editing</div><h2>{pi.no}</h2><p>{pi.dealerName}</p></div>
         <div className="tblwrap">
           <table className="dt">
-            <thead><tr><th>Item</th><th>Pieces</th><th>Rate ₹</th></tr></thead>
+            <thead><tr><th>Item</th><th>Pieces</th><th>Rate ₹</th><th>GST%</th><th>Line total ₹</th><th></th></tr></thead>
             <tbody>
               {editLines.map((l, i) => (
                 <tr key={i}>
@@ -83,16 +103,33 @@ export default function PIDetail() {
                     <input type="number" step="0.01" style={{ width: 90 }} value={l.rate} onChange={(e) => editField(i, 'rate', e.target.value)} />
                     {l.rate !== l.listRate && <div style={{ fontSize: 9, color: 'var(--orange)' }}>edited (list ₹{l.listRate})</div>}
                   </td>
+                  <td>{l.gstPct}</td>
+                  <td><b>{(l.pcs * l.rate * (1 + (l.gstPct || 5) / 100)).toFixed(2)}</b></td>
+                  <td><button className="btn rd sm" onClick={() => removeEditLine(i)}>Delete</button></td>
                 </tr>
               ))}
+              {!editLines.length && <tr><td colSpan={6}><div className="empty">No items — add one below</div></td></tr>}
             </tbody>
           </table>
         </div>
-        <div className="fg">
+
+        <div className="btnrow" style={{ alignItems: 'center' }}>
+          <select value={addCode} onChange={(e) => setAddCode(e.target.value)} style={{ maxWidth: 280 }}>
+            <option value="">— pick a product to add —</option>
+            {availableToAdd.map((p) => <option key={p.code} value={p.code}>{p.code} · {p.name}</option>)}
+          </select>
+          <button className="btn o sm" onClick={addProductToEdit} disabled={!addCode}>+ Add item</button>
+        </div>
+
+        <div style={{ textAlign: 'right', marginTop: 12, fontSize: 15 }}>
+          <b>Grand total (with GST): ₹{editTotal.toFixed(2)}</b>
+        </div>
+
+        <div className="fg" style={{ marginTop: 12 }}>
           <label>Remark</label>
           <textarea rows={2} value={editRemark} onChange={(e) => setEditRemark(e.target.value)} />
         </div>
-        <div className="note y" style={{ fontSize: 12 }}>Editing rates here also notifies the founder, same as at creation time.</div>
+        <div className="note y" style={{ fontSize: 12 }}>Editing or adding rates here also notifies the founder, same as at creation time.</div>
         <div className="btnrow">
           <button className="btn g" disabled={saving} onClick={saveEdit}>Save changes</button>
           <button className="btn o" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
