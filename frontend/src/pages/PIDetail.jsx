@@ -41,6 +41,13 @@ export default function PIDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pi]);
 
+  async function sendToCustomer() {
+    if (actionBusy) return;
+    setActionBusy(true);
+    try { await api.patch(`/pi/${no}/status`, { status: 'Sent' }); showToast('PI sent to customer', 'g'); await load(); }
+    catch (err) { showToast(err.message, 'err'); }
+    finally { setActionBusy(false); }
+  }
   async function confirmPI() {
     if (actionBusy) return;
     setActionBusy(true);
@@ -111,6 +118,7 @@ export default function PIDetail() {
   }
 
   if (!pi || !dealer || !settings) return <Loading label="Loading PI…" />;
+  const canSend = pi.status === 'Draft';
   const canConfirm = pi.status === 'Sent' && ['mhead', 'accounts', 'founder'].includes(user.role);
   const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status) && ['dispatch', 'accounts', 'founder'].includes(user.role);
   const canCancel = !['Cancelled', 'Fully Dispatched'].includes(pi.status);
@@ -189,6 +197,7 @@ export default function PIDetail() {
 
       <div className="btnrow">
         {canEdit && <button className="btn o" onClick={startEdit}>Edit PI</button>}
+        {canSend && <button className="btn g" disabled={actionBusy} onClick={sendToCustomer}>{actionBusy ? 'Working…' : 'Save + send to customer'}</button>}
         {canConfirm && <button className="btn g" disabled={actionBusy} onClick={confirmPI}>{actionBusy ? 'Working…' : 'Mark confirmed by customer'}</button>}
         {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?pi=${pi.no}`)}>→ Book dispatch</button>}
         {canCancel && <button className="btn rd" disabled={actionBusy} onClick={cancelPI}>{actionBusy ? 'Working…' : 'Cancel PI'}</button>}
