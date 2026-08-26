@@ -116,7 +116,7 @@ async function create(req, res) {
       freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       total: subtotal + transportAmt,
       status: 'Draft',
-      by: req.user.name,
+      by: dealer.assignedTo || req.user.name,
       createdBy: req.user._id,
       remark: remark || '',
     });

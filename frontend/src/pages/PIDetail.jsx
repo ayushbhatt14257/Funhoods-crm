@@ -98,7 +98,7 @@ export default function PIDetail() {
 
   if (!pi || !dealer || !settings) return <Loading label="Loading PI…" />;
   const canConfirm = pi.status === 'Sent' && ['mhead', 'accounts', 'founder'].includes(user.role);
-  const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status);
+  const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status) && ['dispatch', 'accounts', 'founder'].includes(user.role);
   const canCancel = !['Cancelled', 'Fully Dispatched'].includes(pi.status);
   const canEdit = ['Draft', 'Sent'].includes(pi.status);
 
