@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api, getToken, API_URL } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import Letterhead from '../components/Letterhead';
+import Loading from '../components/Loading';
 
 export default function InvoiceDetail() {
   const { no } = useParams();
@@ -37,7 +38,7 @@ export default function InvoiceDetail() {
     a.click();
   }
 
-  if (!inv || !dealer || !settings) return null;
+  if (!inv || !dealer || !settings) return <Loading label="Loading invoice…" />;
 
   return (
     <div>

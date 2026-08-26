@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import Letterhead from '../components/Letterhead';
+import Loading from '../components/Loading';
 
 export default function PIDetail() {
   const { no } = useParams();
@@ -80,7 +81,7 @@ export default function PIDetail() {
     finally { setSaving(false); }
   }
 
-  if (!pi || !dealer || !settings) return null;
+  if (!pi || !dealer || !settings) return <Loading label="Loading PI…" />;
   const canConfirm = pi.status === 'Sent' && ['mhead', 'accounts', 'founder'].includes(user.role);
   const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status);
   const canCancel = !['Cancelled', 'Fully Dispatched'].includes(pi.status);

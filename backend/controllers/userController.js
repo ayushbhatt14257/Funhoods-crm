@@ -7,6 +7,12 @@ async function list(req, res) {
   res.json(users);
 }
 
+// GET /api/users/names — every role, for filter dropdowns (name + role only, no sensitive data)
+async function names(req, res) {
+  const users = await User.find({ active: true }).select('name role').sort({ name: 1 });
+  res.json(users);
+}
+
 // POST /api/users — founder only. Creates a user with a temporary password (returned once).
 async function create(req, res) {
   try {
@@ -79,4 +85,4 @@ async function resetPassword(req, res) {
   res.json({ message: 'Password reset', tempPassword });
 }
 
-module.exports = { list, create, setRole, setActive, remove, changeMyPassword, resetPassword };
+module.exports = { list, names, create, setRole, setActive, remove, changeMyPassword, resetPassword };

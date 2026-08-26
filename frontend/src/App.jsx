@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Dealers from './pages/Dealers';
+import DealerDetail from './pages/DealerDetail';
 import Aliases from './pages/Aliases';
 import NewOrder from './pages/NewOrder';
 import PIList from './pages/PIList';
@@ -46,6 +47,7 @@ function AppRoutes() {
         <Route path="invoices" element={<Invoices />} />
         <Route path="invoices/:no" element={<InvoiceDetail />} />
         <Route path="dealers" element={<Dealers />} />
+        <Route path="dealers/:code" element={<DealerDetail />} />
         <Route path="products" element={<Products />} />
         <Route path="aliases" element={<Aliases />} />
         <Route path="inventory" element={<Inventory />} />

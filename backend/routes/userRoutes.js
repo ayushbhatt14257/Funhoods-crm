@@ -9,6 +9,9 @@ router.use(protect);
 // Every role can change their own password
 router.patch('/me/password', ctrl.changeMyPassword);
 
+// Every role can see basic names for filter dropdowns
+router.get('/names', ctrl.names);
+
 // Founder-only user management
 router.get('/', allow('founder'), ctrl.list);
 router.post('/', allow('founder'), ctrl.create);

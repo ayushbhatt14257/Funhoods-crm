@@ -19,6 +19,7 @@ const dealerSchema = new mongoose.Schema(
     slab: { type: String, enum: ['A', 'B', 'C'], default: 'C' },
     notes: { type: String, default: '' },
     active: { type: Boolean, default: true },
+    createdByName: { type: String, default: '' },
   },
   { timestamps: true }
 );

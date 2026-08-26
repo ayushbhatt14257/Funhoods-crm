@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import Modal from '../components/Modal';
 import NewDealerModal from '../components/NewDealerModal';
+import Loading from '../components/Loading';
 
 const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '', type: 'Retailer', payment: 'Advance', creditLimit: 0, slab: 'C' };
 
 export default function Dealers() {
   const { showToast } = useToast();
-  const [dealers, setDealers] = useState([]);
+  const [dealers, setDealers] = useState(null); // null = loading
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [showNewDealer, setShowNewDealer] = useState(false);
 
   async function load() {
+    setDealers(null);
     const data = await api.get(`/dealers${q ? `?q=${encodeURIComponent(q)}` : ''}`);
     setDealers(data);
   }
@@ -55,25 +58,33 @@ export default function Dealers() {
         <input placeholder="Search dealer or city" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
         <button className="btn" onClick={() => setShowNewDealer(true)}>+ New dealer</button>
       </div>
-      <div className="tblwrap">
-        <table className="dt">
-          <thead><tr><th>Code</th><th>Name</th><th>City</th><th>Payment</th><th>Type</th><th>Docs</th><th></th></tr></thead>
-          <tbody>
-            {dealers.map((d) => (
-              <tr key={d.code}>
-                <td className="mono">{d.code}</td><td>{d.name}</td><td>{d.city}</td>
-                <td><span className="badge">{d.payment}</span></td><td>{d.type}</td>
-                <td>
-                  {d.gstCertUrl ? <span className="badge g" style={{ marginRight: 4 }}>GST ✓</span> : <span className="badge r" style={{ marginRight: 4 }}>GST ✕</span>}
-                  {d.aadharUrl ? <span className="badge g">Aadhaar ✓</span> : <span className="badge">Aadhaar —</span>}
-                </td>
-                <td><button className="btn o sm" onClick={() => openEdit(d)}>Edit</button></td>
-              </tr>
-            ))}
-            {!dealers.length && <tr><td colSpan={7}><div className="empty">No dealers yet</div></td></tr>}
-          </tbody>
-        </table>
-      </div>
+      {dealers === null ? (
+        <Loading label="Loading dealers…" />
+      ) : (
+        <div className="tblwrap">
+          <table className="dt">
+            <thead><tr><th>Code</th><th>Name</th><th>City</th><th>Payment</th><th>Type</th><th>Docs</th><th>Created by</th><th>Date</th><th></th></tr></thead>
+            <tbody>
+              {dealers.map((d) => (
+                <tr key={d.code}>
+                  <td className="mono">{d.code}</td>
+                  <td><Link to={`/dealers/${d.code}`}><b>{d.name}</b></Link></td>
+                  <td>{d.city}</td>
+                  <td><span className="badge">{d.payment}</span></td><td>{d.type}</td>
+                  <td>
+                    {d.gstCertUrl ? <span className="badge g" style={{ marginRight: 4 }}>GST ✓</span> : <span className="badge r" style={{ marginRight: 4 }}>GST ✕</span>}
+                    {d.aadharUrl ? <span className="badge g">Aadhaar ✓</span> : <span className="badge">Aadhaar —</span>}
+                  </td>
+                  <td>{d.createdByName}</td>
+                  <td className="mono muted" style={{ fontSize: 11 }}>{new Date(d.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                  <td><button className="btn o sm" onClick={() => openEdit(d)}>Edit</button></td>
+                </tr>
+              ))}
+              {!dealers.length && <tr><td colSpan={9}><div className="empty">No dealers yet</div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {showNewDealer && (
         <NewDealerModal onClose={() => setShowNewDealer(false)} onCreated={() => { setShowNewDealer(false); load(); }} />

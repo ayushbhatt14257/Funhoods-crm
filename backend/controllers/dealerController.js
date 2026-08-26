@@ -35,6 +35,7 @@ async function create(req, res) {
     body.code = body.code.toUpperCase();
     const exists = await Dealer.findOne({ code: body.code });
     if (exists) return res.status(400).json({ message: 'Dealer code already exists' });
+    body.createdByName = req.user.name;
     const dealer = await Dealer.create(body);
     res.status(201).json(dealer);
   } catch (err) {

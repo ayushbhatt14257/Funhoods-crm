@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import Loading from '../components/Loading';
 
 const TRANSPORT_MODES = ['Railway', 'Roadways / Truck', 'Safe Express', 'Delivery Courier', 'Self-pickup', 'DTDC'];
 
@@ -12,9 +13,12 @@ export default function Dispatch() {
   const piParam = params.get('pi');
 
   const [mode, setMode] = useState('list'); // 'list' | 'pi' | 'manual'
-  const [readyPIs, setReadyPIs] = useState([]);
+  const [readyPIs, setReadyPIs] = useState(null); // null = loading
   const [dealers, setDealers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [filterBy, setFilterBy] = useState('');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [users, setUsers] = useState([]);
 
   // Shared dispatch-entry state
   const [pi, setPi] = useState(null); // for PI-based
@@ -32,6 +36,7 @@ export default function Dispatch() {
     api.get('/dispatch/ready-pis').then(setReadyPIs);
     api.get('/dealers').then(setDealers);
     api.get('/products').then(setProducts);
+    api.get('/users/names').then(setUsers);
   }, []);
 
   useEffect(() => {
@@ -112,20 +117,26 @@ export default function Dispatch() {
     setCartonMap(next);
   }
   function autoFillCartons() {
-    const next = [];
-    let no = 1;
+    const mapped = mappedByCode();
+    const additions = [];
+    let no = cartonMap.length ? Math.max(...cartonMap.map((c) => c.no)) + 1 : 1;
+
     activeLines.forEach((l) => {
+      const already = mapped[l.code] || 0;
+      let rem = (+l.dispatchNow || 0) - already;
+      if (rem <= 0) return; // already fully mapped (manually or from a previous auto-fill) — leave it alone
       const product = products.find((p) => p.code === l.code);
-      const outer = product?.cartonOuter || +l.dispatchNow;
-      let rem = +l.dispatchNow;
+      const outer = product?.cartonOuter || rem;
       while (rem > 0) {
         const take = Math.min(outer, rem);
-        next.push({ no: no++, items: [{ code: l.code, name: l.name, pcs: take }] });
+        additions.push({ no: no++, items: [{ code: l.code, name: l.name, pcs: take }] });
         rem -= take;
       }
     });
-    setCartonMap(next);
-    showToast('Cartons auto-filled · edit any carton to mix items', 'g');
+
+    if (!additions.length) return showToast('Everything is already mapped to a carton', 'g');
+    setCartonMap([...cartonMap, ...additions]);
+    showToast(`${additions.length} carton(s) added for the remaining unmapped items`, 'g');
   }
 
   async function submitPIDispatch() {
@@ -167,19 +178,35 @@ export default function Dispatch() {
         <div className="btnrow" style={{ marginBottom: 14 }}>
           <button className="btn o" onClick={openManual}>🚚 Manual dispatch (no PI)</button>
         </div>
-        {readyPIs.map((p) => (
-          <div className="card" key={p.no}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>{p.no} · {p.dealerName}</div>
-                <div className="muted" style={{ fontSize: 12 }}>{p.lines.length} items · ₹{Math.round(p.total).toLocaleString('en-IN')}</div>
-                <span className={`badge ${p.status === 'Partial Dispatched' ? 'y' : 'g'}`}>{p.status}</span>
+        <div className="row2" style={{ marginBottom: 14 }}>
+          <select value={filterBy} onChange={(e) => setFilterBy(e.target.value)}>
+            <option value="">All users</option>
+            {users.map((u) => <option key={u._id} value={u.name}>{u.name}</option>)}
+          </select>
+          <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} title="Created on or after" />
+        </div>
+        {readyPIs === null ? (
+          <Loading label="Loading dispatch queue…" />
+        ) : (
+          <>
+            {readyPIs
+              .filter((p) => !filterBy || p.by === filterBy)
+              .filter((p) => !filterFrom || new Date(p.createdAt) >= new Date(filterFrom))
+              .map((p) => (
+              <div className="card" key={p.no}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{p.no} · {p.dealerName}</div>
+                    <div className="muted" style={{ fontSize: 12 }}>{p.lines.length} items · ₹{Math.round(p.total).toLocaleString('en-IN')} · by {p.by} · {new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</div>
+                    <span className={`badge ${p.status === 'Partial Dispatched' ? 'y' : 'g'}`}>{p.status}</span>
+                  </div>
+                  <button className="btn sm" onClick={() => openFromPI(p.no)}>Book dispatch →</button>
+                </div>
               </div>
-              <button className="btn sm" onClick={() => openFromPI(p.no)}>Book dispatch →</button>
-            </div>
-          </div>
-        ))}
-        {!readyPIs.length && <div className="empty">No PIs pending dispatch</div>}
+            ))}
+            {!readyPIs.length && <div className="empty">No PIs pending dispatch</div>}
+          </>
+        )}
       </div>
     );
   }
@@ -313,7 +340,7 @@ export default function Dispatch() {
 }
 
 function CartonRow({ carton, ci, activeLines, onAdd, onRemoveItem, onRemoveCarton }) {
-  const [selCode, setSelCode] = useState(activeLines[0]?.code || '');
+  const [selCode, setSelCode] = useState('');
   const [qty, setQty] = useState('');
   return (
     <div className="card" style={{ display: 'grid', gridTemplateColumns: '50px 1fr auto', gap: 10, alignItems: 'start' }}>
@@ -327,6 +354,7 @@ function CartonRow({ carton, ci, activeLines, onAdd, onRemoveItem, onRemoveCarto
         ))}
         <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
           <select value={selCode} onChange={(e) => setSelCode(e.target.value)} style={{ fontSize: 11.5, padding: 5 }}>
+            <option value="">— pick item —</option>
             {activeLines.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
           </select>
           <input type="number" placeholder="pcs" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 70, fontSize: 11.5, padding: 5 }} />

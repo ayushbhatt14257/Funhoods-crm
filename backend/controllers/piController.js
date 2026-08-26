@@ -130,9 +130,16 @@ async function create(req, res) {
 }
 
 async function list(req, res) {
-  const { q, status } = req.query;
+  const { q, status, by, dealer, from, to } = req.query;
   const filter = {};
   if (status) filter.status = status;
+  if (dealer) filter.dealer = dealer;
+  if (by) filter.by = by;
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = new Date(from);
+    if (to) filter.createdAt.$lte = new Date(new Date(to).getTime() + 86399999); // include the whole "to" day
+  }
   if (q) filter.$or = [{ no: new RegExp(q, 'i') }, { dealerName: new RegExp(q, 'i') }];
   const pis = await PI.find(filter).sort({ createdAt: -1 });
   res.json(pis);
