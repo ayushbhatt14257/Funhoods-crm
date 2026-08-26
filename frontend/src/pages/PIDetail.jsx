@@ -137,7 +137,7 @@ export default function PIDetail() {
   const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status) && ['dispatch', 'accounts', 'founder'].includes(user.role);
   const canCancel = !['Cancelled', 'Fully Dispatched'].includes(pi.status);
   const canEdit = ['Draft', 'Sent'].includes(pi.status);
-  const canDelete = user.role === 'founder' && !['Partial Dispatched', 'Fully Dispatched'].includes(pi.status);
+  const canDelete = user.role === 'founder' && pi.status === 'Draft';
 
   if (editing) {
     return (
