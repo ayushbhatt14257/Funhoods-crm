@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import Letterhead from '../components/Letterhead';
 import Loading from '../components/Loading';
+import ConfirmPopup from '../components/ConfirmPopup';
 import { ProductPickerModal, ConfirmLineModal } from './StructuredOrderMode';
 
 export default function PIDetail() {
@@ -21,6 +22,7 @@ export default function PIDetail() {
   const [editRemark, setEditRemark] = useState('');
   const [saving, setSaving] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [products, setProducts] = useState([]);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [confirmingProduct, setConfirmingProduct] = useState(null);
@@ -62,6 +64,18 @@ export default function PIDetail() {
     try { await api.post(`/pi/${no}/cancel`); showToast('PI cancelled', 'g'); await load(); }
     catch (err) { showToast(err.message, 'err'); }
     finally { setActionBusy(false); }
+  }
+  async function deletePI() {
+    setActionBusy(true);
+    try {
+      await api.del(`/pi/${no}`);
+      showToast('PI deleted', 'g');
+      nav('/pis');
+    } catch (err) {
+      showToast(err.message, 'err');
+      setActionBusy(false);
+      setShowDeleteConfirm(false);
+    }
   }
 
   async function startEdit() {
@@ -123,6 +137,7 @@ export default function PIDetail() {
   const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status) && ['dispatch', 'accounts', 'founder'].includes(user.role);
   const canCancel = !['Cancelled', 'Fully Dispatched'].includes(pi.status);
   const canEdit = ['Draft', 'Sent'].includes(pi.status);
+  const canDelete = user.role === 'founder' && !['Partial Dispatched', 'Fully Dispatched'].includes(pi.status);
 
   if (editing) {
     return (
@@ -202,7 +217,19 @@ export default function PIDetail() {
         {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?pi=${pi.no}`)}>→ Book dispatch</button>}
         {canCancel && <button className="btn rd" disabled={actionBusy} onClick={cancelPI}>{actionBusy ? 'Working…' : 'Cancel PI'}</button>}
         <button className="btn o" onClick={() => window.print()}>🖨️ Print / Save PDF</button>
+        {canDelete && <button className="btn rd" style={{ marginLeft: 'auto' }} onClick={() => setShowDeleteConfirm(true)}>Delete PI</button>}
       </div>
+      {showDeleteConfirm && (
+        <ConfirmPopup
+          title="Delete this PI?"
+          message={`${pi.no} (${pi.dealerName}) will be permanently deleted. This cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          busy={actionBusy}
+          onConfirm={deletePI}
+          onClose={() => setShowDeleteConfirm(false)}
+        />
+      )}
       <div className="note b" style={{ fontSize: 12, marginTop: 14 }}>Tax Invoice is generated at dispatch (actual shipped qty), not at PI stage.</div>
     </div>
   );

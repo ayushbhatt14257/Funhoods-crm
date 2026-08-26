@@ -228,4 +228,23 @@ async function cancel(req, res) {
   res.json(pi);
 }
 
-module.exports = { parseOrder, create, update, list, getOne, setStatus, confirm, cancel };
+// DELETE /api/pi/:no — founder only, permanent delete
+async function remove(req, res) {
+  const pi = await PI.findOne({ no: req.params.no });
+  if (!pi) return res.status(404).json({ message: 'PI not found' });
+
+  if (['Partial Dispatched', 'Fully Dispatched'].includes(pi.status)) {
+    return res.status(400).json({ message: 'This PI already has dispatches against it and cannot be deleted — cancel it instead.' });
+  }
+
+  if (pi.status === 'Confirmed') {
+    for (const l of pi.lines) {
+      await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: -l.pcs } });
+    }
+  }
+
+  await PI.deleteOne({ no: req.params.no });
+  res.json({ message: 'Deleted' });
+}
+
+module.exports = { parseOrder, create, update, list, getOne, setStatus, confirm, cancel, remove };
