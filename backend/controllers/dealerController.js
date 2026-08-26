@@ -9,7 +9,7 @@ async function list(req, res) {
   if (state) filter.state = state;
   if (assignedTo) filter.assignedTo = assignedTo;
   // Field-sales users only see the parties assigned to them, unless they explicitly asked for someone else's (not allowed).
-  if (req.user.role === 'field') filter.assignedTo = req.user.name;
+  if (['field', 'mhead'].includes(req.user.role)) filter.assignedTo = req.user.name;
   const dealers = await Dealer.find(filter).sort({ createdAt: -1 });
   res.json(dealers);
 }

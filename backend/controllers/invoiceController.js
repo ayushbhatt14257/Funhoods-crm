@@ -14,7 +14,7 @@ async function list(req, res) {
     if (to) filter.createdAt.$lte = new Date(new Date(to).getTime() + 86399999);
   }
   if (q) filter.$or = [{ no: new RegExp(q, 'i') }, { dealerName: new RegExp(q, 'i') }];
-  if (req.user.role === 'field') {
+  if (['field', 'mhead'].includes(req.user.role)) {
     const myDealers = await Dealer.find({ assignedTo: req.user.name }).select('code');
     filter.dealer = { $in: myDealers.map((d) => d.code) };
   }
