@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import Letterhead from '../components/Letterhead';
 import Loading from '../components/Loading';
+import { ProductPickerModal, ConfirmLineModal } from './StructuredOrderMode';
 
 export default function PIDetail() {
   const { no } = useParams();
@@ -21,7 +22,8 @@ export default function PIDetail() {
   const [saving, setSaving] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [products, setProducts] = useState([]);
-  const [addCode, setAddCode] = useState('');
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [confirmingProduct, setConfirmingProduct] = useState(null);
 
   async function load() {
     const data = await api.get(`/pi/${no}`);
@@ -56,9 +58,8 @@ export default function PIDetail() {
   }
 
   async function startEdit() {
-    setEditLines(pi.lines.map((l) => ({ code: l.code, name: l.name, pcs: l.pcs, rate: l.rate, listRate: l.listRate, gstPct: l.gstPct || 5 })));
+    setEditLines(pi.lines.map((l) => ({ code: l.code, name: l.name, photo: l.photo, pcs: l.pcs, rate: l.rate, listRate: l.listRate, gstPct: l.gstPct || 5 })));
     setEditRemark(pi.remark || '');
-    setAddCode('');
     if (!products.length) setProducts(await api.get('/products'));
     setEditing(true);
   }
@@ -70,13 +71,26 @@ export default function PIDetail() {
   function removeEditLine(i) {
     setEditLines(editLines.filter((_, idx) => idx !== i));
   }
-  function addProductToEdit() {
-    if (!addCode) return;
-    if (editLines.some((l) => l.code === addCode)) return showToast('That item is already on this PI — edit its quantity instead', 'err');
-    const p = products.find((x) => x.code === addCode);
-    if (!p) return;
-    setEditLines([...editLines, { code: p.code, name: p.name, pcs: p.cartonOuter || 1, rate: p.rate, listRate: p.rate, gstPct: p.gst_pct || 5 }]);
-    setAddCode('');
+
+  // Same flow as New Order: pick a product (photo grid) -> confirm outer/inner cartons or exact pieces.
+  function addConfirmedLine(product, outers, inners, directPcs) {
+    if (!outers && !inners && !directPcs) return showToast('Enter outer/inner cartons, or exact pieces', 'err');
+    const pcs = directPcs ? directPcs : outers * product.cartonOuter + inners * product.cartonInner;
+
+    const existingIdx = editLines.findIndex((l) => l.code === product.code);
+    if (existingIdx >= 0) {
+      const next = [...editLines];
+      next[existingIdx] = { ...next[existingIdx], pcs: next[existingIdx].pcs + pcs };
+      setEditLines(next);
+      showToast(`${product.name} was already on this PI — quantities combined`, 'g');
+    } else {
+      setEditLines([...editLines, {
+        code: product.code, name: product.name, photo: product.photo,
+        pcs, rate: product.rate, listRate: product.rate, gstPct: product.gst_pct || 5,
+      }]);
+    }
+    setConfirmingProduct(null);
+    setShowProductPicker(false);
   }
 
   const editTotal = editLines.reduce((s, l) => s + l.pcs * l.rate * (1 + (l.gstPct || 5) / 100), 0);
@@ -103,16 +117,16 @@ export default function PIDetail() {
   const canEdit = ['Draft', 'Sent'].includes(pi.status);
 
   if (editing) {
-    const availableToAdd = products.filter((p) => !editLines.some((l) => l.code === p.code));
     return (
       <div>
         <div className="ph"><div className="eyebrow">Editing</div><h2>{pi.no}</h2><p>{pi.dealerName}</p></div>
         <div className="tblwrap">
           <table className="dt">
-            <thead><tr><th>Item</th><th>Pieces</th><th>Rate ₹</th><th>GST%</th><th>Line total ₹</th><th></th></tr></thead>
+            <thead><tr><th></th><th>Item</th><th>Pieces</th><th>Rate ₹</th><th>GST%</th><th>Line total ₹</th><th></th></tr></thead>
             <tbody>
               {editLines.map((l, i) => (
                 <tr key={i}>
+                  <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
                   <td>{l.name}<br /><span className="mono" style={{ fontSize: 10, color: 'var(--muted)' }}>{l.code}</span></td>
                   <td><input type="number" style={{ width: 90 }} value={l.pcs} onChange={(e) => editField(i, 'pcs', e.target.value)} /></td>
                   <td>
@@ -124,17 +138,13 @@ export default function PIDetail() {
                   <td><button className="btn rd sm" onClick={() => removeEditLine(i)}>Delete</button></td>
                 </tr>
               ))}
-              {!editLines.length && <tr><td colSpan={6}><div className="empty">No items — add one below</div></td></tr>}
+              {!editLines.length && <tr><td colSpan={7}><div className="empty">No items — add one below</div></td></tr>}
             </tbody>
           </table>
         </div>
 
-        <div className="btnrow" style={{ alignItems: 'center' }}>
-          <select value={addCode} onChange={(e) => setAddCode(e.target.value)} style={{ maxWidth: 280 }}>
-            <option value="">— pick a product to add —</option>
-            {availableToAdd.map((p) => <option key={p.code} value={p.code}>{p.code} · {p.name}</option>)}
-          </select>
-          <button className="btn o sm" onClick={addProductToEdit} disabled={!addCode}>+ Add item</button>
+        <div className="btnrow">
+          <button className="btn o sm" onClick={() => setShowProductPicker(true)}>+ Add item</button>
         </div>
 
         <div style={{ textAlign: 'right', marginTop: 12, fontSize: 15 }}>
@@ -150,6 +160,13 @@ export default function PIDetail() {
           <button className="btn g" disabled={saving} onClick={saveEdit}>Save changes</button>
           <button className="btn o" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
         </div>
+
+        {showProductPicker && (
+          <ProductPickerModal products={products} onPick={(p) => setConfirmingProduct(p)} onClose={() => setShowProductPicker(false)} />
+        )}
+        {confirmingProduct && (
+          <ConfirmLineModal product={confirmingProduct} onConfirm={addConfirmedLine} onClose={() => setConfirmingProduct(null)} />
+        )}
       </div>
     );
   }

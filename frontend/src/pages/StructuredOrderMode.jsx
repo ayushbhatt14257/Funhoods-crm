@@ -188,7 +188,7 @@ function DealerPickerModal({ dealers, onPick, onClose, onDealerCreated }) {
   );
 }
 
-function ProductPickerModal({ products, onPick, onClose }) {
+export function ProductPickerModal({ products, onPick, onClose }) {
   const [q, setQ] = useState('');
   const filtered = products.filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.code.toLowerCase().includes(q.toLowerCase()));
   return (
@@ -215,7 +215,7 @@ function ProductPickerModal({ products, onPick, onClose }) {
   );
 }
 
-function ConfirmLineModal({ product: p, onConfirm, onClose }) {
+export function ConfirmLineModal({ product: p, onConfirm, onClose }) {
   const [outers, setOuters] = useState(0);
   const [inners, setInners] = useState(0);
   const [directPcs, setDirectPcs] = useState('');
