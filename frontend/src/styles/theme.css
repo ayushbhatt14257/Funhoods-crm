@@ -120,6 +120,9 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .activity-row{padding:8px 0;border-bottom:1px solid #F0ECE0;font-size:12.5px}
 .activity-row .meta{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:2px}
 
+.skel{background:linear-gradient(90deg,var(--paper-d) 25%,#F0EBDD 37%,var(--paper-d) 63%);background-size:400% 100%;animation:skel-shimmer 1.4s ease infinite;border-radius:5px}
+@keyframes skel-shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+
 .pi{background:var(--white);border:1px solid var(--line);border-radius:9px;padding:22px}
 .pi .head{display:flex;justify-content:space-between;padding-bottom:13px;border-bottom:2px solid var(--spruce);margin-bottom:12px;flex-wrap:wrap;gap:10px}
 .pi .head .l h3{font-size:20px;color:var(--spruce);margin:0}

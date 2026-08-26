@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import Loading from '../components/Loading';
 
 const STAGES = ['Draft', 'Sent', 'Confirmed', 'Invoiced (Packed)', 'Dispatched', 'Delivered', 'Paid'];
 
@@ -44,13 +43,41 @@ function buildCards(pis, invoices, balances) {
   return cards;
 }
 
+function StatSkeleton() {
+  return (
+    <div className="stat">
+      <div className="skel" style={{ height: 22, width: '55%', marginBottom: 6 }} />
+      <div className="skel" style={{ height: 11, width: '75%' }} />
+    </div>
+  );
+}
+function KanbanColSkeleton({ stage }) {
+  return (
+    <div className="kcol">
+      <h5>{stage}<span className="n">·</span></h5>
+      <div className="skel" style={{ height: 54, marginBottom: 7, borderRadius: 7 }} />
+      <div className="skel" style={{ height: 54, marginBottom: 7, borderRadius: 7 }} />
+    </div>
+  );
+}
+function CardSkeleton() {
+  return (
+    <div className="card">
+      <div className="skel" style={{ height: 15, width: '40%', marginBottom: 12 }} />
+      <div className="skel" style={{ height: 11, width: '90%', marginBottom: 8 }} />
+      <div className="skel" style={{ height: 11, width: '80%', marginBottom: 8 }} />
+      <div className="skel" style={{ height: 11, width: '85%' }} />
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const nav = useNavigate();
   const [stats, setStats] = useState(null);
-  const [cards, setCards] = useState([]);
-  const [flags, setFlags] = useState([]);
-  const [activity, setActivity] = useState([]);
+  const [cards, setCards] = useState(null); // null = loading
+  const [flags, setFlags] = useState(null);
+  const [activity, setActivity] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -101,61 +128,71 @@ export default function Dashboard() {
         <p>Every order at every stage. Click any card to open. Cards go orange after 3 days at the same stage, red after 7.</p>
       </div>
 
-      {!stats ? (
-        <Loading label="Loading dashboard…" />
-      ) : (
-        <>
       <div className="stats">
-          <div className="stat"><div className="n">{stats.openPIs}</div><div className="l">Open PIs</div></div>
-          <div className="stat"><div className="n">{stats.openInvoices}</div><div className="l">Open invoices</div></div>
-          <div className="stat"><div className="n" style={{ color: 'var(--red)' }}>₹{Math.round(stats.pipeline).toLocaleString('en-IN')}</div><div className="l">Pipeline ₹</div></div>
-          <div className="stat"><div className="n">₹{Math.round(stats.invoicedTotal).toLocaleString('en-IN')}</div><div className="l">Invoiced ₹</div></div>
-          <div className="stat"><div className="n" style={{ color: stats.outstanding > 50000 ? 'var(--red)' : undefined }}>₹{Math.round(stats.outstanding).toLocaleString('en-IN')}</div><div className="l">Outstanding ₹</div></div>
-        </div>
+        {stats ? (
+          <>
+            <div className="stat"><div className="n">{stats.openPIs}</div><div className="l">Open PIs</div></div>
+            <div className="stat"><div className="n">{stats.openInvoices}</div><div className="l">Open invoices</div></div>
+            <div className="stat"><div className="n" style={{ color: 'var(--red)' }}>₹{Math.round(stats.pipeline).toLocaleString('en-IN')}</div><div className="l">Pipeline ₹</div></div>
+            <div className="stat"><div className="n">₹{Math.round(stats.invoicedTotal).toLocaleString('en-IN')}</div><div className="l">Invoiced ₹</div></div>
+            <div className="stat"><div className="n" style={{ color: stats.outstanding > 50000 ? 'var(--red)' : undefined }}>₹{Math.round(stats.outstanding).toLocaleString('en-IN')}</div><div className="l">Outstanding ₹</div></div>
+          </>
+        ) : (
+          <>{STAGES.slice(0, 5).map((s, i) => <StatSkeleton key={i} />)}</>
+        )}
+      </div>
 
       <div className="kanban">
-        {STAGES.map((stage) => {
-          const stageCards = cards.filter((c) => c.stage === stage).sort((a, b) => new Date(b.when) - new Date(a.when));
-          return (
-            <div className="kcol" key={stage}>
-              <h5>{stage}<span className="n">{stageCards.length}</span></h5>
-              {stageCards.slice(0, 8).map((c) => (
-                <div
-                  key={c.kind + c.id}
-                  className={`kcard ${c.age >= 7 ? 'hot' : c.age >= 3 ? 'warm' : ''}`}
-                  onClick={() => openCard(c)}
-                >
-                  <span className={`age ${c.age >= 7 ? 'late' : ''}`}>{c.age}d</span>
-                  <div className="t">{c.dealerName}</div>
-                  <div className="s">{c.id}</div>
-                  <div className="v">₹{Math.round(c.val).toLocaleString('en-IN')}</div>
+        {cards === null
+          ? STAGES.map((stage) => <KanbanColSkeleton key={stage} stage={stage} />)
+          : STAGES.map((stage) => {
+              const stageCards = cards.filter((c) => c.stage === stage).sort((a, b) => new Date(b.when) - new Date(a.when));
+              return (
+                <div className="kcol" key={stage}>
+                  <h5>{stage}<span className="n">{stageCards.length}</span></h5>
+                  {stageCards.slice(0, 8).map((c) => (
+                    <div
+                      key={c.kind + c.id}
+                      className={`kcard ${c.age >= 7 ? 'hot' : c.age >= 3 ? 'warm' : ''}`}
+                      onClick={() => openCard(c)}
+                    >
+                      <span className={`age ${c.age >= 7 ? 'late' : ''}`}>{c.age}d</span>
+                      <div className="t">{c.dealerName}</div>
+                      <div className="s">{c.id}</div>
+                      <div className="v">₹{Math.round(c.val).toLocaleString('en-IN')}</div>
+                    </div>
+                  ))}
+                  {!stageCards.length && <div className="empty" style={{ padding: 14, fontSize: 11 }}>—</div>}
                 </div>
-              ))}
-              {!stageCards.length && <div className="empty" style={{ padding: 14, fontSize: 11 }}>—</div>}
-            </div>
-          );
-        })}
+              );
+            })}
       </div>
 
       <div className="grid2">
-        <div className="card">
-          <h3 style={{ marginBottom: 8 }}>Latest activity</h3>
-          {activity.length ? activity.map((a, i) => (
-            <div className="activity-row" key={i}>
-              <b>{a.action}</b> <span className="muted">· {a.detail}</span>
-              <div className="meta">{a.who} · {new Date(a.ts).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
-            </div>
-          )) : <div className="empty">No activity yet — try New Order</div>}
-        </div>
-        <div className="card">
-          <h3 style={{ marginBottom: 8 }}>Founder flags</h3>
-          {flags.length ? flags.map((f, i) => (
-            <div className={`flag-row ${f.c}`} key={i}><div>{f.label}</div><div className="n">{f.n}</div></div>
-          )) : <div className="empty">Everything clean</div>}
-        </div>
+        {activity === null ? (
+          <CardSkeleton />
+        ) : (
+          <div className="card">
+            <h3 style={{ marginBottom: 8 }}>Latest activity</h3>
+            {activity.length ? activity.map((a, i) => (
+              <div className="activity-row" key={i}>
+                <b>{a.action}</b> <span className="muted">· {a.detail}</span>
+                <div className="meta">{a.who} · {new Date(a.ts).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
+            )) : <div className="empty">No activity yet — try New Order</div>}
+          </div>
+        )}
+        {flags === null ? (
+          <CardSkeleton />
+        ) : (
+          <div className="card">
+            <h3 style={{ marginBottom: 8 }}>Founder flags</h3>
+            {flags.length ? flags.map((f, i) => (
+              <div className={`flag-row ${f.c}`} key={i}><div>{f.label}</div><div className="n">{f.n}</div></div>
+            )) : <div className="empty">Everything clean</div>}
+          </div>
+        )}
       </div>
-      </>
-      )}
     </div>
   );
 }
