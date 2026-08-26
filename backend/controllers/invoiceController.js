@@ -19,7 +19,13 @@ async function list(req, res) {
     filter.dealer = { $in: myDealers.map((d) => d.code) };
   }
   const invoices = await Invoice.find(filter).sort({ createdAt: -1 });
-  res.json(invoices);
+
+  const dealerCodes = [...new Set(invoices.map((i) => i.dealer))];
+  const dealers = await Dealer.find({ code: { $in: dealerCodes } }).select('code assignedTo');
+  const assignedByCode = Object.fromEntries(dealers.map((d) => [d.code, d.assignedTo || '']));
+
+  const withAssigned = invoices.map((i) => ({ ...i.toObject(), dealerAssignedTo: assignedByCode[i.dealer] || '' }));
+  res.json(withAssigned);
 }
 
 async function getOne(req, res) {

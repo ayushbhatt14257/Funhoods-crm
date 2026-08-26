@@ -146,7 +146,13 @@ async function list(req, res) {
     filter.dealer = { $in: myDealers.map((d) => d.code) };
   }
   const pis = await PI.find(filter).sort({ createdAt: -1 });
-  res.json(pis);
+
+  const dealerCodes = [...new Set(pis.map((p) => p.dealer))];
+  const dealers = await Dealer.find({ code: { $in: dealerCodes } }).select('code assignedTo');
+  const assignedByCode = Object.fromEntries(dealers.map((d) => [d.code, d.assignedTo || '']));
+
+  const withAssigned = pis.map((p) => ({ ...p.toObject(), dealerAssignedTo: assignedByCode[p.dealer] || '' }));
+  res.json(withAssigned);
 }
 
 async function getOne(req, res) {

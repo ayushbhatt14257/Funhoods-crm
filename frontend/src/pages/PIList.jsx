@@ -53,14 +53,16 @@ export default function PIList() {
       ) : (
         <div className="tblwrap">
           <table className="dt">
-            <thead><tr><th>PI no</th><th>Dealer</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th><th></th></tr></thead>
+            <thead><tr><th>PI no</th><th>Dealer</th><th>Assigned to</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th><th></th></tr></thead>
             <tbody>
               {pis.map((p) => {
                 const canEdit = ['Draft', 'Sent'].includes(p.status);
                 return (
                 <tr key={p.no}>
                   <td><Link to={`/pis/${p.no}`} className="mono"><b>{p.no}</b></Link></td>
-                  <td>{p.dealerName}</td><td>{p.lines.length}</td>
+                  <td>{p.dealerName}</td>
+                  <td>{p.dealerAssignedTo || '—'}</td>
+                  <td>{p.lines.length}</td>
                   <td>{Math.round(p.total).toLocaleString('en-IN')}</td>
                   <td><span className={`badge ${badgeClass(p.status)}`}>{p.status}</span></td>
                   <td>{p.by}</td>
@@ -79,7 +81,7 @@ export default function PIList() {
                 </tr>
                 );
               })}
-              {!pis.length && <tr><td colSpan={8}><div className="empty">No PIs match</div></td></tr>}
+              {!pis.length && <tr><td colSpan={9}><div className="empty">No PIs match</div></td></tr>}
             </tbody>
           </table>
         </div>
