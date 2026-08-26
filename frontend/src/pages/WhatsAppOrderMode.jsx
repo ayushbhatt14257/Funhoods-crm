@@ -93,7 +93,7 @@ export default function WhatsAppOrderMode() {
 
 export function ModeInfoPanel() {
   return (
-    <div>
+    <div className="mode-info-panel">
       <div className="card">
         <h3 style={{ marginBottom: 8 }}>How each mode works</h3>
         <p style={{ fontSize: 13, marginBottom: 10 }}><b>Mode A · WhatsApp paste:</b> best when order arrives on WhatsApp text. Parser resolves dealer + SKUs. Ambiguous product = pick from a list.</p>

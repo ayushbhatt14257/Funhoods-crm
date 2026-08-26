@@ -36,7 +36,9 @@ main{padding:24px 26px 70px;max-width:1300px}
   .hburger{background:rgba(255,255,255,.15);border:none;color:var(--paper);padding:6px 11px;border-radius:6px;cursor:pointer}
   main{padding:14px}
   html{font-size:14.5px}
-  .row2,.row3,.row4{grid-template-columns:1fr!important}
+  .row2,.row3,.row4,.grid2{grid-template-columns:1fr!important}
+  .mode-info-panel{display:none}
+  input,select,textarea{font-size:16px!important}
 }
 .sidebackdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:65}
 .sidebackdrop.on{display:block}
