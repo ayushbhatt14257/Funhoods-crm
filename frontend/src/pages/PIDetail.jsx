@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
@@ -8,6 +8,7 @@ import Loading from '../components/Loading';
 
 export default function PIDetail() {
   const { no } = useParams();
+  const [searchParams] = useSearchParams();
   const { showToast } = useToast();
   const { user } = useAuth();
   const nav = useNavigate();
@@ -29,6 +30,13 @@ export default function PIDetail() {
     setSettings(s);
   }
   useEffect(() => { load(); }, [no]);
+
+  useEffect(() => {
+    if (pi && searchParams.get('edit') === '1' && ['Draft', 'Sent'].includes(pi.status) && !editing) {
+      startEdit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pi]);
 
   async function confirmPI() {
     try { await api.post(`/pi/${no}/confirm`); showToast('PI confirmed · stock reserved', 'g'); load(); }

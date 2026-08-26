@@ -75,7 +75,7 @@ export default function Dealers() {
                     {d.gstCertUrl ? <span className="badge g" style={{ marginRight: 4 }}>GST ✓</span> : <span className="badge r" style={{ marginRight: 4 }}>GST ✕</span>}
                     {d.aadharUrl ? <span className="badge g">Aadhaar ✓</span> : <span className="badge">Aadhaar —</span>}
                   </td>
-                  <td>{d.createdByName}</td>
+                  <td>{d.createdByName || '—'}</td>
                   <td className="mono muted" style={{ fontSize: 11 }}>{new Date(d.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                   <td><button className="btn o sm" onClick={() => openEdit(d)}>Edit</button></td>
                 </tr>

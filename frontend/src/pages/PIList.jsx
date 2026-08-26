@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import Loading from '../components/Loading';
 
@@ -7,6 +7,7 @@ const badgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Fully Dispatched' ? 
 const STATUSES = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Cancelled'];
 
 export default function PIList() {
+  const nav = useNavigate();
   const [pis, setPis] = useState(null); // null = loading
   const [users, setUsers] = useState([]);
   const [q, setQ] = useState('');
@@ -52,9 +53,11 @@ export default function PIList() {
       ) : (
         <div className="tblwrap">
           <table className="dt">
-            <thead><tr><th>PI no</th><th>Dealer</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th></tr></thead>
+            <thead><tr><th>PI no</th><th>Dealer</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th><th></th></tr></thead>
             <tbody>
-              {pis.map((p) => (
+              {pis.map((p) => {
+                const canEdit = ['Draft', 'Sent'].includes(p.status);
+                return (
                 <tr key={p.no}>
                   <td><Link to={`/pis/${p.no}`} className="mono"><b>{p.no}</b></Link></td>
                   <td>{p.dealerName}</td><td>{p.lines.length}</td>
@@ -62,9 +65,21 @@ export default function PIList() {
                   <td><span className={`badge ${badgeClass(p.status)}`}>{p.status}</span></td>
                   <td>{p.by}</td>
                   <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                  <td>
+                    <button
+                      className={canEdit ? 'btn o sm' : 'btn o sm'}
+                      disabled={!canEdit}
+                      title={canEdit ? 'Edit this PI' : 'Can only edit while Draft or Sent'}
+                      style={!canEdit ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                      onClick={() => canEdit && nav(`/pis/${p.no}?edit=1`)}
+                    >
+                      Edit
+                    </button>
+                  </td>
                 </tr>
-              ))}
-              {!pis.length && <tr><td colSpan={7}><div className="empty">No PIs match</div></td></tr>}
+                );
+              })}
+              {!pis.length && <tr><td colSpan={8}><div className="empty">No PIs match</div></td></tr>}
             </tbody>
           </table>
         </div>

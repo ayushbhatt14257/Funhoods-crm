@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import Loading from '../components/Loading';
 
 const STAGES = ['Draft', 'Sent', 'Confirmed', 'Invoiced (Packed)', 'Dispatched', 'Delivered', 'Paid'];
 
@@ -100,15 +101,17 @@ export default function Dashboard() {
         <p>Every order at every stage. Click any card to open. Cards go orange after 3 days at the same stage, red after 7.</p>
       </div>
 
-      {stats && (
-        <div className="stats">
+      {!stats ? (
+        <Loading label="Loading dashboard…" />
+      ) : (
+        <>
+      <div className="stats">
           <div className="stat"><div className="n">{stats.openPIs}</div><div className="l">Open PIs</div></div>
           <div className="stat"><div className="n">{stats.openInvoices}</div><div className="l">Open invoices</div></div>
           <div className="stat"><div className="n" style={{ color: 'var(--red)' }}>₹{Math.round(stats.pipeline).toLocaleString('en-IN')}</div><div className="l">Pipeline ₹</div></div>
           <div className="stat"><div className="n">₹{Math.round(stats.invoicedTotal).toLocaleString('en-IN')}</div><div className="l">Invoiced ₹</div></div>
           <div className="stat"><div className="n" style={{ color: stats.outstanding > 50000 ? 'var(--red)' : undefined }}>₹{Math.round(stats.outstanding).toLocaleString('en-IN')}</div><div className="l">Outstanding ₹</div></div>
         </div>
-      )}
 
       <div className="kanban">
         {STAGES.map((stage) => {
@@ -151,6 +154,8 @@ export default function Dashboard() {
           )) : <div className="empty">Everything clean</div>}
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
