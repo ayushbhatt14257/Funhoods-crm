@@ -3,10 +3,13 @@ const Ledger = require('../models/Ledger');
 const PI = require('../models/PI');
 
 async function list(req, res) {
-  const { q, state } = req.query;
+  const { q, state, assignedTo } = req.query;
   const filter = {};
   if (q) filter.$or = [{ name: new RegExp(q, 'i') }, { code: new RegExp(q, 'i') }, { city: new RegExp(q, 'i') }];
   if (state) filter.state = state;
+  if (assignedTo) filter.assignedTo = assignedTo;
+  // Field-sales users only see the parties assigned to them, unless they explicitly asked for someone else's (not allowed).
+  if (req.user.role === 'field') filter.assignedTo = req.user.name;
   const dealers = await Dealer.find(filter).sort({ createdAt: -1 });
   res.json(dealers);
 }
@@ -44,6 +47,7 @@ async function create(req, res) {
     const exists = await Dealer.findOne({ code: body.code });
     if (exists) return res.status(400).json({ message: 'Dealer code already exists' });
     body.createdByName = req.user.name;
+    if (!body.assignedTo || !body.assignedTo.trim()) body.assignedTo = req.user.name;
     const dealer = await Dealer.create(body);
     res.status(201).json(dealer);
   } catch (err) {

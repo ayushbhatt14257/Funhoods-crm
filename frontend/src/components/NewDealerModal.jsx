@@ -1,18 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 import Modal from './Modal';
 
 // onCreated(dealer) fires after the dealer is created AND any documents are uploaded.
 export default function NewDealerModal({ onCreated, onClose }) {
   const { showToast } = useToast();
+  const { user } = useAuth();
   const [form, setForm] = useState({
     name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '',
-    creditLimit: '', type: 'Retailer',
+    creditLimit: '', type: 'Retailer', assignedTo: user.role === 'field' ? user.name : '',
   });
+  const [users, setUsers] = useState([]);
   const [gstCertFile, setGstCertFile] = useState(null);
   const [aadharFile, setAadharFile] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => { api.get('/users/names').then(setUsers); }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -77,6 +82,14 @@ export default function NewDealerModal({ onCreated, onClose }) {
       <div className="row2">
         <div className="fg"><label>GSTIN *</label><input value={form.gstin} onChange={set('gstin')} placeholder="e.g. 23AAECG1234R1ZK" /></div>
         <div className="fg"><label>Max credit limit ₹ (optional)</label><input type="number" value={form.creditLimit} onChange={set('creditLimit')} /></div>
+      </div>
+
+      <div className="fg">
+        <label>Assigned salesperson (this party belongs to)</label>
+        <select value={form.assignedTo} onChange={set('assignedTo')} disabled={user.role === 'field'}>
+          <option value="">— Unassigned —</option>
+          {users.map((u) => <option key={u._id} value={u.name}>{u.name} ({u.role})</option>)}
+        </select>
       </div>
 
       <div className="row2">

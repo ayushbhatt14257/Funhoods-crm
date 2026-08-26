@@ -20,6 +20,7 @@ const dealerSchema = new mongoose.Schema(
     notes: { type: String, default: '' },
     active: { type: Boolean, default: true },
     createdByName: { type: String, default: '' },
+    assignedTo: { type: String, default: '' }, // name of the field/sales user this party belongs to
   },
   { timestamps: true }
 );

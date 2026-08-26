@@ -141,6 +141,10 @@ async function list(req, res) {
     if (to) filter.createdAt.$lte = new Date(new Date(to).getTime() + 86399999); // include the whole "to" day
   }
   if (q) filter.$or = [{ no: new RegExp(q, 'i') }, { dealerName: new RegExp(q, 'i') }];
+  if (req.user.role === 'field') {
+    const myDealers = await Dealer.find({ assignedTo: req.user.name }).select('code');
+    filter.dealer = { $in: myDealers.map((d) => d.code) };
+  }
   const pis = await PI.find(filter).sort({ createdAt: -1 });
   res.json(pis);
 }

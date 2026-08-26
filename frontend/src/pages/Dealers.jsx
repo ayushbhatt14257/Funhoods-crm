@@ -6,7 +6,7 @@ import Modal from '../components/Modal';
 import NewDealerModal from '../components/NewDealerModal';
 import Loading from '../components/Loading';
 
-const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '', type: 'Retailer', payment: 'Advance', creditLimit: 0, slab: 'C' };
+const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '', type: 'Retailer', payment: 'Advance', creditLimit: 0, slab: 'C', assignedTo: '' };
 
 export default function Dealers() {
   const { showToast } = useToast();
@@ -15,6 +15,9 @@ export default function Dealers() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [showNewDealer, setShowNewDealer] = useState(false);
+  const [users, setUsers] = useState([]);
+
+  useEffect(() => { api.get('/users/names').then(setUsers); }, []);
 
   async function load() {
     setDealers(null);
@@ -63,7 +66,7 @@ export default function Dealers() {
       ) : (
         <div className="tblwrap">
           <table className="dt">
-            <thead><tr><th>Code</th><th>Name</th><th>City</th><th>Payment</th><th>Type</th><th>Docs</th><th>Created by</th><th>Date</th><th></th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>City</th><th>Payment</th><th>Type</th><th>Assigned to</th><th>Docs</th><th>Created by</th><th>Date</th><th></th></tr></thead>
             <tbody>
               {dealers.map((d) => (
                 <tr key={d.code}>
@@ -71,6 +74,7 @@ export default function Dealers() {
                   <td><Link to={`/dealers/${d.code}`}><b>{d.name}</b></Link></td>
                   <td>{d.city}</td>
                   <td><span className="badge">{d.payment}</span></td><td>{d.type}</td>
+                  <td>{d.assignedTo || '—'}</td>
                   <td>
                     {d.gstCertUrl ? <span className="badge g" style={{ marginRight: 4 }}>GST ✓</span> : <span className="badge r" style={{ marginRight: 4 }}>GST ✕</span>}
                     {d.aadharUrl ? <span className="badge g">Aadhaar ✓</span> : <span className="badge">Aadhaar —</span>}
@@ -80,7 +84,7 @@ export default function Dealers() {
                   <td><button className="btn o sm" onClick={() => openEdit(d)}>Edit</button></td>
                 </tr>
               ))}
-              {!dealers.length && <tr><td colSpan={9}><div className="empty">No dealers yet</div></td></tr>}
+              {!dealers.length && <tr><td colSpan={10}><div className="empty">No dealers yet</div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -126,6 +130,14 @@ export default function Dealers() {
               </select>
             </div>
             <div className="fg"><label>Credit limit ₹</label><input type="number" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} /></div>
+          </div>
+
+          <div className="fg">
+            <label>Assigned salesperson (this party belongs to)</label>
+            <select value={form.assignedTo || ''} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}>
+              <option value="">— Unassigned —</option>
+              {users.map((u) => <option key={u._id} value={u.name}>{u.name} ({u.role})</option>)}
+            </select>
           </div>
 
           <div className="row2">
