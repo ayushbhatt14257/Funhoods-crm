@@ -71,6 +71,9 @@ textarea{resize:vertical;min-height:70px}
 .btn.g{background:var(--green)}
 .btn.sm{padding:6px 12px;font-size:12px}
 .btnrow{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+.subtabs{display:flex;gap:6px;border-bottom:1px solid var(--line)}
+.subtabs button{background:transparent;border:none;padding:9px 4px;margin-right:14px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+.subtabs button.on{color:var(--spruce);border-bottom-color:var(--spruce)}
 
 table.dt{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--white)}
 table.dt th{background:var(--paper-d);font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);text-align:left;padding:9px}

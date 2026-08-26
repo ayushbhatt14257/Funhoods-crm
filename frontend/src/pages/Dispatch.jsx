@@ -18,6 +18,7 @@ export default function Dispatch() {
   const [products, setProducts] = useState([]);
   const [filterBy, setFilterBy] = useState('');
   const [filterFrom, setFilterFrom] = useState('');
+  const [statusTab, setStatusTab] = useState('Confirmed');
   const [users, setUsers] = useState([]);
 
   // Shared dispatch-entry state
@@ -183,6 +184,14 @@ export default function Dispatch() {
         <div className="btnrow" style={{ marginBottom: 14 }}>
           <button className="btn o" onClick={openManual}>🚚 Manual dispatch (no PI)</button>
         </div>
+        <div className="subtabs" style={{ marginBottom: 14 }}>
+          <button className={statusTab === 'Confirmed' ? 'on' : ''} onClick={() => setStatusTab('Confirmed')}>
+            Confirmed {readyPIs ? `(${readyPIs.filter((p) => p.status === 'Confirmed').length})` : ''}
+          </button>
+          <button className={statusTab === 'Partial Dispatched' ? 'on' : ''} onClick={() => setStatusTab('Partial Dispatched')}>
+            Partially Dispatched {readyPIs ? `(${readyPIs.filter((p) => p.status === 'Partial Dispatched').length})` : ''}
+          </button>
+        </div>
         <div className="row2" style={{ marginBottom: 14 }}>
           <select value={filterBy} onChange={(e) => setFilterBy(e.target.value)}>
             <option value="">All users</option>
@@ -195,6 +204,7 @@ export default function Dispatch() {
         ) : (
           <>
             {readyPIs
+              .filter((p) => p.status === statusTab)
               .filter((p) => !filterBy || p.by === filterBy)
               .filter((p) => !filterFrom || new Date(p.createdAt) >= new Date(filterFrom))
               .map((p) => (
@@ -209,7 +219,9 @@ export default function Dispatch() {
                 </div>
               </div>
             ))}
-            {!readyPIs.length && <div className="empty">No PIs pending dispatch</div>}
+            {!readyPIs.filter((p) => p.status === statusTab).length && (
+              <div className="empty">No {statusTab === 'Confirmed' ? 'confirmed' : 'partially dispatched'} PIs</div>
+            )}
           </>
         )}
       </div>
