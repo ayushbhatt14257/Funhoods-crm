@@ -43,6 +43,11 @@ export default function NewDealerModal({ onCreated, onClose }) {
       showToast(`Dealer ${dealer.code} created`, 'g');
       onCreated(dealer);
     } catch (err) {
+      if (err.status === 409 && err.data?.existingDealer) {
+        showToast(`Dealer already exists — selected "${err.data.existingDealer.name}" instead`, 'y');
+        onCreated(err.data.existingDealer);
+        return;
+      }
       showToast(err.message, 'err');
     } finally {
       setSaving(false);

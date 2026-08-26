@@ -31,6 +31,7 @@ export default function Dispatch() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [vehicle, setVehicle] = useState(''); const [lr, setLr] = useState(''); const [eway, setEway] = useState(''); const [driver, setDriver] = useState('');
   const [cartonMap, setCartonMap] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     api.get('/dispatch/ready-pis').then(setReadyPIs);
@@ -141,6 +142,8 @@ export default function Dispatch() {
 
   async function submitPIDispatch() {
     if (!transporter) return showToast('Mode of transport required', 'err');
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const res = await api.post(`/dispatch/from-pi/${pi.no}`, {
         lines: dispatchLines.map((l) => ({ code: l.code, dispatchNow: l.dispatchNow })),
@@ -149,7 +152,7 @@ export default function Dispatch() {
       });
       showToast('Dispatched · Tax Invoice raised', 'g');
       nav(`/invoices/${res.invoice.no}`);
-    } catch (err) { showToast(err.message, 'err'); }
+    } catch (err) { showToast(err.message, 'err'); setSubmitting(false); }
   }
 
   async function submitManualDispatch() {
@@ -157,6 +160,8 @@ export default function Dispatch() {
     if (!transporter) return showToast('Mode of transport required', 'err');
     const valid = dispatchLines.filter((l) => l.code && +l.dispatchNow > 0);
     if (!valid.length) return showToast('Add at least one item with pieces', 'err');
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const res = await api.post('/dispatch/manual', {
         dealerCode: manualDealer,
@@ -166,7 +171,7 @@ export default function Dispatch() {
       });
       showToast('Manual dispatch complete · Tax Invoice raised', 'g');
       nav(`/invoices/${res.invoice.no}`);
-    } catch (err) { showToast(err.message, 'err'); }
+    } catch (err) { showToast(err.message, 'err'); setSubmitting(false); }
   }
 
   // --- render: list mode ---
@@ -333,7 +338,7 @@ export default function Dispatch() {
       </div>
 
       <div className="btnrow">
-        <button className="btn g" onClick={isManual ? submitManualDispatch : submitPIDispatch}>→ Cross-check &amp; generate Tax Invoice</button>
+        <button className="btn g" disabled={submitting} onClick={isManual ? submitManualDispatch : submitPIDispatch}>{submitting ? 'Saving…' : '→ Cross-check & generate Tax Invoice'}</button>
       </div>
     </div>
   );

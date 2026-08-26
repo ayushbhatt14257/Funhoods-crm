@@ -13,7 +13,7 @@ export default function NewOrder() {
         <p>Paste from WhatsApp OR fill in step-by-step at the counter. Both end in a confirmed PI.</p>
       </div>
 
-      <div className="btnrow" style={{ marginBottom: 14 }}>
+      <div className="btnrow order-mode-tabs" style={{ marginBottom: 14 }}>
         <button className={mode === 'whatsapp' ? 'btn' : 'btn o'} onClick={() => setMode('whatsapp')}>📱 From WhatsApp (paste)</button>
         <button className={mode === 'structured' ? 'btn' : 'btn o'} onClick={() => setMode('structured')}>✎ Structured entry (at counter)</button>
       </div>

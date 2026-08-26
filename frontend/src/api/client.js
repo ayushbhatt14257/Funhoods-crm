@@ -21,7 +21,10 @@ async function request(path, { method = 'GET', body, isForm = false } = {}) {
 
   if (!res.ok) {
     const errBody = isJSON ? await res.json().catch(() => ({})) : {};
-    throw new Error(errBody.message || `Request failed (${res.status})`);
+    const err = new Error(errBody.message || `Request failed (${res.status})`);
+    err.data = errBody;
+    err.status = res.status;
+    throw err;
   }
   if (!isJSON) return res; // caller handles blob/file responses
   return res.json();

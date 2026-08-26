@@ -19,6 +19,7 @@ export default function PIDetail() {
   const [editLines, setEditLines] = useState([]);
   const [editRemark, setEditRemark] = useState('');
   const [saving, setSaving] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [products, setProducts] = useState([]);
   const [addCode, setAddCode] = useState('');
 
@@ -39,13 +40,19 @@ export default function PIDetail() {
   }, [pi]);
 
   async function confirmPI() {
-    try { await api.post(`/pi/${no}/confirm`); showToast('PI confirmed · stock reserved', 'g'); load(); }
+    if (actionBusy) return;
+    setActionBusy(true);
+    try { await api.post(`/pi/${no}/confirm`); showToast('PI confirmed · stock reserved', 'g'); await load(); }
     catch (err) { showToast(err.message, 'err'); }
+    finally { setActionBusy(false); }
   }
   async function cancelPI() {
     if (!window.confirm('Cancel this PI? This cannot be undone.')) return;
-    try { await api.post(`/pi/${no}/cancel`); showToast('PI cancelled', 'g'); load(); }
+    if (actionBusy) return;
+    setActionBusy(true);
+    try { await api.post(`/pi/${no}/cancel`); showToast('PI cancelled', 'g'); await load(); }
     catch (err) { showToast(err.message, 'err'); }
+    finally { setActionBusy(false); }
   }
 
   async function startEdit() {
@@ -165,9 +172,9 @@ export default function PIDetail() {
 
       <div className="btnrow">
         {canEdit && <button className="btn o" onClick={startEdit}>Edit PI</button>}
-        {canConfirm && <button className="btn g" onClick={confirmPI}>Mark confirmed by customer</button>}
+        {canConfirm && <button className="btn g" disabled={actionBusy} onClick={confirmPI}>{actionBusy ? 'Working…' : 'Mark confirmed by customer'}</button>}
         {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?pi=${pi.no}`)}>→ Book dispatch</button>}
-        {canCancel && <button className="btn rd" onClick={cancelPI}>Cancel PI</button>}
+        {canCancel && <button className="btn rd" disabled={actionBusy} onClick={cancelPI}>{actionBusy ? 'Working…' : 'Cancel PI'}</button>}
         <button className="btn o" onClick={() => window.print()}>🖨️ Print / Save PDF</button>
       </div>
       <div className="note b" style={{ fontSize: 12, marginTop: 14 }}>Tax Invoice is generated at dispatch (actual shipped qty), not at PI stage.</div>

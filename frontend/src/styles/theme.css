@@ -39,6 +39,8 @@ main{padding:24px 26px 70px;max-width:1300px}
   .row2,.row3,.row4,.grid2{grid-template-columns:1fr!important}
   .mode-info-panel{display:none}
   input,select,textarea{font-size:16px!important}
+  .order-mode-tabs{flex-wrap:nowrap}
+  .order-mode-tabs .btn,.order-mode-tabs .btn.o{flex:1;padding:9px 6px;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 }
 .sidebackdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:65}
 .sidebackdrop.on{display:block}
@@ -86,8 +88,8 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .stat .n{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--spruce)}
 .stat .l{font-size:11.5px;color:var(--muted);margin-top:2px}
 
-.modal{position:fixed;inset:0;background:rgba(18,20,20,.5);display:flex;align-items:center;justify-content:center;z-index:150;padding:16px}
-.mbox{background:var(--paper);border-radius:13px;max-width:760px;width:100%;max-height:90vh;overflow-y:auto}
+.modal{position:fixed;inset:0;background:rgba(18,20,20,.5);display:flex;align-items:center;justify-content:center;z-index:150;padding:16px;overscroll-behavior:contain}
+.mbox{background:var(--paper);border-radius:13px;max-width:760px;width:100%;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .mhead{background:var(--spruce);color:var(--paper);padding:14px 18px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0}
 .mhead button{background:rgba(255,255,255,.15);border:none;color:var(--paper);width:26px;height:26px;border-radius:50%;cursor:pointer}
 .mbody{padding:18px}
@@ -95,6 +97,7 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--spruce);color:var(--paper);padding:12px 20px;border-radius:9px;font-size:13.5px;font-weight:500;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.2)}
 .toast.err{background:var(--red)}
 .toast.g{background:var(--green)}
+.toast.y{background:var(--orange);color:var(--ink)}
 
 .note{background:var(--white);border-left:3px solid var(--orange);padding:10px 13px;font-size:13px;margin:10px 0;border-radius:0 5px 5px 0}
 .note.r{border-color:var(--red)} .note.g{border-color:var(--green)} .note.b{border-color:var(--blue)}

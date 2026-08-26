@@ -28,6 +28,14 @@ async function create(req, res) {
     if (!body.gstin || !body.gstin.trim()) {
       return res.status(400).json({ message: 'GSTIN is required' });
     }
+    const gstinTrimmed = body.gstin.trim().toUpperCase();
+    const gstinMatch = await Dealer.findOne({ gstin: new RegExp(`^${gstinTrimmed}$`, 'i') });
+    if (gstinMatch) {
+      return res.status(409).json({
+        message: `A dealer with this GSTIN already exists — "${gstinMatch.name}" (${gstinMatch.code})`,
+        existingDealer: gstinMatch,
+      });
+    }
     if (!body.code) {
       const count = await Dealer.countDocuments();
       body.code = 'DLR' + String(count + 1).padStart(4, '0');
