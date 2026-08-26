@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
 
@@ -28,6 +28,20 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    // Safety net: if no modal is actually open on the page, the body should never
+    // be scroll-locked. Clears any leftover lock from an edge case (e.g. a modal
+    // unmounting without its cleanup running) whenever the route changes.
+    if (!document.querySelector('.modal')) {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+    }
+  }, [location.pathname]);
 
   return (
     <div className="applayout">
