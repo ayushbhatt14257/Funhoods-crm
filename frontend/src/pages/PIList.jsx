@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import Loading from '../components/Loading';
 
@@ -8,10 +8,12 @@ const STATUSES = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dis
 
 export default function PIList() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const [pis, setPis] = useState(null); // null = loading
   const [users, setUsers] = useState([]);
   const [q, setQ] = useState('');
-  const [status, setStatus] = useState('');
+  // Pre-filled from a dashboard stat-card link, e.g. /pis?status=Sent,Confirmed,Partial%20Dispatched
+  const [status, setStatus] = useState(searchParams.get('status') || '');
   const [by, setBy] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -32,6 +34,11 @@ export default function PIList() {
   return (
     <div>
       <div className="ph"><div className="eyebrow">Proforma invoices</div><h2>PI list</h2></div>
+      {status.includes(',') && (
+        <div className="note b" style={{ fontSize: 12, marginBottom: 10 }}>
+          Showing: {status.split(',').join(' + ')} · <button className="btn o sm" onClick={() => setStatus('')}>Clear filter</button>
+        </div>
+      )}
       <div className="row4" style={{ marginBottom: 14 }}>
         <input placeholder="Search PI no or dealer" value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={status} onChange={(e) => setStatus(e.target.value)}>

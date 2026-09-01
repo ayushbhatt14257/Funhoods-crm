@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import Loading from '../components/Loading';
 
@@ -7,10 +7,12 @@ const badgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Delivered' ? 'g' : '
 const STATUSES = ['Dispatched', 'Delivered', 'Cancelled'];
 
 export default function Invoices() {
+  const [searchParams] = useSearchParams();
   const [invoices, setInvoices] = useState(null);
   const [users, setUsers] = useState([]);
   const [q, setQ] = useState('');
-  const [status, setStatus] = useState('');
+  // Pre-filled from a dashboard stat-card link
+  const [status, setStatus] = useState(searchParams.get('status') || '');
   const [by, setBy] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -31,6 +33,11 @@ export default function Invoices() {
   return (
     <div>
       <div className="ph"><div className="eyebrow">Goods dispatched</div><h2>Tax Invoices</h2></div>
+      {status.includes(',') && (
+        <div className="note b" style={{ fontSize: 12, marginBottom: 10 }}>
+          Showing: {status.split(',').join(' + ')} · <button className="btn o sm" onClick={() => setStatus('')}>Clear filter</button>
+        </div>
+      )}
       <div className="row4" style={{ marginBottom: 14 }}>
         <input placeholder="Search invoice or dealer" value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={status} onChange={(e) => setStatus(e.target.value)}>

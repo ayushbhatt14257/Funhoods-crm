@@ -132,7 +132,10 @@ async function create(req, res) {
 async function list(req, res) {
   const { q, status, by, dealer, from, to } = req.query;
   const filter = {};
-  if (status) filter.status = status;
+  if (status) {
+    const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
+    filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+  }
   if (dealer) filter.dealer = dealer;
   if (by) filter.by = by;
   if (from || to) {

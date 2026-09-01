@@ -15,6 +15,7 @@ import Dispatch from './pages/Dispatch';
 import Invoices from './pages/Invoices';
 import InvoiceDetail from './pages/InvoiceDetail';
 import Inventory from './pages/Inventory';
+import Outstanding from './pages/Outstanding';
 import SettingsPage from './pages/Settings';
 import Users from './pages/Users';
 import Notifications from './pages/Notifications';
@@ -51,6 +52,7 @@ function AppRoutes() {
         <Route path="products" element={<Products />} />
         <Route path="aliases" element={<Aliases />} />
         <Route path="inventory" element={<Inventory />} />
+        <Route path="outstanding" element={<Outstanding />} />
         <Route path="import" element={<Import />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="users" element={<Users />} />

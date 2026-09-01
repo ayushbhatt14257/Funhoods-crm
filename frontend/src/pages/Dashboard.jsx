@@ -131,11 +131,21 @@ export default function Dashboard() {
       <div className="stats">
         {stats ? (
           <>
-            <div className="stat"><div className="n">{stats.openPIs}</div><div className="l">Open PIs</div></div>
-            <div className="stat"><div className="n">{stats.openInvoices}</div><div className="l">Open invoices</div></div>
-            <div className="stat"><div className="n" style={{ color: 'var(--red)' }}>₹{Math.round(stats.pipeline).toLocaleString('en-IN')}</div><div className="l">Pipeline ₹</div></div>
-            <div className="stat"><div className="n">₹{Math.round(stats.invoicedTotal).toLocaleString('en-IN')}</div><div className="l">Invoiced ₹</div></div>
-            <div className="stat"><div className="n" style={{ color: stats.outstanding > 50000 ? 'var(--red)' : undefined }}>₹{Math.round(stats.outstanding).toLocaleString('en-IN')}</div><div className="l">Outstanding ₹</div></div>
+            <div className="stat clickable" onClick={() => nav('/pis?status=Sent,Confirmed,Partial Dispatched')}>
+              <div className="n">{stats.openPIs}</div><div className="l">Open PIs</div>
+            </div>
+            <div className="stat clickable" onClick={() => nav('/invoices?status=Dispatched')}>
+              <div className="n">{stats.openInvoices}</div><div className="l">Open invoices</div>
+            </div>
+            <div className="stat clickable" onClick={() => nav('/pis?status=Sent,Confirmed,Partial Dispatched')}>
+              <div className="n" style={{ color: 'var(--red)' }}>₹{Math.round(stats.pipeline).toLocaleString('en-IN')}</div><div className="l">Pipeline ₹</div>
+            </div>
+            <div className="stat clickable" onClick={() => nav('/invoices?status=Dispatched,Delivered')}>
+              <div className="n">₹{Math.round(stats.invoicedTotal).toLocaleString('en-IN')}</div><div className="l">Invoiced ₹</div>
+            </div>
+            <div className="stat clickable" onClick={() => nav('/outstanding')}>
+              <div className="n" style={{ color: stats.outstanding > 50000 ? 'var(--red)' : undefined }}>₹{Math.round(stats.outstanding).toLocaleString('en-IN')}</div><div className="l">Outstanding ₹</div>
+            </div>
           </>
         ) : (
           <>{STAGES.slice(0, 5).map((s, i) => <StatSkeleton key={i} />)}</>
