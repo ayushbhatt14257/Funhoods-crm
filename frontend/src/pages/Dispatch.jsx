@@ -50,7 +50,7 @@ export default function Dispatch() {
     setPi(p);
     setDispatchLines(p.lines.map((l) => {
       const pending = l.pending != null ? l.pending : l.pcs;
-      return { code: l.code, name: l.name, orderedNow: pending, dispatchNow: pending };
+      return { code: l.code, name: l.name, photo: l.photo || '', orderedNow: pending, dispatchNow: pending };
     }));
     resetEntryFields();
     setMode('pi');
@@ -83,6 +83,7 @@ export default function Dispatch() {
     if (field === 'code') {
       const p = products.find((x) => x.code === val);
       next[i].name = p?.name || val;
+      next[i].photo = p?.photo || '';
     }
     setDispatchLines(next);
   }
@@ -257,10 +258,11 @@ export default function Dispatch() {
           )}
           <div className="tblwrap" style={{ marginTop: 10 }}>
             <table className="dt">
-              <thead><tr><th>Product</th><th>Pieces</th><th></th></tr></thead>
+              <thead><tr><th></th><th>Product</th><th>Pieces</th><th></th></tr></thead>
               <tbody>
                 {dispatchLines.map((l, i) => (
                   <tr key={i}>
+                    <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 26, height: 26, borderRadius: 4, objectFit: 'cover' }} /> : ''}</td>
                     <td>
                       <select value={l.code} onChange={(e) => updateManualLine(i, 'code', e.target.value)}>
                         <option value="">— pick —</option>
@@ -280,18 +282,26 @@ export default function Dispatch() {
 
       {!isManual && (
         <div className="card">
-          <h3 style={{ marginBottom: 10 }}>Step 1 · Enter dispatched quantity per line</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <h3 style={{ margin: 0 }}>Step 1 · Enter dispatched quantity per line</h3>
+            <button className="btn o sm" onClick={() => window.print()}>🖨️ Print remaining/dispatch slip</button>
+          </div>
           <div className="tblwrap">
             <table className="dt">
-              <thead><tr><th>Item</th><th>Pending</th><th>Dispatch now</th></tr></thead>
+              <thead><tr><th></th><th>Item</th><th>Pending</th><th>Dispatch now</th><th>Remaining after</th></tr></thead>
               <tbody>
-                {dispatchLines.map((l, i) => (
-                  <tr key={i}>
-                    <td>{l.name}</td>
-                    <td>{l.orderedNow}</td>
-                    <td><input type="number" style={{ width: 90 }} min={0} max={l.orderedNow} value={l.dispatchNow} onChange={(e) => updateDispatchQty(i, e.target.value)} /></td>
-                  </tr>
-                ))}
+                {dispatchLines.map((l, i) => {
+                  const remaining = Math.max(0, (+l.orderedNow || 0) - (+l.dispatchNow || 0));
+                  return (
+                    <tr key={i}>
+                      <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 28, height: 28, background: 'var(--paper)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>📦</div>}</td>
+                      <td><b>{l.name}</b><br /><span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span></td>
+                      <td>{l.orderedNow}</td>
+                      <td><input type="number" style={{ width: 90 }} min={0} max={l.orderedNow} value={l.dispatchNow} onChange={(e) => updateDispatchQty(i, e.target.value)} /></td>
+                      <td style={{ color: remaining > 0 ? 'var(--orange)' : 'var(--green)', fontWeight: 600 }}>{remaining}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -352,6 +362,55 @@ export default function Dispatch() {
       <div className="btnrow">
         <button className="btn g" disabled={submitting} onClick={isManual ? submitManualDispatch : submitPIDispatch}>{submitting ? 'Saving…' : '→ Cross-check & generate Tax Invoice'}</button>
       </div>
+
+      {!isManual && pi && (
+        <div id="print-area" className="pi print-only">
+          <div className="head">
+            <div className="l">
+              <img src="/funhoods-logo.jpg" alt="Funhoods" style={{ height: 40, marginBottom: 4 }} />
+              <div style={{ marginTop: 6, fontFamily: 'var(--mono)', fontSize: 11, background: 'var(--paper-d)', padding: '3px 8px', borderRadius: 4, display: 'inline-block' }}>
+                DISPATCH / REMAINING SLIP
+              </div>
+            </div>
+            <div className="r">
+              <div className="no">{pi.no}</div>
+              <div>Date: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}</div>
+            </div>
+          </div>
+          <div className="bill">
+            <div>
+              <h6>Dealer</h6>
+              <div><b>{pi.dealerName}</b></div>
+            </div>
+            <div>
+              <h6>Summary</h6>
+              <div>Total lines: <b>{dispatchLines.length}</b></div>
+              <div>Transport: <b>{transporter || '—'}</b></div>
+            </div>
+          </div>
+          <table className="lines">
+            <thead><tr><th>#</th><th style={{ width: 34 }}></th><th>Item</th><th className="r">Pending</th><th className="r">Dispatching now</th><th className="r">Remaining</th></tr></thead>
+            <tbody>
+              {dispatchLines.map((l, i) => {
+                const remaining = Math.max(0, (+l.orderedNow || 0) - (+l.dispatchNow || 0));
+                return (
+                  <tr key={i}>
+                    <td>{i + 1}</td>
+                    <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 28, height: 28, background: 'var(--paper)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>📦</div>}</td>
+                    <td><b>{l.name}</b><br /><span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span></td>
+                    <td className="r">{l.orderedNow}</td>
+                    <td className="r"><b>{l.dispatchNow}</b></td>
+                    <td className="r"><b>{remaining}</b></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="terms">
+            Keep this slip with the remaining/pending stock for {pi.no} — {pi.dealerName}. Remaining quantity still needs to be dispatched later.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

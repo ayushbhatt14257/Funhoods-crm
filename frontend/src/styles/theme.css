@@ -170,7 +170,9 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
   .sidebar,.topbar-mobile,.btnrow,.toast,.modal,.ph,.card>h3{display:none!important}
   .card{border:none;padding:0;box-shadow:none}
   body{background:#fff}
+  .print-only{display:block!important}
 }
+.print-only{display:none}
 .loginwrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--spruce);padding:20px}
 .logincard{background:var(--paper);border-radius:16px;padding:32px;width:100%;max-width:420px}
 .logincard img{max-width:200px;display:block;margin:0 auto 6px}
