@@ -117,9 +117,13 @@ export default function PIDetail() {
   }
 
   const editTotal = editLines.reduce((s, l) => s + l.pcs * l.rate * (1 + (l.gstPct || 5) / 100), 0);
+  const belowFloorEditLines = editLines.filter((l) => l.rate < l.listRate);
 
   async function saveEdit() {
     if (!editLines.length) return showToast('PI needs at least one item', 'err');
+    if (belowFloorEditLines.length) {
+      return showToast(`Rate can't be below base price for: ${belowFloorEditLines.map((l) => l.name).join(', ')}`, 'err');
+    }
     setSaving(true);
     try {
       const updated = await piApi.update(no, {
@@ -155,8 +159,15 @@ export default function PIDetail() {
                   <td>{l.name}<br /><span className="mono" style={{ fontSize: 10, color: 'var(--muted)' }}>{l.code}</span></td>
                   <td><input type="number" style={{ width: 90 }} value={l.pcs} onChange={(e) => editField(i, 'pcs', e.target.value)} /></td>
                   <td>
-                    <input type="number" step="0.01" style={{ width: 90 }} value={l.rate} onChange={(e) => editField(i, 'rate', e.target.value)} />
-                    {l.rate !== l.listRate && <div style={{ fontSize: 9, color: 'var(--orange)' }}>edited (list ₹{l.listRate})</div>}
+                    <input
+                      type="number" step="0.01" min={l.listRate} style={{ width: 90, borderColor: l.rate < l.listRate ? 'var(--red)' : undefined }}
+                      value={l.rate} onChange={(e) => editField(i, 'rate', e.target.value)}
+                    />
+                    {l.rate < l.listRate ? (
+                      <div style={{ fontSize: 9, color: 'var(--red)', fontWeight: 600 }}>⚠ below base ₹{l.listRate}</div>
+                    ) : l.rate !== l.listRate && (
+                      <div style={{ fontSize: 9, color: 'var(--orange)' }}>edited (list ₹{l.listRate})</div>
+                    )}
                   </td>
                   <td>{l.gstPct}</td>
                   <td><b>{(l.pcs * l.rate * (1 + (l.gstPct || 5) / 100)).toFixed(2)}</b></td>

@@ -50,6 +50,9 @@ async function buildLines(inputLines) {
     if (!product) throw new Error(`Product ${il.code} not found`);
 
     const rate = il.rate != null ? +il.rate : product.rate;
+    if (rate < product.rate) {
+      throw new Error(`Rate for ${product.name} (₹${rate}) cannot be below the base price ₹${product.rate}`);
+    }
     const gstPct = product.gst_pct || 5;
     const tax = +((rate * gstPct) / 100).toFixed(2);
     const gross = +(rate + tax).toFixed(2);
@@ -206,7 +209,27 @@ async function setStatus(req, res) {
 async function confirm(req, res) {
   const pi = await PI.findOne({ no: req.params.no });
   if (!pi) return res.status(404).json({ message: 'PI not found' });
-  if (pi.status === 'Cancelled') return res.status(400).json({ message: 'PI is cancelled' });
+  if (pi.status !== 'Sent') return res.status(400).json({ message: `Cannot confirm a PI in '${pi.status}' status — it must be Sent first.` });
+
+  // FIFO stock check: whichever PI confirms first reserves the stock; a later
+  // PI for the same product only gets what's still free to sell. Check every
+  // line before writing anything, so a short line doesn't partially reserve.
+  const codes = pi.lines.map((l) => l.code);
+  const invDocs = await Inventory.find({ code: { $in: codes } });
+  const invByCode = Object.fromEntries(invDocs.map((d) => [d.code, d]));
+
+  const shortages = [];
+  for (const l of pi.lines) {
+    const inv = invByCode[l.code];
+    const freeToSell = (inv?.physical || 0) - (inv?.reserved || 0);
+    if (l.pcs > freeToSell) {
+      shortages.push({ code: l.code, name: l.name, requested: l.pcs, available: Math.max(0, freeToSell) });
+    }
+  }
+  if (shortages.length) {
+    const detail = shortages.map((s) => `${s.name} — need ${s.requested}, only ${s.available} free to sell`).join('; ');
+    return res.status(400).json({ message: `Out of stock: ${detail}`, shortages });
+  }
 
   for (const l of pi.lines) {
     await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: l.pcs } }, { upsert: true });
@@ -216,14 +239,21 @@ async function confirm(req, res) {
   res.json(pi);
 }
 
-// POST /api/pi/:no/cancel -> releases reserved stock if was confirmed
+// POST /api/pi/:no/cancel -> releases whatever reserved stock is still
+// outstanding on this PI (works for both 'Confirmed' — nothing dispatched
+// yet — and 'Partial Dispatched' — releases only the still-pending lines,
+// since already-dispatched pieces were never "reserved" anymore).
 async function cancel(req, res) {
   const pi = await PI.findOne({ no: req.params.no });
   if (!pi) return res.status(404).json({ message: 'PI not found' });
+  if (pi.status === 'Cancelled') return res.status(400).json({ message: 'PI is already cancelled' });
 
-  if (pi.status === 'Confirmed') {
+  if (['Confirmed', 'Partial Dispatched'].includes(pi.status)) {
     for (const l of pi.lines) {
-      await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: -l.pcs } });
+      const pending = l.pending != null ? l.pending : l.pcs;
+      if (pending > 0) {
+        await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: -pending } });
+      }
     }
   }
   pi.status = 'Cancelled';

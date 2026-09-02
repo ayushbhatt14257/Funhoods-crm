@@ -9,6 +9,7 @@ const NAV = [
   { group: 'Orders' },
   { to: '/new-order', label: 'New Order', icon: '✎', roles: ['field', 'mhead', 'accounts', 'founder'] },
   { to: '/pis', label: 'PIs', icon: '📋', roles: ['field', 'mhead', 'accounts', 'dispatch', 'founder'] },
+  { to: '/pipeline', label: 'Pipeline', icon: '🧭', roles: ['field', 'mhead', 'accounts', 'dispatch', 'founder'] },
   { group: 'Fulfilment' },
   { to: '/dispatch', label: 'Dispatch', icon: '🚚', roles: ['dispatch', 'accounts', 'founder'] },
   { to: '/invoices', label: 'Tax Invoices', icon: '🧾', roles: ['mhead', 'accounts', 'dispatch', 'founder'] },

@@ -35,14 +35,18 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
     const tax = +((l.rate * l.gstPct) / 100).toFixed(2);
     const gross = +(l.rate + tax).toFixed(2);
     const total = +(gross * l.pcs).toFixed(2);
-    return { ...l, tax, gross, total, rateEdited: l.rate !== l.listRate };
+    return { ...l, tax, gross, total, rateEdited: l.rate !== l.listRate, belowFloor: l.rate < l.listRate };
   });
   const subtotal = computed.reduce((s, l) => s + l.total, 0);
   const grandTotal = subtotal;
   const hasNonStandardGst = lines.some((l) => l.gstPct !== 5);
+  const belowFloorLines = computed.filter((l) => l.belowFloor);
   const totalPieces = lines.reduce((s, l) => s + l.pcs, 0);
 
   async function save(status) {
+    if (belowFloorLines.length) {
+      return showToast(`Rate can't be below base price for: ${belowFloorLines.map((l) => l.name).join(', ')}`, 'err');
+    }
     if (hasNonStandardGst && !gstConfirmed) return showToast('Confirm GST rates before saving', 'err');
     setSaving(true);
     try {
@@ -109,8 +113,16 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
                 <td className="r">{l.outers ? `${l.outers} outer` : ''}{l.inners ? `${l.inners} inner` : ''}</td>
                 <td className="r">{l.pcs}</td>
                 <td className="r">
-                  <input type="number" step="0.01" value={l.rate} style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12 }} onChange={(e) => editRate(i, e.target.value)} />
-                  {l.rateEdited && <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600, marginTop: 2 }}>✎ edited (list ₹{l.listRate})</div>}
+                  <input
+                    type="number" step="0.01" min={l.listRate} value={l.rate}
+                    style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12, borderColor: l.belowFloor ? 'var(--red)' : undefined }}
+                    onChange={(e) => editRate(i, e.target.value)}
+                  />
+                  {l.belowFloor ? (
+                    <div style={{ fontSize: 9, color: 'var(--red)', fontWeight: 600, marginTop: 2 }}>⚠ below base ₹{l.listRate}</div>
+                  ) : l.rateEdited && (
+                    <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600, marginTop: 2 }}>✎ edited (list ₹{l.listRate})</div>
+                  )}
                 </td>
                 <td className="r">{l.gstPct}{l.gstPct !== 5 && <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600 }}>non-standard</div>}</td>
                 <td className="r">{l.tax.toFixed(2)}</td>

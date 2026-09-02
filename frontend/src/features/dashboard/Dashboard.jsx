@@ -131,13 +131,13 @@ export default function Dashboard() {
       <div className="stats">
         {stats ? (
           <>
-            <div className="stat clickable" onClick={() => nav('/pis?status=Sent,Confirmed,Partial Dispatched')}>
+            <div className="stat clickable" onClick={() => nav('/pipeline')}>
               <div className="n">{stats.openPIs}</div><div className="l">Open PIs</div>
             </div>
             <div className="stat clickable" onClick={() => nav('/invoices?status=Dispatched')}>
               <div className="n">{stats.openInvoices}</div><div className="l">Open invoices</div>
             </div>
-            <div className="stat clickable" onClick={() => nav('/pis?status=Sent,Confirmed,Partial Dispatched')}>
+            <div className="stat clickable" onClick={() => nav('/pipeline')}>
               <div className="n" style={{ color: 'var(--red)' }}>₹{Math.round(stats.pipeline).toLocaleString('en-IN')}</div><div className="l">Pipeline ₹</div>
             </div>
             <div className="stat clickable" onClick={() => nav('/invoices?status=Dispatched,Delivered')}>

@@ -10,6 +10,7 @@ import DealerDetail from './features/dealers/DealerDetail';
 import Aliases from './features/aliases/Aliases';
 import NewOrder from './features/pi/NewOrder';
 import PIList from './features/pi/PIList';
+import Pipeline from './features/pi/Pipeline';
 import PIDetail from './features/pi/PIDetail';
 import Dispatch from './features/dispatch/Dispatch';
 import Invoices from './features/invoices/Invoices';
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="new-order" element={<NewOrder />} />
         <Route path="pis" element={<PIList />} />
+        <Route path="pipeline" element={<Pipeline />} />
         <Route path="pis/:no" element={<PIDetail />} />
         <Route path="dispatch" element={<Dispatch />} />
         <Route path="invoices" element={<Invoices />} />
