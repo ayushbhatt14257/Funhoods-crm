@@ -18,6 +18,7 @@ export default function Dispatch() {
   const [products, setProducts] = useState([]);
   const [filterBy, setFilterBy] = useState('');
   const [filterFrom, setFilterFrom] = useState('');
+  const [filterQ, setFilterQ] = useState('');
   const [statusTab, setStatusTab] = useState('Confirmed');
   const [users, setUsers] = useState([]);
 
@@ -193,7 +194,8 @@ export default function Dispatch() {
             Partially Dispatched {readyPIs ? `(${readyPIs.filter((p) => p.status === 'Partial Dispatched').length})` : ''}
           </button>
         </div>
-        <div className="row2" style={{ marginBottom: 14 }}>
+        <div className="row3" style={{ marginBottom: 14 }}>
+          <input placeholder="Search dealer or PI no" value={filterQ} onChange={(e) => setFilterQ(e.target.value)} />
           <select value={filterBy} onChange={(e) => setFilterBy(e.target.value)}>
             <option value="">All users</option>
             {users.map((u) => <option key={u._id} value={u.name}>{u.name}</option>)}
@@ -208,6 +210,7 @@ export default function Dispatch() {
               .filter((p) => p.status === statusTab)
               .filter((p) => !filterBy || p.by === filterBy)
               .filter((p) => !filterFrom || new Date(p.createdAt) >= new Date(filterFrom))
+              .filter((p) => !filterQ || p.dealerName.toLowerCase().includes(filterQ.toLowerCase()) || p.no.toLowerCase().includes(filterQ.toLowerCase()))
               .map((p) => (
               <div className="card" key={p.no}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>

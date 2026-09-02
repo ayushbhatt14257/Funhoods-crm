@@ -17,8 +17,9 @@ export default function Invoices() {
   const [by, setBy] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [view, setView] = useState('flat'); // 'flat' | 'byPI'
+  const [view, setView] = useState('flat'); // 'flat' | 'byPI' | 'byCustomer'
   const [pisByNo, setPisByNo] = useState(null); // loaded only when the grouped view is opened
+  const [openDealers, setOpenDealers] = useState({}); // dealer code -> expanded? (byCustomer view)
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
 
@@ -59,6 +60,23 @@ export default function Invoices() {
     return { piGroups, manual };
   }
 
+  // Group invoices by dealer (independent of PI grouping) for the "By customer" view.
+  function buildCustomerGroups() {
+    const groups = {}; // dealer code -> { dealerName, invoices[] }
+    invoices.forEach((i) => {
+      if (!groups[i.dealer]) groups[i.dealer] = { code: i.dealer, name: i.dealerName, assignedTo: i.dealerAssignedTo, invoices: [] };
+      groups[i.dealer].invoices.push(i);
+    });
+    return Object.values(groups)
+      .map((g) => ({
+        ...g,
+        invoices: g.invoices.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+        total: g.invoices.reduce((s, i) => s + i.total, 0),
+        latest: Math.max(...g.invoices.map((i) => new Date(i.createdAt).getTime())),
+      }))
+      .sort((a, b) => b.latest - a.latest);
+  }
+
   return (
     <div>
       <div className="ph"><div className="eyebrow">Goods dispatched</div><h2>Tax Invoices</h2></div>
@@ -70,6 +88,7 @@ export default function Invoices() {
       <div className="subtabs" style={{ marginBottom: 14 }}>
         <button className={view === 'flat' ? 'on' : ''} onClick={() => setView('flat')}>Flat list</button>
         <button className={view === 'byPI' ? 'on' : ''} onClick={() => setView('byPI')}>Group by PI</button>
+        <button className={view === 'byCustomer' ? 'on' : ''} onClick={() => setView('byCustomer')}>By customer</button>
       </div>
       <div className="row4" style={{ marginBottom: 14 }}>
         <input placeholder="Search invoice or dealer" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -111,8 +130,58 @@ export default function Invoices() {
             </tbody>
           </table>
         </div>
-      ) : pisByNo === null ? (
+      ) : view === 'byPI' && pisByNo === null ? (
         <Loading label="Loading PI details…" />
+      ) : view === 'byCustomer' ? (
+        (() => {
+          const groups = buildCustomerGroups();
+          return (
+            <>
+              {groups.map((g) => {
+                const isOpen = !!openDealers[g.code];
+                return (
+                  <div className="card" key={g.code} style={{ marginBottom: 10 }}>
+                    <div
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, cursor: 'pointer' }}
+                      onClick={() => setOpenDealers((s) => ({ ...s, [g.code]: !s[g.code] }))}
+                    >
+                      <div>
+                        <span style={{ marginRight: 6 }}>{isOpen ? '▾' : '▸'}</span>
+                        <Link to={`/dealers/${g.code}`} onClick={(e) => e.stopPropagation()}><b>{g.name}</b></Link>{' '}
+                        <span className="mono muted" style={{ fontSize: 10 }}>{g.code}</span>
+                        {g.assignedTo && <span className="muted" style={{ fontSize: 12 }}> · {g.assignedTo}</span>}
+                      </div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {g.invoices.length} invoice{g.invoices.length > 1 ? 's' : ''} · ₹{Math.round(g.total).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                    {isOpen && (
+                      <div className="tblwrap" style={{ marginTop: 10 }}>
+                        <table className="dt">
+                          <thead><tr><th>Invoice</th><th>Cartons</th><th>Total ₹</th><th>Status</th><th>PI ref</th><th>Booked by</th><th>Date</th></tr></thead>
+                          <tbody>
+                            {g.invoices.map((i) => (
+                              <tr key={i.no}>
+                                <td><Link to={`/invoices/${i.no}`} className="mono"><b>{i.no}</b></Link></td>
+                                <td>{i.cartons}</td>
+                                <td>{Math.round(i.total).toLocaleString('en-IN')}</td>
+                                <td><span className={`badge ${badgeClass(i.status)}`}>{i.status}</span></td>
+                                <td>{i.manual ? <span className="badge y">Manual</span> : i.piRef}</td>
+                                <td>{i.by}</td>
+                                <td className="mono muted" style={{ fontSize: 11 }}>{new Date(i.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {!groups.length && <div className="empty">No invoices match</div>}
+            </>
+          );
+        })()
       ) : (
         (() => {
           const { piGroups, manual } = buildGroups();

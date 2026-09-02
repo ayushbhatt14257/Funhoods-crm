@@ -17,6 +17,8 @@ export default function PIList() {
   const [by, setBy] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [view, setView] = useState('flat'); // 'flat' | 'byCustomer'
+  const [openDealers, setOpenDealers] = useState({}); // dealer code -> expanded?
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
   // Unfiltered-by-status PI list (still respects search/user/date filters), fetched
@@ -42,6 +44,23 @@ export default function PIList() {
     api.get(`/pi?${params.toString()}`).then(setPis);
   }, [q, status, by, from, to]);
 
+  // Group the currently-filtered PI list by dealer for the "By customer" view.
+  function buildCustomerGroups() {
+    const groups = {}; // dealer code -> { dealerName, dealerAssignedTo, pis[] }
+    (pis || []).forEach((p) => {
+      if (!groups[p.dealer]) groups[p.dealer] = { code: p.dealer, name: p.dealerName, assignedTo: p.dealerAssignedTo, pis: [] };
+      groups[p.dealer].pis.push(p);
+    });
+    return Object.values(groups)
+      .map((g) => ({
+        ...g,
+        total: g.pis.reduce((s, p) => s + p.total, 0),
+        openCount: g.pis.filter((p) => ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched'].includes(p.status)).length,
+        latest: Math.max(...g.pis.map((p) => new Date(p.createdAt).getTime())),
+      }))
+      .sort((a, b) => b.latest - a.latest);
+  }
+
   return (
     <div>
       <div className="ph"><div className="eyebrow">Proforma invoices</div><h2>PI list</h2></div>
@@ -60,6 +79,10 @@ export default function PIList() {
           </button>
         ))}
       </div>
+      <div className="subtabs" style={{ marginBottom: 14 }}>
+        <button className={view === 'flat' ? 'on' : ''} onClick={() => setView('flat')}>Flat list</button>
+        <button className={view === 'byCustomer' ? 'on' : ''} onClick={() => setView('byCustomer')}>By customer</button>
+      </div>
       <div className="row4" style={{ marginBottom: 14 }}>
         <input placeholder="Search PI no or dealer" value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={by} onChange={(e) => setBy(e.target.value)}>
@@ -74,7 +97,7 @@ export default function PIList() {
 
       {pis === null ? (
         <Loading label="Loading PIs…" />
-      ) : (
+      ) : view === 'flat' ? (
         <div className="tblwrap">
           <table className="dt">
             <thead><tr><th>PI no</th><th>Dealer</th><th>Assigned to</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th><th></th></tr></thead>
@@ -109,6 +132,56 @@ export default function PIList() {
             </tbody>
           </table>
         </div>
+      ) : (
+        (() => {
+          const groups = buildCustomerGroups();
+          return (
+            <>
+              {groups.map((g) => {
+                const isOpen = !!openDealers[g.code];
+                return (
+                  <div className="card" key={g.code} style={{ marginBottom: 10 }}>
+                    <div
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, cursor: 'pointer' }}
+                      onClick={() => setOpenDealers((s) => ({ ...s, [g.code]: !s[g.code] }))}
+                    >
+                      <div>
+                        <span style={{ marginRight: 6 }}>{isOpen ? '▾' : '▸'}</span>
+                        <Link to={`/dealers/${g.code}`} onClick={(e) => e.stopPropagation()}><b>{g.name}</b></Link>{' '}
+                        <span className="mono muted" style={{ fontSize: 10 }}>{g.code}</span>
+                        {g.assignedTo && <span className="muted" style={{ fontSize: 12 }}> · {g.assignedTo}</span>}
+                      </div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {g.pis.length} PI{g.pis.length > 1 ? 's' : ''} · ₹{Math.round(g.total).toLocaleString('en-IN')}
+                        {g.openCount > 0 && <span className="badge y" style={{ marginLeft: 8 }}>{g.openCount} open</span>}
+                      </div>
+                    </div>
+                    {isOpen && (
+                      <div className="tblwrap" style={{ marginTop: 10 }}>
+                        <table className="dt">
+                          <thead><tr><th>PI no</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th></tr></thead>
+                          <tbody>
+                            {g.pis.map((p) => (
+                              <tr key={p.no}>
+                                <td><Link to={`/pis/${p.no}`} className="mono"><b>{p.no}</b></Link></td>
+                                <td>{p.lines.length}</td>
+                                <td>{Math.round(p.total).toLocaleString('en-IN')}</td>
+                                <td><span className={`badge ${badgeClass(p.status)}`}>{p.status}</span></td>
+                                <td>{p.by}</td>
+                                <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {!groups.length && <div className="empty">No PIs match</div>}
+            </>
+          );
+        })()
       )}
     </div>
   );
