@@ -6,8 +6,8 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const connectDB = require('../config/db');
-const User = require('../models/User');
-const Settings = require('../models/Settings');
+const User = require('../modules/users/model');
+const Settings = require('../modules/settings/model');
 
 const USERS = [
   { name: 'Ramesh Kumar', mobile: '9000000001', role: 'field', states: ['Madhya Pradesh', 'Rajasthan'], password: 'Field@123' },

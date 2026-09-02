@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import NotificationBell from './NotificationBell';
+import NotificationBell from '../features/notifications/NotificationBell';
 
 const NAV = [
   { group: 'Overview' },

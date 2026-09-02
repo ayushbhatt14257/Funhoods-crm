@@ -9,9 +9,9 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const connectDB = require('../config/db');
-const Dealer = require('../models/Dealer');
-const PI = require('../models/PI');
-const Invoice = require('../models/Invoice');
+const Dealer = require('../modules/dealers/model');
+const PI = require('../modules/pi/model');
+const Invoice = require('../modules/invoices/model');
 
 async function run() {
   await connectDB();

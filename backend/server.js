@@ -3,19 +3,19 @@ const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
 
-const authRoutes = require('./routes/authRoutes');
-const productRoutes = require('./routes/productRoutes');
-const dealerRoutes = require('./routes/dealerRoutes');
-const aliasRoutes = require('./routes/aliasRoutes');
-const piRoutes = require('./routes/piRoutes');
-const dispatchRoutes = require('./routes/dispatchRoutes');
-const invoiceRoutes = require('./routes/invoiceRoutes');
-const inventoryRoutes = require('./routes/inventoryRoutes');
-const settingsRoutes = require('./routes/settingsRoutes');
-const importRoutes = require('./routes/importRoutes');
-const ledgerRoutes = require('./routes/ledgerRoutes');
-const userRoutes = require('./routes/userRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
+const authRoutes = require('./modules/auth/routes');
+const productRoutes = require('./modules/products/routes');
+const dealerRoutes = require('./modules/dealers/routes');
+const aliasRoutes = require('./modules/aliases/routes');
+const piRoutes = require('./modules/pi/routes');
+const dispatchRoutes = require('./modules/dispatch/routes');
+const invoiceRoutes = require('./modules/invoices/routes');
+const inventoryRoutes = require('./modules/inventory/routes');
+const settingsRoutes = require('./modules/settings/routes');
+const importRoutes = require('./modules/import/routes');
+const ledgerRoutes = require('./modules/ledger/routes');
+const userRoutes = require('./modules/users/routes');
+const notificationRoutes = require('./modules/notifications/routes');
 
 const app = express();
 
