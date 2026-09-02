@@ -29,6 +29,14 @@ function PrivateRoute({ children }) {
   return children;
 }
 
+// Delivery role only deals with dispatched orders — send them straight to
+// Tax Invoices instead of the full dashboard, which they have no nav link to anyway.
+function Home() {
+  const { user } = useAuth();
+  if (user?.role === 'delivery') return <Navigate to="/invoices" replace />;
+  return <Dashboard />;
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -41,7 +49,7 @@ function AppRoutes() {
           </PrivateRoute>
         }
       >
-        <Route index element={<Dashboard />} />
+        <Route index element={<Home />} />
         <Route path="new-order" element={<NewOrder />} />
         <Route path="pis" element={<PIList />} />
         <Route path="pipeline" element={<Pipeline />} />

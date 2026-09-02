@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import Loading from '../../components/Loading';
 import { invoicesApi } from './api';
 import { piApi } from '../pi/api';
@@ -11,12 +12,14 @@ import InvoicesByCustomer from './components/InvoicesByCustomer';
 const STATUSES = ['Dispatched', 'Delivered', 'Cancelled'];
 
 export default function Invoices() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [invoices, setInvoices] = useState(null);
   const [users, setUsers] = useState([]);
   const [q, setQ] = useState('');
-  // Pre-filled from a dashboard stat-card link
-  const [status, setStatus] = useState(searchParams.get('status') || '');
+  // Pre-filled from a dashboard stat-card link; delivery role lands here straight
+  // from login and only cares about what's dispatched and awaiting delivery.
+  const [status, setStatus] = useState(searchParams.get('status') || (user?.role === 'delivery' ? 'Dispatched' : ''));
   const [by, setBy] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');

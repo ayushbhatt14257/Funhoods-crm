@@ -3,7 +3,7 @@ import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 
-const ROLES = ['field', 'mhead', 'accounts', 'dispatch', 'founder'];
+const ROLES = ['field', 'mhead', 'accounts', 'dispatch', 'delivery', 'founder'];
 
 export default function Users() {
   const { user } = useAuth();
