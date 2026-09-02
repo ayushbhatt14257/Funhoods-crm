@@ -20,6 +20,8 @@ export default function Dispatch() {
   const [filterFrom, setFilterFrom] = useState('');
   const [filterQ, setFilterQ] = useState('');
   const [statusTab, setStatusTab] = useState('Confirmed');
+  const [queueView, setQueueView] = useState('flat'); // 'flat' | 'byCustomer'
+  const [openDealers, setOpenDealers] = useState({}); // dealer code -> expanded?
   const [users, setUsers] = useState([]);
 
   // Shared dispatch-entry state
@@ -194,6 +196,10 @@ export default function Dispatch() {
             Partially Dispatched {readyPIs ? `(${readyPIs.filter((p) => p.status === 'Partial Dispatched').length})` : ''}
           </button>
         </div>
+        <div className="subtabs" style={{ marginBottom: 14 }}>
+          <button className={queueView === 'flat' ? 'on' : ''} onClick={() => setQueueView('flat')}>Flat list</button>
+          <button className={queueView === 'byCustomer' ? 'on' : ''} onClick={() => setQueueView('byCustomer')}>By customer</button>
+        </div>
         <div className="row3" style={{ marginBottom: 14 }}>
           <input placeholder="Search dealer or PI no" value={filterQ} onChange={(e) => setFilterQ(e.target.value)} />
           <select value={filterBy} onChange={(e) => setFilterBy(e.target.value)}>
@@ -205,28 +211,85 @@ export default function Dispatch() {
         {readyPIs === null ? (
           <Loading label="Loading dispatch queue…" />
         ) : (
-          <>
-            {readyPIs
+          (() => {
+            const queue = readyPIs
               .filter((p) => p.status === statusTab)
               .filter((p) => !filterBy || p.by === filterBy)
               .filter((p) => !filterFrom || new Date(p.createdAt) >= new Date(filterFrom))
-              .filter((p) => !filterQ || p.dealerName.toLowerCase().includes(filterQ.toLowerCase()) || p.no.toLowerCase().includes(filterQ.toLowerCase()))
-              .map((p) => (
-              <div className="card" key={p.no}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{p.no} · {p.dealerName}</div>
-                    <div className="muted" style={{ fontSize: 12 }}>{p.lines.length} items · ₹{Math.round(p.total).toLocaleString('en-IN')} · by {p.by} · {new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</div>
-                    <span className={`badge ${p.status === 'Partial Dispatched' ? 'y' : 'g'}`}>{p.status}</span>
-                  </div>
-                  <button className="btn sm" onClick={() => openFromPI(p.no)}>Book dispatch →</button>
-                </div>
-              </div>
-            ))}
-            {!readyPIs.filter((p) => p.status === statusTab).length && (
-              <div className="empty">No {statusTab === 'Confirmed' ? 'confirmed' : 'partially dispatched'} PIs</div>
-            )}
-          </>
+              .filter((p) => !filterQ || p.dealerName.toLowerCase().includes(filterQ.toLowerCase()) || p.no.toLowerCase().includes(filterQ.toLowerCase()));
+
+            if (queueView === 'flat') {
+              return (
+                <>
+                  {queue.map((p) => (
+                    <div className="card" key={p.no}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{p.no} · {p.dealerName}</div>
+                          <div className="muted" style={{ fontSize: 12 }}>{p.lines.length} items · ₹{Math.round(p.total).toLocaleString('en-IN')} · by {p.by} · {new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</div>
+                          <span className={`badge ${p.status === 'Partial Dispatched' ? 'y' : 'g'}`}>{p.status}</span>
+                        </div>
+                        <button className="btn sm" onClick={() => openFromPI(p.no)}>Book dispatch →</button>
+                      </div>
+                    </div>
+                  ))}
+                  {!queue.length && (
+                    <div className="empty">No {statusTab === 'Confirmed' ? 'confirmed' : 'partially dispatched'} PIs</div>
+                  )}
+                </>
+              );
+            }
+
+            // Group by dealer — makes it obvious at a glance which parties have
+            // some PIs fully pending vs. already partially dispatched.
+            const groups = {};
+            queue.forEach((p) => {
+              if (!groups[p.dealer]) groups[p.dealer] = { code: p.dealer, name: p.dealerName, pis: [] };
+              groups[p.dealer].pis.push(p);
+            });
+            const sortedGroups = Object.values(groups)
+              .map((g) => ({ ...g, total: g.pis.reduce((s, p) => s + p.total, 0), latest: Math.max(...g.pis.map((p) => new Date(p.createdAt).getTime())) }))
+              .sort((a, b) => b.latest - a.latest);
+
+            return (
+              <>
+                {sortedGroups.map((g) => {
+                  const isOpen = openDealers[g.code] !== false; // default expanded
+                  return (
+                    <div className="card" key={g.code} style={{ marginBottom: 10 }}>
+                      <div
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, cursor: 'pointer' }}
+                        onClick={() => setOpenDealers((s) => ({ ...s, [g.code]: !isOpen }))}
+                      >
+                        <div>
+                          <span style={{ marginRight: 6 }}>{isOpen ? '▾' : '▸'}</span>
+                          <b>{g.name}</b> <span className="mono muted" style={{ fontSize: 10 }}>{g.code}</span>
+                        </div>
+                        <div className="muted" style={{ fontSize: 12 }}>{g.pis.length} PI{g.pis.length > 1 ? 's' : ''} · ₹{Math.round(g.total).toLocaleString('en-IN')}</div>
+                      </div>
+                      {isOpen && (
+                        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {g.pis.map((p) => (
+                            <div key={p.no} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+                              <div>
+                                <span className="mono"><b>{p.no}</b></span>
+                                <span className="muted" style={{ fontSize: 12 }}> · {p.lines.length} items · ₹{Math.round(p.total).toLocaleString('en-IN')} · by {p.by} · {new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>{' '}
+                                <span className={`badge ${p.status === 'Partial Dispatched' ? 'y' : 'g'}`}>{p.status}</span>
+                              </div>
+                              <button className="btn sm" onClick={() => openFromPI(p.no)}>Book dispatch →</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {!sortedGroups.length && (
+                  <div className="empty">No {statusTab === 'Confirmed' ? 'confirmed' : 'partially dispatched'} PIs</div>
+                )}
+              </>
+            );
+          })()
         )}
       </div>
     );
