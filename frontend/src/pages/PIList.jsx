@@ -19,6 +19,17 @@ export default function PIList() {
   const [to, setTo] = useState('');
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
+  // Unfiltered-by-status PI list (still respects search/user/date filters), fetched
+  // separately so the status tabs can show a live count next to each label.
+  const [allPis, setAllPis] = useState(null);
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (by) params.set('by', by);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    api.get(`/pi?${params.toString()}`).then(setAllPis);
+  }, [q, by, from, to]);
 
   useEffect(() => {
     setPis(null);
@@ -39,12 +50,18 @@ export default function PIList() {
           Showing: {status.split(',').join(' + ')} · <button className="btn o sm" onClick={() => setStatus('')}>Clear filter</button>
         </div>
       )}
+      <div className="subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
+        <button className={status === '' ? 'on' : ''} onClick={() => setStatus('')}>
+          All {pis ? `(${pis.length})` : ''}
+        </button>
+        {STATUSES.map((s) => (
+          <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>
+            {s}{allPis ? ` (${allPis.filter((p) => p.status === s).length})` : ''}
+          </button>
+        ))}
+      </div>
       <div className="row4" style={{ marginBottom: 14 }}>
         <input placeholder="Search PI no or dealer" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
         <select value={by} onChange={(e) => setBy(e.target.value)}>
           <option value="">All users</option>
           {users.map((u) => <option key={u._id} value={u.name}>{u.name}</option>)}
