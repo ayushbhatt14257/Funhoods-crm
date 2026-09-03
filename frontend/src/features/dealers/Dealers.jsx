@@ -141,7 +141,7 @@ export default function Dealers() {
             </select>
           </div>
 
-          <div className="row2">
+          <div className="row3">
             <div className="fg">
               <label>GST certificate {editing.gstCertUrl ? '(replace)' : '(missing)'}</label>
               {editing.gstCertUrl && <a href={editing.gstCertUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>View current file</a>}
@@ -151,6 +151,11 @@ export default function Dealers() {
               <label>Aadhaar card {editing.aadharUrl ? '(replace)' : '(optional — not on file)'}</label>
               {editing.aadharUrl && <a href={editing.aadharUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>View current file</a>}
               <input type="file" accept=".pdf,image/*" onChange={(e) => uploadDoc('aadhar', e.target.files[0])} />
+            </div>
+            <div className="fg">
+              <label>Business card {editing.businessCardUrl ? '(replace)' : '(optional — not on file)'}</label>
+              {editing.businessCardUrl && <a href={editing.businessCardUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>View current file</a>}
+              <input type="file" accept=".pdf,image/*" onChange={(e) => uploadDoc('business-card', e.target.files[0])} />
             </div>
           </div>
 

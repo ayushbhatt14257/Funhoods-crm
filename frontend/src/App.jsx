@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import Login from './features/auth/Login';
 import Dashboard from './features/dashboard/Dashboard';
 import Products from './features/products/Products';
+import ProductDetail from './features/products/ProductDetail';
 import Dealers from './features/dealers/Dealers';
 import DealerDetail from './features/dealers/DealerDetail';
 import Aliases from './features/aliases/Aliases';
@@ -60,6 +61,7 @@ function AppRoutes() {
         <Route path="dealers" element={<Dealers />} />
         <Route path="dealers/:code" element={<DealerDetail />} />
         <Route path="products" element={<Products />} />
+        <Route path="products/:code" element={<ProductDetail />} />
         <Route path="aliases" element={<Aliases />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="outstanding" element={<Outstanding />} />

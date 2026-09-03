@@ -1,6 +1,7 @@
 const Product = require('./model');
 const Inventory = require('../inventory/model');
 const PI = require('../pi/model');
+const { uploadBuffer, destroyAsset } = require('../../config/cloudinary');
 
 async function list(req, res) {
   const { q } = req.query;
@@ -74,7 +75,96 @@ async function remove(req, res) {
   const product = await Product.findOneAndDelete({ code });
   if (!product) return res.status(404).json({ message: 'Product not found' });
   await Inventory.findOneAndDelete({ code });
+  // Best-effort cleanup of everything this product had in Cloudinary.
+  await Promise.all([
+    ...(product.images || []).map((im) => destroyAsset(im.publicId, 'image')),
+    destroyAsset(product.video?.publicId, 'video'),
+  ]);
   res.json({ message: 'Deleted', wasUsedInPastPI: !!usedInPI });
 }
 
-module.exports = { list, getOne, create, update, uploadPhoto, remove };
+// --- Gallery (multiple images) ---
+
+// POST /api/products/:code/images  (multipart, field "images", multiple files)
+async function uploadImages(req, res) {
+  if (!req.files?.length) return res.status(400).json({ message: 'No files uploaded' });
+  const code = req.params.code.toUpperCase();
+  const product = await Product.findOne({ code });
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+
+  const uploaded = await Promise.all(
+    req.files.map((f) => uploadBuffer(f.buffer, { folder: `funhoods-crm/products/${code}/images`, resourceType: 'image' }))
+  );
+  const newImages = uploaded.map((r) => ({ url: r.secure_url, publicId: r.public_id }));
+  product.images.push(...newImages);
+  if (!product.featuredImage?.url) {
+    product.featuredImage = newImages[0];
+    product.photo = newImages[0].url;
+  }
+  await product.save();
+  res.json(product);
+}
+
+// DELETE /api/products/:code/images  body: { publicId }
+async function removeImage(req, res) {
+  const code = req.params.code.toUpperCase();
+  const { publicId } = req.body;
+  if (!publicId) return res.status(400).json({ message: 'publicId required' });
+  const product = await Product.findOne({ code });
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+
+  await destroyAsset(publicId, 'image');
+  product.images = product.images.filter((im) => im.publicId !== publicId);
+  if (product.featuredImage?.publicId === publicId) {
+    product.featuredImage = product.images[0] || { url: '', publicId: '' };
+    product.photo = product.featuredImage.url;
+  }
+  await product.save();
+  res.json(product);
+}
+
+// PUT /api/products/:code/featured-image  body: { publicId }
+async function setFeaturedImage(req, res) {
+  const code = req.params.code.toUpperCase();
+  const { publicId } = req.body;
+  const product = await Product.findOne({ code });
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+  const match = product.images.find((im) => im.publicId === publicId);
+  if (!match) return res.status(400).json({ message: 'That image is not in this product\'s gallery' });
+  product.featuredImage = match;
+  product.photo = match.url;
+  await product.save();
+  res.json(product);
+}
+
+// --- Video (single) ---
+
+// PUT /api/products/:code/video  (multipart, field "video")
+async function uploadVideo(req, res) {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+  const code = req.params.code.toUpperCase();
+  const product = await Product.findOne({ code });
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+
+  if (product.video?.publicId) await destroyAsset(product.video.publicId, 'video'); // replacing — clear the old one
+  const result = await uploadBuffer(req.file.buffer, { folder: `funhoods-crm/products/${code}/video`, resourceType: 'video' });
+  product.video = { url: result.secure_url, publicId: result.public_id };
+  await product.save();
+  res.json(product);
+}
+
+// DELETE /api/products/:code/video
+async function removeVideo(req, res) {
+  const code = req.params.code.toUpperCase();
+  const product = await Product.findOne({ code });
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+  await destroyAsset(product.video?.publicId, 'video');
+  product.video = { url: '', publicId: '' };
+  await product.save();
+  res.json(product);
+}
+
+module.exports = {
+  list, getOne, create, update, uploadPhoto, remove,
+  uploadImages, removeImage, setFeaturedImage, uploadVideo, removeVideo,
+};

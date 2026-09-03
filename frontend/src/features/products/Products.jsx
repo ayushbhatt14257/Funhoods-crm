@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { Link } from 'react-router-dom';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
+import { productsApi } from './api';
 
 const emptyForm = { code: '', name: '', size: '', category: '', cartonOuter: '', cartonInner: '', rate: '', gst_pct: 5 };
 
@@ -9,14 +10,11 @@ export default function Products() {
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [q, setQ] = useState('');
-  const [editing, setEditing] = useState(null); // product object or null
+  const [editing, setEditing] = useState(null); // product object or null — quick basic-field edit only
   const [form, setForm] = useState(emptyForm);
   const [isNew, setIsNew] = useState(false);
 
-  async function load() {
-    const data = await api.get(`/products${q ? `?q=${encodeURIComponent(q)}` : ''}`);
-    setProducts(data);
-  }
+  async function load() { setProducts(await productsApi.list(q)); }
   useEffect(() => { load(); }, [q]);
 
   function openEdit(p) {
@@ -34,10 +32,10 @@ export default function Products() {
     try {
       const body = { ...form, cartonOuter: +form.cartonOuter, cartonInner: +form.cartonInner || undefined, rate: +form.rate, gst_pct: +form.gst_pct };
       if (isNew) {
-        await api.post('/products', body);
-        showToast('Product created', 'g');
+        await productsApi.create(body);
+        showToast('Product created — add photos/video from its page', 'g');
       } else {
-        await api.put(`/products/${editing.code}`, body);
+        await productsApi.update(editing.code, body);
         showToast('Product updated', 'g');
       }
       setEditing(null);
@@ -48,20 +46,9 @@ export default function Products() {
   async function remove(code) {
     if (!confirm('Delete this product? This cannot be undone.')) return;
     try {
-      await api.del(`/products/${code}`);
+      await productsApi.remove(code);
       showToast('Product deleted', 'g');
       setEditing(null);
-      load();
-    } catch (err) { showToast(err.message, 'err'); }
-  }
-
-  async function uploadPhoto(code, file) {
-    const fd = new FormData();
-    fd.append('photo', file);
-    try {
-      const updated = await api.putForm(`/products/${code}/photo`, fd);
-      showToast('Photo uploaded', 'g');
-      setEditing(updated);
       load();
     } catch (err) { showToast(err.message, 'err'); }
   }
@@ -71,7 +58,7 @@ export default function Products() {
       <div className="ph">
         <div className="eyebrow">Everything you sell</div>
         <h2>Products</h2>
-        <p>Cartons and inner cartons (half the outer) both settable.</p>
+        <p>Click a product to manage its photo gallery, video, and full details.</p>
       </div>
       <div className="btnrow" style={{ marginBottom: 14 }}>
         <input placeholder="Search product name or code" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
@@ -80,18 +67,29 @@ export default function Products() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 14 }}>
         {products.map((p) => (
           <div key={p.code} className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ aspectRatio: '1', background: p.photo ? `url(${p.photo}) center/cover` : 'var(--paper-d)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 44 }}>
-              {!p.photo && '📦'}
-            </div>
+            <Link to={`/products/${p.code}`} style={{ display: 'block', position: 'relative' }}>
+              <div style={{ aspectRatio: '1', background: p.photo ? `url(${p.photo}) center/cover` : 'var(--paper-d)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 44 }}>
+                {!p.photo && '📦'}
+              </div>
+              {p.images?.length > 1 && (
+                <span className="badge" style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}>🖼 {p.images.length}</span>
+              )}
+              {p.video?.url && (
+                <span className="badge" style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}>▶ video</span>
+              )}
+            </Link>
             <div style={{ padding: 12 }}>
               <div className="mono muted" style={{ fontSize: 10.5 }}>{p.code}{p.size ? ` · ${p.size}` : ''}</div>
-              <div style={{ fontWeight: 600, fontSize: 14.5, margin: '2px 0 6px' }}>{p.name}</div>
+              <Link to={`/products/${p.code}`} style={{ fontWeight: 600, fontSize: 14.5, margin: '2px 0 6px', display: 'block', color: 'inherit' }}>{p.name}</Link>
               <div style={{ fontSize: 12.5, display: 'flex', justifyContent: 'space-between' }}>
                 <span>₹{p.rate}</span><span>GST {p.gst_pct}%</span>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Carton: {p.cartonOuter} outer / {p.cartonInner} inner</div>
               {p.category && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.category}</div>}
-              <button className="btn o sm" style={{ marginTop: 9, width: '100%' }} onClick={() => openEdit(p)}>Edit</button>
+              <div className="btnrow" style={{ marginTop: 9 }}>
+                <Link to={`/products/${p.code}`} className="btn sm" style={{ flex: 1, textAlign: 'center' }}>View / Gallery</Link>
+                <button className="btn o sm" onClick={() => openEdit(p)}>Quick edit</button>
+              </div>
             </div>
           </div>
         ))}
@@ -99,14 +97,7 @@ export default function Products() {
       </div>
 
       {editing && (
-        <Modal title={isNew ? 'New product' : editing.name} onClose={() => setEditing(null)}>
-          {!isNew && (
-            <div className="fg">
-              <label>Photo</label>
-              {editing.photo && <img src={editing.photo} alt="" style={{ width: 80, height: 80, borderRadius: 8, objectFit: 'cover', marginBottom: 8 }} />}
-              <input type="file" accept="image/*" onChange={(e) => e.target.files[0] && uploadPhoto(editing.code, e.target.files[0])} />
-            </div>
-          )}
+        <Modal title={isNew ? 'New product' : `Quick edit — ${editing.name}`} onClose={() => setEditing(null)}>
           <div className="row2">
             <div className="fg"><label>Code {isNew ? '*' : '(locked)'}</label>
               <input value={form.code} disabled={!isNew} onChange={(e) => setForm({ ...form, code: e.target.value })} />
@@ -127,6 +118,7 @@ export default function Products() {
             <div className="fg"><label>Outer carton pcs</label><input type="number" value={form.cartonOuter} onChange={(e) => setForm({ ...form, cartonOuter: e.target.value, cartonInner: Math.round(e.target.value / 2) })} /></div>
             <div className="fg"><label>Inner carton pcs</label><input type="number" value={form.cartonInner} onChange={(e) => setForm({ ...form, cartonInner: e.target.value })} /></div>
           </div>
+          {!isNew && <div className="note b" style={{ fontSize: 12 }}>Photos, video, and gallery management have moved to the product's own page — open "View / Gallery" from the card.</div>}
           <div className="btnrow">
             <button className="btn" onClick={save}>Save</button>
             <button className="btn o" onClick={() => setEditing(null)}>Cancel</button>

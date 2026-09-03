@@ -89,6 +89,7 @@ async function notifyRateEdits(lines, pi, editorName) {
       type: 'rate_edit',
       message: `${editorName} edited the rate on ${l.name} (${l.code}) in ${pi.no} — list ₹${l.listRate} → ₹${l.rate}`,
       relatedNo: pi.no,
+      relatedKind: 'pi',
       byUser: editorName,
       forRole: 'founder',
     });

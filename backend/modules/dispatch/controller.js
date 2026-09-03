@@ -4,6 +4,7 @@ const Product = require('../products/model');
 const Invoice = require('../invoices/model');
 const Inventory = require('../inventory/model');
 const Ledger = require('../ledger/model');
+const Notification = require('../notifications/model');
 
 function todayISODate() {
   return new Date();
@@ -40,6 +41,17 @@ async function buildPackingFromCartonMap(cartonMap) {
     packing.push({ no: c.no, mixed: c.items.length > 1, items });
   }
   return packing;
+}
+
+function notifyDispatched(invoice) {
+  if (!invoice.by) return Promise.resolve();
+  return Notification.create({
+    type: 'dispatched',
+    message: `${invoice.no} for ${invoice.dealerName} has been dispatched — ₹${Math.round(invoice.total).toLocaleString('en-IN')}, ${invoice.cartons} carton(s).`,
+    relatedNo: invoice.no,
+    relatedKind: 'invoice',
+    forUserName: invoice.by,
+  });
 }
 
 // POST /api/dispatch/from-pi/:piNo
@@ -123,6 +135,7 @@ async function dispatchFromPI(req, res) {
       date: todayISODate(), dealer: pi.dealer, type: 'Invoice', ref: invoice.no,
       debit: grand, credit: 0, note: `From PI ${pi.no}`,
     });
+    await notifyDispatched(invoice);
 
     res.status(201).json({ invoice, piStatus: pi.status });
   } catch (err) {
@@ -193,6 +206,7 @@ async function dispatchManual(req, res) {
       date: todayISODate(), dealer: dealer.code, type: 'Invoice', ref: invoice.no,
       debit: grand, credit: 0, note: 'Manual dispatch (no PI)',
     });
+    await notifyDispatched(invoice);
 
     res.status(201).json({ invoice });
   } catch (err) {

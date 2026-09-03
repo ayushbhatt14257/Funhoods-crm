@@ -1,6 +1,8 @@
 const XLSX = require('xlsx');
 const Invoice = require('./model');
 const Dealer = require('../dealers/model');
+const Notification = require('../notifications/model');
+const { uploadBuffer, destroyAsset } = require('../../config/cloudinary');
 
 async function list(req, res) {
   const { q, status, by, dealer, from, to } = req.query;
@@ -44,6 +46,46 @@ async function markDelivered(req, res) {
     { new: true }
   );
   if (!inv) return res.status(404).json({ message: 'Invoice not found' });
+  if (inv.by) {
+    await Notification.create({
+      type: 'delivered',
+      message: `${inv.no} for ${inv.dealerName} was marked delivered.`,
+      relatedNo: inv.no,
+      relatedKind: 'invoice',
+      forUserName: inv.by,
+    });
+  }
+  res.json(inv);
+}
+
+// PUT /api/invoices/:no/builty  (multipart, field "file") — the LR/builty receipt for this dispatch
+async function uploadBuilty(req, res) {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+  const inv = await Invoice.findOne({ no: req.params.no });
+  if (!inv) return res.status(404).json({ message: 'Invoice not found' });
+
+  if (inv.builty?.publicId) await destroyAsset(inv.builty.publicId, 'image'); // replacing — clear the old one
+  const result = await uploadBuffer(req.file.buffer, {
+    folder: `funhoods-crm/customers/${inv.dealer}/builty`,
+    resourceType: 'auto',
+  });
+  inv.builty = { url: result.secure_url, publicId: result.public_id };
+  await inv.save();
+  res.json(inv);
+}
+
+// PATCH /api/invoices/:no/mark-paid — marks payment received. This is a
+// standalone tracking flag on the invoice for the 30-day reminder; it does
+// NOT touch the Ledger (that stays driven by the existing manual
+// "record payment" flow on the dealer's ledger, since one payment often
+// covers several invoices at once).
+async function markPaid(req, res) {
+  const inv = await Invoice.findOneAndUpdate(
+    { no: req.params.no },
+    { paymentReceived: true, paymentReceivedAt: new Date(), paymentReceivedBy: req.user.name },
+    { new: true }
+  );
+  if (!inv) return res.status(404).json({ message: 'Invoice not found' });
   res.json(inv);
 }
 
@@ -67,4 +109,4 @@ async function packingListExcel(req, res) {
   res.send(buf);
 }
 
-module.exports = { list, getOne, markDelivered, packingListExcel };
+module.exports = { list, getOne, markDelivered, packingListExcel, uploadBuilty, markPaid };

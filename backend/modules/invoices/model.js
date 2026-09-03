@@ -57,6 +57,10 @@ const invoiceSchema = new mongoose.Schema(
     packing: [packingCartonSchema],
     dispatchDate: Date,
     deliveredDate: Date,
+    builty: { url: { type: String, default: '' }, publicId: { type: String, default: '' } }, // LR/builty receipt for this dispatch
+    paymentReceived: { type: Boolean, default: false },
+    paymentReceivedAt: { type: Date, default: null },
+    paymentReceivedBy: { type: String, default: '' },
   },
   { timestamps: true }
 );

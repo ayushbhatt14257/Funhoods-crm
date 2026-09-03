@@ -13,6 +13,7 @@ const dealerSchema = new mongoose.Schema(
     gstin: { type: String, default: '' },
     gstCertUrl: { type: String, default: '' },
     aadharUrl: { type: String, default: '' },
+    businessCardUrl: { type: String, default: '' },
     type: { type: String, enum: ['Retailer', 'Wholesaler', 'Distributor', 'Retail+Wholesale'], default: 'Retailer' },
     payment: { type: String, enum: ['Advance', 'Credit-15d', 'Credit-30d'], default: 'Advance' },
     creditLimit: { type: Number, default: 0 },

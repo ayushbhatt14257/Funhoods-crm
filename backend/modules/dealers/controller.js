@@ -94,4 +94,13 @@ async function uploadAadhar(req, res) {
   res.json(dealer);
 }
 
-module.exports = { list, getOne, create, update, remove, uploadGstCert, uploadAadhar };
+// PUT /api/dealers/:code/business-card  (multipart, field "file")
+async function uploadBusinessCard(req, res) {
+  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+  const code = req.params.code.toUpperCase();
+  const dealer = await Dealer.findOneAndUpdate({ code }, { businessCardUrl: req.file.path }, { new: true });
+  if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
+  res.json(dealer);
+}
+
+module.exports = { list, getOne, create, update, remove, uploadGstCert, uploadAadhar, uploadBusinessCard };
