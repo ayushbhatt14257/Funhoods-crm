@@ -72,7 +72,7 @@ export default function PIList() {
       )}
       <div className="subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
         <button className={status === '' ? 'on' : ''} onClick={() => setStatus('')}>
-          All {pis ? `(${pis.length})` : ''}
+          All {allPis ? `(${allPis.length})` : ''}
         </button>
         {STATUSES.map((s) => (
           <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>

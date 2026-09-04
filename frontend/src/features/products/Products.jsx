@@ -53,6 +53,14 @@ export default function Products() {
     } catch (err) { showToast(err.message, 'err'); }
   }
 
+  async function setFeatured(publicId) {
+    try {
+      const updated = await productsApi.setFeaturedImage(editing.code, publicId);
+      setEditing(updated);
+      load();
+    } catch (err) { showToast(err.message, 'err'); }
+  }
+
   return (
     <div>
       <div className="ph">
@@ -118,7 +126,30 @@ export default function Products() {
             <div className="fg"><label>Outer carton pcs</label><input type="number" value={form.cartonOuter} onChange={(e) => setForm({ ...form, cartonOuter: e.target.value, cartonInner: Math.round(e.target.value / 2) })} /></div>
             <div className="fg"><label>Inner carton pcs</label><input type="number" value={form.cartonInner} onChange={(e) => setForm({ ...form, cartonInner: e.target.value })} /></div>
           </div>
-          {!isNew && <div className="note b" style={{ fontSize: 12 }}>Photos, video, and gallery management have moved to the product's own page — open "View / Gallery" from the card.</div>}
+          {!isNew && (editing.images?.length > 0 ? (
+            <div className="fg">
+              <label>Cover image {editing.images.length > 1 ? '— click to change' : ''}</label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {editing.images.map((im) => {
+                  const isFeatured = editing.featuredImage?.publicId === im.publicId;
+                  return (
+                    <button
+                      key={im.publicId}
+                      type="button"
+                      onClick={() => setFeatured(im.publicId)}
+                      title={isFeatured ? 'Current cover image' : 'Set as cover image'}
+                      style={{ padding: 0, border: isFeatured ? '2px solid var(--spruce)' : '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', position: 'relative', width: 52, height: 52, overflow: 'hidden', background: 'none' }}
+                    >
+                      <img src={im.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {isFeatured && <span style={{ position: 'absolute', top: 1, right: 1, fontSize: 10, background: 'var(--spruce)', color: '#fff', borderRadius: 3, padding: '0 2px' }}>★</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="note b" style={{ fontSize: 12 }}>No photos uploaded yet — add some from "View / Gallery" to set a cover image.</div>
+          ))}
           <div className="btnrow">
             <button className="btn" onClick={save}>Save</button>
             <button className="btn o" onClick={() => setEditing(null)}>Cancel</button>
