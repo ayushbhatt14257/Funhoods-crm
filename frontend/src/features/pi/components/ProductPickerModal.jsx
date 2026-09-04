@@ -3,10 +3,38 @@ import Modal from '../../../components/Modal';
 
 export default function ProductPickerModal({ products, onPick, onClose }) {
   const [q, setQ] = useState('');
-  const filtered = products.filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.code.toLowerCase().includes(q.toLowerCase()));
+  const [category, setCategory] = useState(''); // '' = All
+  const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
+  const filtered = products
+    .filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.code.toLowerCase().includes(q.toLowerCase()))
+    .filter((p) => !category || p.category === category);
+
   return (
     <Modal title="Pick product" onClose={onClose}>
       <input placeholder="Search code or name" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 11 }} autoFocus />
+      {categories.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 11, WebkitOverflowScrolling: 'touch' }}>
+          <button
+            type="button"
+            className={category === '' ? 'btn sm' : 'btn o sm'}
+            style={{ flexShrink: 0 }}
+            onClick={() => setCategory('')}
+          >
+            All
+          </button>
+          {categories.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={category === c ? 'btn sm' : 'btn o sm'}
+              style={{ flexShrink: 0 }}
+              onClick={() => setCategory(c)}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10, maxHeight: 420, overflowY: 'auto' }}>
         {filtered.length ? filtered.map((p) => (
           <div
