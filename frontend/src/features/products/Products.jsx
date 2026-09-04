@@ -3,19 +3,25 @@ import { Link } from 'react-router-dom';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
 import { productsApi } from './api';
+import { categoriesApi } from './categoriesApi';
+import CategoryManagerModal from './components/CategoryManagerModal';
 
 const emptyForm = { code: '', name: '', size: '', category: '', cartonOuter: '', cartonInner: '', rate: '', gst_pct: 5 };
 
 export default function Products() {
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(null); // product object or null — quick basic-field edit only
   const [form, setForm] = useState(emptyForm);
   const [isNew, setIsNew] = useState(false);
+  const [managingCategories, setManagingCategories] = useState(false);
 
   async function load() { setProducts(await productsApi.list(q)); }
+  async function loadCategories() { setCategories(await categoriesApi.list()); }
   useEffect(() => { load(); }, [q]);
+  useEffect(() => { loadCategories(); }, []);
 
   function openEdit(p) {
     setEditing(p);
@@ -114,7 +120,13 @@ export default function Products() {
           </div>
           <div className="row3">
             <div className="fg"><label>Size</label><input value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value })} /></div>
-            <div className="fg"><label>Category</label><input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></div>
+            <div className="fg"><label>Category</label>
+              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                <option value="">— none —</option>
+                {categories.map((c) => <option key={c._id} value={c.name}>{c.name}</option>)}
+              </select>
+              <button type="button" className="btn o sm" style={{ marginTop: 4, fontSize: 10.5 }} onClick={() => setManagingCategories(true)}>Manage categories</button>
+            </div>
             <div className="fg"><label>GST %</label>
               <select value={form.gst_pct} onChange={(e) => setForm({ ...form, gst_pct: e.target.value })}>
                 <option value={5}>5</option><option value={12}>12</option><option value={18}>18</option>
@@ -164,6 +176,14 @@ export default function Products() {
             {!isNew && <button className="btn rd" style={{ marginLeft: 'auto' }} onClick={() => remove(editing.code)}>Delete</button>}
           </div>
         </Modal>
+      )}
+
+      {managingCategories && (
+        <CategoryManagerModal
+          categories={categories}
+          onChange={loadCategories}
+          onClose={() => setManagingCategories(false)}
+        />
       )}
     </div>
   );
