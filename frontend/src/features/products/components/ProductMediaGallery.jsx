@@ -131,6 +131,13 @@ export default function ProductMediaGallery({ product, onChange }) {
             })}
           </div>
         </div>
+      ) : product.photo ? (
+        <div>
+          <div style={{ width: '100%', maxWidth: 460, aspectRatio: '1', background: 'var(--paper)', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+            <img src={product.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
+          <div className="note b" style={{ fontSize: 12 }}>This photo was uploaded before the gallery feature existed, so it isn't in the gallery below yet. Add photos above to build a proper gallery — the first one you add becomes the new cover automatically.</div>
+        </div>
       ) : (
         <div className="empty">No photos or video yet — add some so it shows on PIs, dispatch, and invoices.</div>
       )}

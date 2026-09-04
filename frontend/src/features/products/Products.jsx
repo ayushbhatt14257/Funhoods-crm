@@ -147,6 +147,14 @@ export default function Products() {
                 })}
               </div>
             </div>
+          ) : editing.photo ? (
+            <div className="fg">
+              <label>Current photo</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <img src={editing.photo} alt="" style={{ width: 52, height: 52, borderRadius: 6, objectFit: 'cover', border: '1px solid var(--line)' }} />
+                <span className="muted" style={{ fontSize: 11.5 }}>Uploaded before the gallery feature — open "View / Gallery" to add more photos or replace it.</span>
+              </div>
+            </div>
           ) : (
             <div className="note b" style={{ fontSize: 12 }}>No photos uploaded yet — add some from "View / Gallery" to set a cover image.</div>
           ))}
