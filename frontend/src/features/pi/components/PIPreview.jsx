@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../../api/client';
+import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
 import { piApi } from '../api';
 
@@ -8,6 +9,8 @@ import { piApi } from '../api';
 // onBack: go back to editing the order (optional)
 export default function PIPreview({ dealer, initialLines, onBack }) {
   const { showToast } = useToast();
+  const { user } = useAuth();
+  const isFounder = user?.role === 'founder';
   const nav = useNavigate();
   const [settings, setSettings] = useState(null);
   const [lines, setLines] = useState([]);
@@ -25,17 +28,21 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
     })));
   }, [initialLines]);
 
+  // Edited rates move in whole rupees only (26 → 27, never 26.01) — the list
+  // rate itself can still carry paise (e.g. ₹57.25), only edits get rounded.
   function editRate(i, val) {
     const next = [...lines];
-    next[i] = { ...next[i], rate: +val || 0 };
+    const entered = val === '' ? '' : Math.round(+val || 0);
+    next[i] = { ...next[i], rate: entered };
     setLines(next);
   }
 
   const computed = lines.map((l) => {
-    const tax = +((l.rate * l.gstPct) / 100).toFixed(2);
-    const gross = +(l.rate + tax).toFixed(2);
+    const rate = +l.rate || 0;
+    const tax = +((rate * l.gstPct) / 100).toFixed(2);
+    const gross = +(rate + tax).toFixed(2);
     const total = +(gross * l.pcs).toFixed(2);
-    return { ...l, tax, gross, total, rateEdited: l.rate !== l.listRate, belowFloor: l.rate < l.listRate };
+    return { ...l, rate, tax, gross, total, rateEdited: rate !== l.listRate, belowFloor: !isFounder && rate < l.listRate };
   });
   const subtotal = computed.reduce((s, l) => s + l.total, 0);
   const grandTotal = subtotal;
@@ -114,7 +121,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
                 <td className="r">{l.pcs}</td>
                 <td className="r">
                   <input
-                    type="number" step="0.01" min={l.listRate} value={l.rate}
+                    type="number" step="1" min={isFounder ? undefined : l.listRate} value={l.rate}
                     style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12, borderColor: l.belowFloor ? 'var(--red)' : undefined }}
                     onChange={(e) => editRate(i, e.target.value)}
                   />

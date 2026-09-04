@@ -20,7 +20,7 @@ async function parseOrder(req, res) {
 
 // Shared line-builder: takes raw input lines + returns computed PI line objects.
 // Supports outer/inner cartons OR a direct "pcs" override (e.g. loose pieces not matching a full carton).
-async function buildLines(inputLines) {
+async function buildLines(inputLines, role) {
   // First merge any duplicate product codes into one entry — summing pcs/outers/inners.
   // Two separate lines of the same SKU on one PI break dispatch carton-mapping (which is
   // keyed by product code), so they're combined here regardless of how they were entered.
@@ -49,8 +49,13 @@ async function buildLines(inputLines) {
     const product = await Product.findOne({ code: il.code.toUpperCase() });
     if (!product) throw new Error(`Product ${il.code} not found`);
 
-    const rate = il.rate != null ? +il.rate : product.rate;
-    if (rate < product.rate) {
+    // Edited rates move in whole rupees only (26 → 27, never 26.01) — round
+    // any explicit override; leave the product's own list rate untouched
+    // (list rates themselves can carry paise, e.g. ₹57.25).
+    const rate = il.rate != null ? Math.round(+il.rate) : product.rate;
+    // Only the founder can price below the base rate (a real negotiated
+    // discount call); everyone else can only match or raise it.
+    if (rate < product.rate && role !== 'founder') {
       throw new Error(`Rate for ${product.name} (₹${rate}) cannot be below the base price ₹${product.rate}`);
     }
     const gstPct = product.gst_pct || 5;
@@ -104,7 +109,7 @@ async function create(req, res) {
     if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
     if (!Array.isArray(inputLines) || !inputLines.length) return res.status(400).json({ message: 'At least one line required' });
 
-    const lines = await buildLines(inputLines);
+    const lines = await buildLines(inputLines, req.user.role);
     const subtotal = lines.reduce((s, l) => s + l.total, 0);
     const transportAmt = +transport || 0;
     const count = await PI.countDocuments();
@@ -179,7 +184,7 @@ async function update(req, res) {
 
     const { lines: inputLines, remark, transport, freightTerm } = req.body;
     if (Array.isArray(inputLines) && inputLines.length) {
-      const lines = await buildLines(inputLines);
+      const lines = await buildLines(inputLines, req.user.role);
       pi.lines = lines;
       pi.subtotal = lines.reduce((s, l) => s + l.total, 0);
       await notifyRateEdits(lines, pi, req.user.name);

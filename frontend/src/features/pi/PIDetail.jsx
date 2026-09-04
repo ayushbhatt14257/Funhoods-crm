@@ -15,6 +15,7 @@ export default function PIDetail() {
   const [searchParams] = useSearchParams();
   const { showToast } = useToast();
   const { user } = useAuth();
+  const isFounder = user?.role === 'founder';
   const nav = useNavigate();
   const [pi, setPi] = useState(null);
   const [dealer, setDealer] = useState(null);
@@ -88,7 +89,8 @@ export default function PIDetail() {
   }
   function editField(i, field, val) {
     const next = [...editLines];
-    next[i] = { ...next[i], [field]: +val || 0 };
+    // Rate edits move in whole rupees only; pcs stays a plain integer input.
+    next[i] = { ...next[i], [field]: field === 'rate' ? Math.round(+val || 0) : (+val || 0) };
     setEditLines(next);
   }
   function removeEditLine(i) {
@@ -117,7 +119,7 @@ export default function PIDetail() {
   }
 
   const editTotal = editLines.reduce((s, l) => s + l.pcs * l.rate * (1 + (l.gstPct || 5) / 100), 0);
-  const belowFloorEditLines = editLines.filter((l) => l.rate < l.listRate);
+  const belowFloorEditLines = isFounder ? [] : editLines.filter((l) => l.rate < l.listRate);
 
   async function saveEdit() {
     if (!editLines.length) return showToast('PI needs at least one item', 'err');
@@ -160,10 +162,10 @@ export default function PIDetail() {
                   <td><input type="number" style={{ width: 90 }} value={l.pcs} onChange={(e) => editField(i, 'pcs', e.target.value)} /></td>
                   <td>
                     <input
-                      type="number" step="0.01" min={l.listRate} style={{ width: 90, borderColor: l.rate < l.listRate ? 'var(--red)' : undefined }}
+                      type="number" step="1" min={isFounder ? undefined : l.listRate} style={{ width: 90, borderColor: !isFounder && l.rate < l.listRate ? 'var(--red)' : undefined }}
                       value={l.rate} onChange={(e) => editField(i, 'rate', e.target.value)}
                     />
-                    {l.rate < l.listRate ? (
+                    {!isFounder && l.rate < l.listRate ? (
                       <div style={{ fontSize: 9, color: 'var(--red)', fontWeight: 600 }}>⚠ below base ₹{l.listRate}</div>
                     ) : l.rate !== l.listRate && (
                       <div style={{ fontSize: 9, color: 'var(--orange)' }}>edited (list ₹{l.listRate})</div>
