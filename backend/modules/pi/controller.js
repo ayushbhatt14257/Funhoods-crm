@@ -217,26 +217,13 @@ async function confirm(req, res) {
   if (!pi) return res.status(404).json({ message: 'PI not found' });
   if (pi.status !== 'Sent') return res.status(400).json({ message: `Cannot confirm a PI in '${pi.status}' status — it must be Sent first.` });
 
-  // FIFO stock check: whichever PI confirms first reserves the stock; a later
-  // PI for the same product only gets what's still free to sell. Check every
-  // line before writing anything, so a short line doesn't partially reserve.
-  const codes = pi.lines.map((l) => l.code);
-  const invDocs = await Inventory.find({ code: { $in: codes } });
-  const invByCode = Object.fromEntries(invDocs.map((d) => [d.code, d]));
-
-  const shortages = [];
-  for (const l of pi.lines) {
-    const inv = invByCode[l.code];
-    const freeToSell = (inv?.physical || 0) - (inv?.reserved || 0);
-    if (l.pcs > freeToSell) {
-      shortages.push({ code: l.code, name: l.name, requested: l.pcs, available: Math.max(0, freeToSell) });
-    }
-  }
-  if (shortages.length) {
-    const detail = shortages.map((s) => `${s.name} — need ${s.requested}, only ${s.available} free to sell`).join('; ');
-    return res.status(400).json({ message: `Out of stock: ${detail}`, shortages });
-  }
-
+  // NOTE: this used to block confirmation when free-to-sell stock was
+  // insufficient (FIFO — first PI to confirm gets the stock). Turned off for
+  // now on request since it was blocking confirmations before inventory
+  // records were caught up; confirming still reserves stock as before, it
+  // just no longer refuses to go negative. Re-add a shortage check here
+  // (compare Inventory.physical - Inventory.reserved against each line's
+  // pcs) if/when this should come back.
   for (const l of pi.lines) {
     await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: l.pcs } }, { upsert: true });
   }
