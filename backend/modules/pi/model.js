@@ -44,4 +44,12 @@ const piSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Indexes: `no` and `code`-type unique fields already get one automatically.
+// These cover the query patterns every list/filter screen actually uses —
+// status tabs, dealer-scoped views, and default newest-first sorting —
+// so they keep paying off as PI volume grows into the lakhs.
+piSchema.index({ status: 1, createdAt: -1 });
+piSchema.index({ dealer: 1, createdAt: -1 });
+piSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('PI', piSchema);

@@ -13,4 +13,6 @@ const ledgerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+ledgerSchema.index({ dealer: 1, date: -1 });
+
 module.exports = mongoose.model('Ledger', ledgerSchema);

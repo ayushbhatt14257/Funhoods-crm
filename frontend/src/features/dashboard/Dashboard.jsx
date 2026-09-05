@@ -81,17 +81,26 @@ export default function Dashboard() {
 
   useEffect(() => {
     (async () => {
-      const [pis, invoices, balances, dealers] = await Promise.all([
-        api.get('/pi'), api.get('/invoices'), api.get('/ledger/balances'), api.get('/dealers'),
-      ]);
+      // Stats (the 5 top numbers) are computed server-side now — see
+      // /api/dashboard/summary — instead of shipping every PI/Invoice ever
+      // created just to add a handful of numbers up in the browser.
+      const statsPromise = api.get('/dashboard/summary');
 
-      const openPIs = pis.filter((p) => ['Sent', 'Confirmed', 'Partial Dispatched'].includes(p.status));
-      const openInvoices = invoices.filter((i) => !['Delivered', 'Cancelled'].includes(i.status));
-      const pipeline = openPIs.reduce((s, p) => s + p.total, 0);
-      const invoicedTotal = invoices.filter((i) => i.status !== 'Cancelled').reduce((s, i) => s + i.total, 0);
+      // The kanban board only ever displays open PIs and recently-touched
+      // invoices anyway (buildCards() already throws away Fully
+      // Dispatched/Cancelled PIs and Cancelled invoices) — so only fetch
+      // that slice instead of the full all-time history. This is the fetch
+      // that would otherwise grow without bound as order volume grows.
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+      const [pis, invoices, balances] = await Promise.all([
+        api.get('/pi?status=Draft,Sent,Confirmed,Partial Dispatched'),
+        api.get(`/invoices?from=${ninetyDaysAgo}`),
+        api.get('/ledger/balances'),
+      ]);
+      const stats = await statsPromise;
       const outstanding = balances.reduce((s, b) => s + b.balance, 0);
 
-      setStats({ openPIs: openPIs.length, openInvoices: openInvoices.length, pipeline, invoicedTotal, outstanding });
+      setStats({ ...stats, outstanding });
       setCards(buildCards(pis, invoices, balances));
 
       // Founder flags — mirrors the HTML demo's three checks

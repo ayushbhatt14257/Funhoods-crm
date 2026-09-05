@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
+import Loading from '../../components/Loading';
 import { piApi } from '../pi/api';
 
 const OPEN_STATUSES = 'Sent,Confirmed,Partial Dispatched';
 
 export default function Inventory() {
   const { showToast } = useToast();
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState(null); // null = loading
   const [q, setQ] = useState('');
   const [editingCode, setEditingCode] = useState(null);
   const [val, setVal] = useState('');
@@ -18,7 +19,7 @@ export default function Inventory() {
   async function load() { setRows(await api.get('/inventory')); }
   useEffect(() => { load(); }, []);
 
-  const filtered = rows.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()) || r.code.toLowerCase().includes(q.toLowerCase()));
+  const filtered = (rows || []).filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()) || r.code.toLowerCase().includes(q.toLowerCase()));
 
   async function save(code) {
     try { await api.patch(`/inventory/${code}`, { physical: +val }); showToast('Stock updated', 'g'); setEditingCode(null); load(); }
@@ -35,6 +36,9 @@ export default function Inventory() {
       <div className="ph"><div className="eyebrow">Physical stock</div><h2>Inventory</h2>
         <p>Physical, reserved (against confirmed PIs), and free-to-sell — always computed live. Click "Reserved" to see which customers it's waiting on.</p></div>
       <input placeholder="Search product" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280, marginBottom: 14 }} />
+      {rows === null ? (
+        <Loading label="Loading inventory…" />
+      ) : (
       <div className="tblwrap">
         <table className="dt">
           <thead><tr><th>Code</th><th>Product</th><th>Physical</th><th>Reserved</th><th>Free to sell</th><th>Value ₹</th><th></th></tr></thead>
@@ -61,6 +65,7 @@ export default function Inventory() {
           </tbody>
         </table>
       </div>
+      )}
 
       {pendingFor && (
         <PendingByProductModal

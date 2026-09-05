@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
+import Loading from '../../components/Loading';
 
 // Maps a notification's type to which tab it shows under.
 const TABS = [
@@ -27,7 +28,7 @@ const typeBadge = (t) => (
 );
 
 export default function Notifications() {
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState(null); // null = loading
   const [tab, setTab] = useState('all');
 
   async function load() { setItems(await api.get('/notifications')); }
@@ -44,8 +45,8 @@ export default function Notifications() {
   }
 
   const activeTab = TABS.find((t) => t.key === tab);
-  const filtered = activeTab.types ? items.filter((n) => activeTab.types.includes(n.type)) : items;
-  const countFor = (t) => (t.types ? items.filter((n) => t.types.includes(n.type) && !n.read).length : items.filter((n) => !n.read).length);
+  const filtered = items === null ? [] : (activeTab.types ? items.filter((n) => activeTab.types.includes(n.type)) : items);
+  const countFor = (t) => (items === null ? 0 : (t.types ? items.filter((n) => t.types.includes(n.type) && !n.read).length : items.filter((n) => !n.read).length));
 
   return (
     <div>
@@ -63,25 +64,31 @@ export default function Notifications() {
         })}
       </div>
 
-      {filtered.some((i) => !i.read) && (
-        <div className="btnrow" style={{ marginBottom: 14 }}><button className="btn o sm" onClick={markAllRead}>Mark all read</button></div>
+      {items === null ? (
+        <Loading label="Loading notifications…" />
+      ) : (
+        <>
+          {filtered.some((i) => !i.read) && (
+            <div className="btnrow" style={{ marginBottom: 14 }}><button className="btn o sm" onClick={markAllRead}>Mark all read</button></div>
+          )}
+          {filtered.map((n) => {
+            const link = linkFor(n);
+            return (
+              <div key={n._id} className={`note ${n.read ? '' : 'y'}`} style={{ fontSize: 13, cursor: n.read ? 'default' : 'pointer' }} onClick={() => !n.read && markOneRead(n._id)}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <div>{n.message}</div>
+                  {n.type !== 'other' && <span className={`badge ${typeBadge(n.type)}`} style={{ flexShrink: 0, height: 'fit-content' }}>{n.type.replace('_', ' ')}</span>}
+                </div>
+                <div className="mono muted" style={{ fontSize: 10.5, marginTop: 4 }}>
+                  {new Date(n.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  {link && <> · <Link to={link} onClick={(e) => e.stopPropagation()}>{n.relatedNo}</Link></>}
+                </div>
+              </div>
+            );
+          })}
+          {!filtered.length && <div className="empty">No notifications {tab !== 'all' ? 'in this tab' : ''}</div>}
+        </>
       )}
-      {filtered.map((n) => {
-        const link = linkFor(n);
-        return (
-          <div key={n._id} className={`note ${n.read ? '' : 'y'}`} style={{ fontSize: 13, cursor: n.read ? 'default' : 'pointer' }} onClick={() => !n.read && markOneRead(n._id)}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <div>{n.message}</div>
-              {n.type !== 'other' && <span className={`badge ${typeBadge(n.type)}`} style={{ flexShrink: 0, height: 'fit-content' }}>{n.type.replace('_', ' ')}</span>}
-            </div>
-            <div className="mono muted" style={{ fontSize: 10.5, marginTop: 4 }}>
-              {new Date(n.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-              {link && <> · <Link to={link} onClick={(e) => e.stopPropagation()}>{n.relatedNo}</Link></>}
-            </div>
-          </div>
-        );
-      })}
-      {!filtered.length && <div className="empty">No notifications {tab !== 'all' ? 'in this tab' : ''}</div>}
     </div>
   );
 }

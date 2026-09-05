@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
+import Loading from '../../components/Loading';
 import { productsApi } from './api';
 import { categoriesApi } from './categoriesApi';
 import CategoryManagerModal from './components/CategoryManagerModal';
@@ -10,7 +11,7 @@ const emptyForm = { code: '', name: '', size: '', category: '', cartonOuter: '',
 
 export default function Products() {
   const { showToast } = useToast();
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState(null); // null = loading
   const [categories, setCategories] = useState([]);
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(null); // product object or null — quick basic-field edit only
@@ -78,8 +79,11 @@ export default function Products() {
         <input placeholder="Search product name or code" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
         <button className="btn" onClick={openNew}>+ New product</button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 14 }}>
-        {products.map((p) => (
+      {products === null ? (
+        <Loading label="Loading products…" />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 14 }}>
+          {products.map((p) => (
           <div key={p.code} className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <Link to={`/products/${p.code}`} style={{ display: 'block', position: 'relative' }}>
               <div style={{ aspectRatio: '1', background: p.photo ? `url(${p.photo}) center/cover` : 'var(--paper-d)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 44 }}>
@@ -106,9 +110,10 @@ export default function Products() {
               </div>
             </div>
           </div>
-        ))}
-        {!products.length && <div className="empty" style={{ gridColumn: '1/-1' }}>No products yet</div>}
-      </div>
+          ))}
+          {!products.length && <div className="empty" style={{ gridColumn: '1/-1' }}>No products yet</div>}
+        </div>
+      )}
 
       {editing && (
         <Modal title={isNew ? 'New product' : `Quick edit — ${editing.name}`} onClose={() => setEditing(null)}>

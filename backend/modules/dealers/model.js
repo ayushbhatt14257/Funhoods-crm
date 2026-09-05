@@ -26,4 +26,6 @@ const dealerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+dealerSchema.index({ assignedTo: 1 }); // every field/mhead scoped PI or Invoice list runs this lookup
+
 module.exports = mongoose.model('Dealer', dealerSchema);

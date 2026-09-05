@@ -65,4 +65,10 @@ const invoiceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+invoiceSchema.index({ status: 1, createdAt: -1 });
+invoiceSchema.index({ dealer: 1, createdAt: -1 });
+invoiceSchema.index({ piRef: 1 });
+invoiceSchema.index({ createdAt: -1 });
+invoiceSchema.index({ paymentReceived: 1, dispatchDate: 1 }); // powers the 30-day payment-due scan
+
 module.exports = mongoose.model('Invoice', invoiceSchema);

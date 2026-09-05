@@ -14,4 +14,8 @@ const notificationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+notificationSchema.index({ forRole: 1, createdAt: -1 });
+notificationSchema.index({ forUserName: 1, createdAt: -1 });
+notificationSchema.index({ type: 1, relatedNo: 1 }); // the dedup lookup in the lazy overdue/payment-due generators
+
 module.exports = mongoose.model('Notification', notificationSchema);
