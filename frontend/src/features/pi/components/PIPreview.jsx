@@ -28,11 +28,10 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
     })));
   }, [initialLines]);
 
-  // Edited rates move in whole rupees only (26 → 27, never 26.01) — the list
-  // rate itself can still carry paise (e.g. ₹57.25), only edits get rounded.
+  // Edited rates can carry paise (e.g. 25.01) — the list rate itself can too.
   function editRate(i, val) {
     const next = [...lines];
-    const entered = val === '' ? '' : Math.round(+val || 0);
+    const entered = val === '' ? '' : +val || 0;
     next[i] = { ...next[i], rate: entered };
     setLines(next);
   }
@@ -121,7 +120,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
                 <td className="r">{l.pcs}</td>
                 <td className="r">
                   <input
-                    type="number" step="1" min={isFounder ? undefined : l.listRate} value={l.rate}
+                    type="number" step="0.01" min={isFounder ? undefined : l.listRate} value={l.rate}
                     style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12, borderColor: l.belowFloor ? 'var(--red)' : undefined }}
                     onChange={(e) => editRate(i, e.target.value)}
                   />

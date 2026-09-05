@@ -104,8 +104,8 @@ export default function PIDetail() {
   }
   function editField(i, field, val) {
     const next = [...editLines];
-    // Rate edits move in whole rupees only; pcs stays a plain integer input.
-    next[i] = { ...next[i], [field]: field === 'rate' ? Math.round(+val || 0) : (+val || 0) };
+    // Rate edits can carry paise (e.g. 25.01), same as pcs being a plain number.
+    next[i] = { ...next[i], [field]: +val || 0 };
     setEditLines(next);
   }
   function removeEditLine(i) {
@@ -178,7 +178,7 @@ export default function PIDetail() {
                   <td><input type="number" style={{ width: 90 }} value={l.pcs} onChange={(e) => editField(i, 'pcs', e.target.value)} /></td>
                   <td>
                     <input
-                      type="number" step="1" min={isFounder ? undefined : l.listRate} style={{ width: 90, borderColor: !isFounder && l.rate < l.listRate ? 'var(--red)' : undefined }}
+                      type="number" step="0.01" min={isFounder ? undefined : l.listRate} style={{ width: 90, borderColor: !isFounder && l.rate < l.listRate ? 'var(--red)' : undefined }}
                       value={l.rate} onChange={(e) => editField(i, 'rate', e.target.value)}
                     />
                     {!isFounder && l.rate < l.listRate ? (

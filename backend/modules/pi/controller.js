@@ -49,10 +49,8 @@ async function buildLines(inputLines, role) {
     const product = await Product.findOne({ code: il.code.toUpperCase() });
     if (!product) throw new Error(`Product ${il.code} not found`);
 
-    // Edited rates move in whole rupees only (26 → 27, never 26.01) — round
-    // any explicit override; leave the product's own list rate untouched
-    // (list rates themselves can carry paise, e.g. ₹57.25).
-    const rate = il.rate != null ? Math.round(+il.rate) : product.rate;
+    // Edited rates can carry paise (e.g. 25.01) — same precision as the product's own list rate.
+    const rate = il.rate != null ? +il.rate : product.rate;
     // Only the founder can price below the base rate (a real negotiated
     // discount call); everyone else can only match or raise it.
     if (rate < product.rate && role !== 'founder') {
