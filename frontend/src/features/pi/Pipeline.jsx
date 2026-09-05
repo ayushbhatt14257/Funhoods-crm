@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { piApi } from './api';
 import Loading from '../../components/Loading';
+import { ddmmyyyy } from '../../utils/print';
 
 const OPEN_STATUSES = 'Sent,Confirmed,Partial Dispatched';
 
@@ -72,10 +73,14 @@ function PartyPipelineCard({ group: g }) {
   function printThis() {
     // Give this card's content #print-area for the duration of the print,
     // since the shared print stylesheet only shows the element with that id.
+    // Also rename the document so Chrome's "Save as PDF" suggests a useful filename.
     const el = document.getElementById(printAreaId);
+    const originalTitle = document.title;
     el.id = 'print-area';
+    document.title = `${g.name} ${ddmmyyyy()}`;
     window.print();
     el.id = printAreaId;
+    document.title = originalTitle;
   }
 
   return (

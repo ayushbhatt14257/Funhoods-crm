@@ -2,6 +2,7 @@ import TransportStep from './TransportStep';
 import CartonMappingStep from './CartonMappingStep';
 import { PIQuantityStep, ManualLinesStep } from './LineQuantityStep';
 import DispatchSlip from './DispatchSlip';
+import { printAs, ddmmyyyy } from '../../../utils/print';
 
 // Everything after "pick a PI (or go manual)": the 3-step dispatch entry
 // form. All state lives in the parent (Dispatch.jsx) and is passed down —
@@ -47,7 +48,7 @@ export default function DispatchForm({
       )}
 
       {!isManual && (
-        <PIQuantityStep dispatchLines={dispatchLines} onQtyChange={onQtyChange} onPrint={() => window.print()} />
+        <PIQuantityStep dispatchLines={dispatchLines} onQtyChange={onQtyChange} onPrint={() => printAs(`${pi?.dealerName || 'Dispatch'} ${ddmmyyyy()}`)} />
       )}
 
       <TransportStep {...transportState} />

@@ -7,6 +7,7 @@ import Letterhead from '../../components/Letterhead';
 import Loading from '../../components/Loading';
 import ConfirmPopup from '../../components/ConfirmPopup';
 import { invoicesApi } from './api';
+import { printAs, ddmmyyyy } from '../../utils/print';
 
 export default function InvoiceDetail() {
   const { no } = useParams();
@@ -99,7 +100,7 @@ export default function InvoiceDetail() {
       />
 
       <div className="btnrow" style={{ marginTop: 14 }}>
-        <button className="btn o" onClick={() => window.print()}>🖨️ Print / Save PDF</button>
+        <button className="btn o" onClick={() => printAs(`${inv.dealerName} ${ddmmyyyy(inv.date || inv.dispatchDate || inv.createdAt)}`)}>🖨️ Print / Save PDF</button>
         {inv.status === 'Dispatched' && <button className="btn g" onClick={markDelivered}>Mark delivered</button>}
       </div>
 

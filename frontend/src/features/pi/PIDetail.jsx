@@ -9,6 +9,7 @@ import Loading from '../../components/Loading';
 import ConfirmPopup from '../../components/ConfirmPopup';
 import ProductPickerModal from './components/ProductPickerModal';
 import ConfirmLineModal from './components/ConfirmLineModal';
+import { printAs, ddmmyyyy } from '../../utils/print';
 
 export default function PIDetail() {
   const { no } = useParams();
@@ -248,7 +249,7 @@ export default function PIDetail() {
         {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?pi=${pi.no}`)}>→ Book dispatch</button>}
         {canCancel && <button className="btn rd" disabled={actionBusy} onClick={cancelPI}>{actionBusy ? 'Working…' : 'Cancel PI'}</button>}
         {canCloseRemaining && <button className="btn o" disabled={actionBusy} onClick={() => setShowCloseRemaining(true)}>Close remaining (write off)</button>}
-        <button className="btn o" onClick={() => window.print()}>🖨️ Print / Save PDF</button>
+        <button className="btn o" onClick={() => printAs(`${pi.dealerName} ${ddmmyyyy(pi.date || pi.createdAt)}`)}>🖨️ Print / Save PDF</button>
         {canDelete && <button className="btn rd" style={{ marginLeft: 'auto' }} onClick={() => setShowDeleteConfirm(true)}>Delete PI</button>}
       </div>
       {pi.status === 'Closed' && pi.closeNote && (

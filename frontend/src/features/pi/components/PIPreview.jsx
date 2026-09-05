@@ -4,6 +4,7 @@ import { api } from '../../../api/client';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
 import { piApi } from '../api';
+import { printAs, ddmmyyyy } from '../../../utils/print';
 
 // dealer: dealer object. initialLines: [{code,name,photo,outers,inners,pcs,rate,gstPct}]
 // onBack: go back to editing the order (optional)
@@ -184,7 +185,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
       <div className="btnrow">
         <button className="btn" disabled={saving || (hasNonStandardGst && !gstConfirmed)} onClick={() => save('Sent')}>Save + send to customer</button>
         <button className="btn o" disabled={saving} onClick={() => save('Draft')}>Save as draft</button>
-        <button className="btn o" onClick={() => window.print()}>🖨️ Print / Save PDF</button>
+        <button className="btn o" onClick={() => printAs(`${dealer.name} ${ddmmyyyy()}`)}>🖨️ Print / Save PDF</button>
         {onBack && <button className="btn o" style={{ marginLeft: 'auto' }} onClick={onBack}>← Back to edit</button>}
       </div>
     </div>
