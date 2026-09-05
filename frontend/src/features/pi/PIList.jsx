@@ -4,8 +4,8 @@ import { api } from '../../api/client';
 import { piApi } from './api';
 import Loading from '../../components/Loading';
 
-const badgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Fully Dispatched' ? 'g' : s === 'Partial Dispatched' ? 'y' : '');
-const STATUSES = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Cancelled'];
+const badgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Fully Dispatched' ? 'g' : (s === 'Partial Dispatched' || s === 'Closed') ? 'y' : '');
+const STATUSES = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Closed', 'Cancelled'];
 
 export default function PIList() {
   const nav = useNavigate();

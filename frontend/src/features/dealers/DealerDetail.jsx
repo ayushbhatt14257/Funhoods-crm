@@ -5,9 +5,9 @@ import { dealersApi } from './api';
 import { piApi } from '../pi/api';
 import { invoicesApi } from '../invoices/api';
 
-const badgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Fully Dispatched' ? 'g' : s === 'Partial Dispatched' ? 'y' : '');
+const badgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Fully Dispatched' ? 'g' : (s === 'Partial Dispatched' || s === 'Closed') ? 'y' : '');
 const invBadgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Delivered' ? 'g' : '');
-const STATUSES = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Cancelled'];
+const STATUSES = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Closed', 'Cancelled'];
 
 export default function DealerDetail() {
   const { code } = useParams();

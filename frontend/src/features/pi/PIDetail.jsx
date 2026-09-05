@@ -26,6 +26,8 @@ export default function PIDetail() {
   const [saving, setSaving] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCloseRemaining, setShowCloseRemaining] = useState(false);
+  const [closeNote, setCloseNote] = useState('');
   const [products, setProducts] = useState([]);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [confirmingProduct, setConfirmingProduct] = useState(null);
@@ -66,6 +68,19 @@ export default function PIDetail() {
     setActionBusy(true);
     try { await piApi.cancel(no); showToast('PI cancelled', 'g'); await load(); }
     catch (err) { showToast(err.message, 'err'); }
+    finally { setActionBusy(false); }
+  }
+  async function closeRemaining() {
+    if (!closeNote.trim()) return showToast('A note is required', 'err');
+    if (actionBusy) return;
+    setActionBusy(true);
+    try {
+      await piApi.closeRemaining(no, closeNote.trim());
+      showToast('Remaining quantity written off · stock released', 'g');
+      setShowCloseRemaining(false);
+      setCloseNote('');
+      await load();
+    } catch (err) { showToast(err.message, 'err'); }
     finally { setActionBusy(false); }
   }
   async function deletePI() {
@@ -143,7 +158,8 @@ export default function PIDetail() {
   const canSend = pi.status === 'Draft';
   const canConfirm = pi.status === 'Sent' && ['mhead', 'accounts', 'founder'].includes(user.role);
   const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status) && ['dispatch', 'accounts', 'founder'].includes(user.role);
-  const canCancel = !['Cancelled', 'Fully Dispatched'].includes(pi.status);
+  const canCancel = !['Cancelled', 'Fully Dispatched', 'Closed'].includes(pi.status);
+  const canCloseRemaining = pi.status === 'Partial Dispatched' && ['dispatch', 'accounts', 'founder'].includes(user.role);
   const canEdit = ['Draft', 'Sent'].includes(pi.status);
   const canDelete = user.role === 'founder' && pi.status === 'Draft';
 
@@ -231,9 +247,15 @@ export default function PIDetail() {
         {canConfirm && <button className="btn g" disabled={actionBusy} onClick={confirmPI}>{actionBusy ? 'Working…' : 'Mark confirmed by customer'}</button>}
         {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?pi=${pi.no}`)}>→ Book dispatch</button>}
         {canCancel && <button className="btn rd" disabled={actionBusy} onClick={cancelPI}>{actionBusy ? 'Working…' : 'Cancel PI'}</button>}
+        {canCloseRemaining && <button className="btn o" disabled={actionBusy} onClick={() => setShowCloseRemaining(true)}>Close remaining (write off)</button>}
         <button className="btn o" onClick={() => window.print()}>🖨️ Print / Save PDF</button>
         {canDelete && <button className="btn rd" style={{ marginLeft: 'auto' }} onClick={() => setShowDeleteConfirm(true)}>Delete PI</button>}
       </div>
+      {pi.status === 'Closed' && pi.closeNote && (
+        <div className="note y" style={{ fontSize: 12.5, marginTop: 10 }}>
+          <b>Closed with remaining written off</b> by {pi.closedBy} on {new Date(pi.closedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} — "{pi.closeNote}"
+        </div>
+      )}
       {showDeleteConfirm && (
         <ConfirmPopup
           title="Delete this PI?"
@@ -244,6 +266,28 @@ export default function PIDetail() {
           onConfirm={deletePI}
           onClose={() => setShowDeleteConfirm(false)}
         />
+      )}
+      {showCloseRemaining && (
+        <ConfirmPopup
+          title="Close remaining quantity?"
+          message={
+            `The pending quantity on ${pi.lines.filter((l) => (l.pending != null ? l.pending : l.pcs) > 0).length} line(s) will be written off and released back to free-to-sell stock. `
+            + `This PI will move to "Closed" — it won't dispatch any further. This cannot be undone.`
+          }
+          confirmLabel={actionBusy ? 'Working…' : 'Close remaining'}
+          danger
+          busy={actionBusy}
+          onConfirm={closeRemaining}
+          onClose={() => { setShowCloseRemaining(false); setCloseNote(''); }}
+        >
+          <textarea
+            placeholder="Reason — e.g. wrong carton size, customer cancelled 2 cartons…"
+            value={closeNote}
+            onChange={(e) => setCloseNote(e.target.value)}
+            rows={3}
+            style={{ width: '100%', marginTop: -6, marginBottom: 10 }}
+          />
+        </ConfirmPopup>
       )}
       <div className="note b" style={{ fontSize: 12, marginTop: 14 }}>Tax Invoice is generated at dispatch (actual shipped qty), not at PI stage.</div>
     </div>

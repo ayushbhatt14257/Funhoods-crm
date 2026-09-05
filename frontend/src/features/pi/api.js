@@ -10,5 +10,6 @@ export const piApi = {
   setStatus: (no, status) => api.patch(`/pi/${no}/status`, { status }),
   confirm: (no) => api.post(`/pi/${no}/confirm`),
   cancel: (no) => api.post(`/pi/${no}/cancel`),
+  closeRemaining: (no, note) => api.post(`/pi/${no}/close-remaining`, { note }),
   remove: (no) => api.del(`/pi/${no}`),
 };

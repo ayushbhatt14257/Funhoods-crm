@@ -34,9 +34,16 @@ const piSchema = new mongoose.Schema(
     total: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Cancelled'],
+      enum: ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Closed', 'Cancelled'],
       default: 'Draft',
     },
+    // Set when a Partial Dispatched PI's remaining pending qty is written off
+    // instead of ever being dispatched (wrong carton size, customer cancelled
+    // part of the order, etc). Distinct from 'Fully Dispatched' so reports
+    // stay honest about what actually went out.
+    closeNote: { type: String, default: '' },
+    closedBy: { type: String, default: '' },
+    closedAt: { type: Date, default: null },
     by: String, // user name who created it
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     remark: { type: String, default: '' },

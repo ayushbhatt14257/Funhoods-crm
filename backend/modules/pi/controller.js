@@ -267,6 +267,37 @@ async function cancel(req, res) {
   res.json(pi);
 }
 
+// POST /api/pi/:no/close-remaining  { note }
+// A Partial Dispatched PI's remaining pending quantity is never coming
+// (wrong carton size discovered after dispatch, customer cancelled the rest,
+// etc). This releases that pending stock back to free-to-sell and moves the
+// PI to a terminal 'Closed' status distinct from 'Fully Dispatched', so the
+// PI stops sitting in the pipeline/dispatch queue forever while keeping an
+// honest record of what actually shipped vs. what was written off.
+async function closeRemaining(req, res) {
+  const pi = await PI.findOne({ no: req.params.no });
+  if (!pi) return res.status(404).json({ message: 'PI not found' });
+  if (pi.status !== 'Partial Dispatched') {
+    return res.status(400).json({ message: `Only a Partial Dispatched PI can be closed this way — this one is '${pi.status}'.` });
+  }
+  const note = String(req.body.note || '').trim();
+  if (!note) return res.status(400).json({ message: 'A note explaining the write-off is required.' });
+
+  for (const l of pi.lines) {
+    const pending = l.pending != null ? l.pending : l.pcs;
+    if (pending > 0) {
+      await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: -pending } });
+      l.pending = 0;
+    }
+  }
+  pi.status = 'Closed';
+  pi.closeNote = note;
+  pi.closedBy = req.user.name;
+  pi.closedAt = new Date();
+  await pi.save();
+  res.json(pi);
+}
+
 // DELETE /api/pi/:no — founder only, permanent delete
 async function remove(req, res) {
   const pi = await PI.findOne({ no: req.params.no });
@@ -280,4 +311,4 @@ async function remove(req, res) {
   res.json({ message: 'Deleted' });
 }
 
-module.exports = { parseOrder, create, update, list, getOne, setStatus, confirm, cancel, remove };
+module.exports = { parseOrder, create, update, list, getOne, setStatus, confirm, cancel, closeRemaining, remove };

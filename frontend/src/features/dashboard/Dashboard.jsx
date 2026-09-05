@@ -17,7 +17,7 @@ function buildCards(pis, invoices, balances) {
   const balByDealer = Object.fromEntries(balances.map((b) => [b.code, b.balance]));
 
   pis.forEach((p) => {
-    if (['Fully Dispatched', 'Cancelled'].includes(p.status)) return; // fully handled by its invoice(s) instead
+    if (['Fully Dispatched', 'Closed', 'Cancelled'].includes(p.status)) return; // fully handled by its invoice(s) instead
     let stage = 'Draft';
     if (p.status === 'Sent') stage = 'Sent';
     else if (['Confirmed', 'Partial Dispatched'].includes(p.status)) stage = 'Confirmed';
