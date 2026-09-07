@@ -87,6 +87,7 @@ async function otpLogin(req, res) {
       },
     });
   } catch (err) {
+    console.error('OTP login failed:', err);
     res.status(401).json({ message: err.message });
   }
 }
