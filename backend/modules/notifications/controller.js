@@ -8,7 +8,7 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 // run lazily every time the notification list/count is requested (cheap at
 // this dispatch volume), deduped by (type, relatedNo) so each event notifies once.
 
-// "Dispatched 7+ days, still not marked delivered" — founder-only.
+// "Dispatched 7+ days, still not marked delivered" — admin-only.
 async function generateDispatchOverdueNotifications() {
   const cutoff = new Date(Date.now() - SEVEN_DAYS_MS);
   const overdue = await Invoice.find({ status: 'Dispatched', dispatchDate: { $lte: cutoff } });
@@ -21,12 +21,12 @@ async function generateDispatchOverdueNotifications() {
       relatedNo: inv.no,
       relatedKind: 'invoice',
       byUser: inv.by || '',
-      forRole: 'founder',
+      forRole: 'admin',
     });
   }
 }
 
-// "Invoiced 30+ days ago, payment not marked received" — accounts + founder.
+// "Invoiced 30+ days ago, payment not marked received" — accounts + admin.
 async function generatePaymentDueNotifications() {
   const cutoff = new Date(Date.now() - THIRTY_DAYS_MS);
   const overdue = await Invoice.find({
@@ -50,13 +50,13 @@ async function generatePaymentDueNotifications() {
       message: `Payment pending for ${inv.no} (${inv.dealerName}) — ${days} days since dispatch, ₹${Math.round(inv.total).toLocaleString('en-IN')} due.`,
       relatedNo: inv.no,
       relatedKind: 'invoice',
-      forRole: 'founder',
+      forRole: 'admin',
     });
   }
 }
 
 async function generateAll(role) {
-  if (role === 'founder') {
+  if (role === 'admin') {
     await generateDispatchOverdueNotifications();
     await generatePaymentDueNotifications();
   } else if (role === 'accounts') {

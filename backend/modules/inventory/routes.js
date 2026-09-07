@@ -7,7 +7,7 @@ const { allow } = require('../../middleware/role');
 router.use(protect);
 
 router.get('/', ctrl.list);
-router.patch('/:code', allow('mhead', 'accounts', 'dispatch', 'founder'), ctrl.adjust);
-router.post('/bulk-set', allow('mhead', 'accounts', 'founder'), ctrl.bulkSet);
+router.patch('/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), ctrl.adjust);
+router.post('/bulk-set', allow('mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.bulkSet);
 
 module.exports = router;

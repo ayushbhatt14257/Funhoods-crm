@@ -16,7 +16,7 @@ export default function PIDetail() {
   const [searchParams] = useSearchParams();
   const { showToast } = useToast();
   const { user } = useAuth();
-  const isFounder = user?.role === 'founder';
+  const canPriceBelowBase = ['admin', 'masterAdmin'].includes(user?.role);
   const nav = useNavigate();
   const [pi, setPi] = useState(null);
   const [dealer, setDealer] = useState(null);
@@ -28,6 +28,7 @@ export default function PIDetail() {
   const [actionBusy, setActionBusy] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCloseRemaining, setShowCloseRemaining] = useState(false);
+  const [approvingPrice, setApprovingPrice] = useState(false);
   const [closeNote, setCloseNote] = useState('');
   const [products, setProducts] = useState([]);
   const [showProductPicker, setShowProductPicker] = useState(false);
@@ -84,6 +85,12 @@ export default function PIDetail() {
     } catch (err) { showToast(err.message, 'err'); }
     finally { setActionBusy(false); }
   }
+  async function approvePricePI() {
+    setApprovingPrice(true);
+    try { await piApi.approvePrice(no); showToast('Price approved', 'g'); await load(); }
+    catch (err) { showToast(err.message, 'err'); }
+    finally { setApprovingPrice(false); }
+  }
   async function deletePI() {
     setActionBusy(true);
     try {
@@ -135,7 +142,7 @@ export default function PIDetail() {
   }
 
   const editTotal = editLines.reduce((s, l) => s + l.pcs * l.rate * (1 + (l.gstPct || 5) / 100), 0);
-  const belowFloorEditLines = isFounder ? [] : editLines.filter((l) => l.rate < l.listRate);
+  const belowFloorEditLines = canPriceBelowBase ? [] : editLines.filter((l) => l.rate < l.listRate);
 
   async function saveEdit() {
     if (!editLines.length) return showToast('PI needs at least one item', 'err');
@@ -157,12 +164,12 @@ export default function PIDetail() {
 
   if (!pi || !dealer || !settings) return <Loading label="Loading PI…" />;
   const canSend = pi.status === 'Draft';
-  const canConfirm = pi.status === 'Sent' && ['mhead', 'accounts', 'founder'].includes(user.role);
-  const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status) && ['dispatch', 'accounts', 'founder'].includes(user.role);
+  const canConfirm = pi.status === 'Sent' && ['mhead', 'accounts', 'admin', 'masterAdmin'].includes(user.role);
+  const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status) && ['dispatch', 'accounts', 'admin', 'masterAdmin'].includes(user.role);
   const canCancel = !['Cancelled', 'Fully Dispatched', 'Closed'].includes(pi.status);
-  const canCloseRemaining = pi.status === 'Partial Dispatched' && ['dispatch', 'accounts', 'founder'].includes(user.role);
+  const canCloseRemaining = pi.status === 'Partial Dispatched' && ['dispatch', 'accounts', 'admin', 'masterAdmin'].includes(user.role);
   const canEdit = ['Draft', 'Sent'].includes(pi.status);
-  const canDelete = user.role === 'founder' && pi.status === 'Draft';
+  const canDelete = ['admin', 'masterAdmin'].includes(user.role) && pi.status === 'Draft';
 
   if (editing) {
     return (
@@ -179,10 +186,10 @@ export default function PIDetail() {
                   <td><input type="number" style={{ width: 90 }} value={l.pcs} onChange={(e) => editField(i, 'pcs', e.target.value)} /></td>
                   <td>
                     <input
-                      type="number" step="0.01" min={isFounder ? undefined : l.listRate} style={{ width: 90, borderColor: !isFounder && l.rate < l.listRate ? 'var(--red)' : undefined }}
+                      type="number" step="0.01" min={canPriceBelowBase ? undefined : l.listRate} style={{ width: 90, borderColor: !canPriceBelowBase && l.rate < l.listRate ? 'var(--red)' : undefined }}
                       value={l.rate} onChange={(e) => editField(i, 'rate', e.target.value)}
                     />
-                    {!isFounder && l.rate < l.listRate ? (
+                    {!canPriceBelowBase && l.rate < l.listRate ? (
                       <div style={{ fontSize: 9, color: 'var(--red)', fontWeight: 600 }}>⚠ below base ₹{l.listRate}</div>
                     ) : l.rate !== l.listRate && (
                       <div style={{ fontSize: 9, color: 'var(--orange)' }}>edited (list ₹{l.listRate})</div>
@@ -210,7 +217,7 @@ export default function PIDetail() {
           <label>Remark</label>
           <textarea rows={2} value={editRemark} onChange={(e) => setEditRemark(e.target.value)} />
         </div>
-        <div className="note y" style={{ fontSize: 12 }}>Editing or adding rates here also notifies the founder, same as at creation time.</div>
+        <div className="note y" style={{ fontSize: 12 }}>Editing or adding rates here also notifies the admin, same as at creation time.</div>
         <div className="btnrow">
           <button className="btn g" disabled={saving} onClick={saveEdit}>Save changes</button>
           <button className="btn o" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
@@ -255,6 +262,22 @@ export default function PIDetail() {
       {pi.status === 'Closed' && pi.closeNote && (
         <div className="note y" style={{ fontSize: 12.5, marginTop: 10 }}>
           <b>Closed with remaining written off</b> by {pi.closedBy} on {new Date(pi.closedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} — "{pi.closeNote}"
+        </div>
+      )}
+      {pi.priceApproval?.status === 'pending' && (
+        <div className="note r" style={{ fontSize: 12.5, marginTop: 10 }}>
+          <b>⏳ Awaiting Master Admin price approval</b> — this PI has a discounted line and can't be dispatched yet.
+          Auto-approves at {new Date(pi.priceApproval.deadline).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} if not reviewed sooner.
+          {user.role === 'masterAdmin' && (
+            <div className="btnrow" style={{ marginTop: 8 }}>
+              <button className="btn g sm" disabled={approvingPrice} onClick={approvePricePI}>{approvingPrice ? 'Approving…' : '✓ Approve now'}</button>
+            </div>
+          )}
+        </div>
+      )}
+      {pi.priceApproval?.status === 'approved' && pi.priceApproval.decidedBy && (
+        <div className="note g" style={{ fontSize: 12.5, marginTop: 10 }}>
+          ✅ Price approved by <b>{pi.priceApproval.decidedBy}</b> on {new Date(pi.priceApproval.decidedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
         </div>
       )}
       {showDeleteConfirm && (

@@ -68,7 +68,7 @@ export default function InvoiceDetail() {
   if (!inv || !dealer || !settings) return <Loading label="Loading invoice…" />;
 
   const daysSinceDispatch = Math.floor((Date.now() - new Date(inv.dispatchDate || inv.date)) / 86400000);
-  const canMarkPaid = ['accounts', 'founder'].includes(user?.role);
+  const canMarkPaid = ['accounts', 'admin'].includes(user?.role);
 
   return (
     <div>

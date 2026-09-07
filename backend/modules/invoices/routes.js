@@ -10,8 +10,8 @@ router.use(protect);
 router.get('/', ctrl.list);
 router.get('/:no', ctrl.getOne);
 router.get('/:no/packing-list.xlsx', ctrl.packingListExcel);
-router.patch('/:no/delivered', allow('dispatch', 'delivery', 'accounts', 'founder'), ctrl.markDelivered);
-router.put('/:no/builty', allow('dispatch', 'delivery', 'accounts', 'founder'), uploadMemory.single('file'), ctrl.uploadBuilty);
-router.patch('/:no/mark-paid', allow('accounts', 'founder'), ctrl.markPaid);
+router.patch('/:no/delivered', allow('dispatch', 'delivery', 'accounts', 'admin', 'masterAdmin'), ctrl.markDelivered);
+router.put('/:no/builty', allow('dispatch', 'delivery', 'accounts', 'admin', 'masterAdmin'), uploadMemory.single('file'), ctrl.uploadBuilty);
+router.patch('/:no/mark-paid', allow('accounts', 'admin', 'masterAdmin'), ctrl.markPaid);
 
 module.exports = router;

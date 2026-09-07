@@ -11,7 +11,7 @@ import { printAs, ddmmyyyy } from '../../../utils/print';
 export default function PIPreview({ dealer, initialLines, onBack }) {
   const { showToast } = useToast();
   const { user } = useAuth();
-  const isFounder = user?.role === 'founder';
+  const canPriceBelowBase = ['admin', 'masterAdmin'].includes(user?.role);
   const nav = useNavigate();
   const [settings, setSettings] = useState(null);
   const [lines, setLines] = useState([]);
@@ -42,7 +42,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
     const tax = +((rate * l.gstPct) / 100).toFixed(2);
     const gross = +(rate + tax).toFixed(2);
     const total = +(gross * l.pcs).toFixed(2);
-    return { ...l, rate, tax, gross, total, rateEdited: rate !== l.listRate, belowFloor: !isFounder && rate < l.listRate };
+    return { ...l, rate, tax, gross, total, rateEdited: rate !== l.listRate, belowFloor: !canPriceBelowBase && rate < l.listRate };
   });
   const subtotal = computed.reduce((s, l) => s + l.total, 0);
   const grandTotal = subtotal;
@@ -121,7 +121,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
                 <td className="r">{l.pcs}</td>
                 <td className="r">
                   <input
-                    type="number" step="0.01" min={isFounder ? undefined : l.listRate} value={l.rate}
+                    type="number" step="0.01" min={canPriceBelowBase ? undefined : l.listRate} value={l.rate}
                     style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12, borderColor: l.belowFloor ? 'var(--red)' : undefined }}
                     onChange={(e) => editRate(i, e.target.value)}
                   />

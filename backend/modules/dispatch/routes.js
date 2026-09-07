@@ -5,7 +5,7 @@ const { protect } = require('../../middleware/auth');
 const { allow } = require('../../middleware/role');
 
 router.use(protect);
-router.use(allow('dispatch', 'accounts', 'founder'));
+router.use(allow('dispatch', 'accounts', 'admin', 'masterAdmin'));
 
 router.get('/ready-pis', ctrl.readyPIs);
 router.get('/pending-pi/:dealerCode', ctrl.pendingPIForDealer);

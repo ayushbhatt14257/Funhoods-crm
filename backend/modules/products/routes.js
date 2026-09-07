@@ -5,7 +5,7 @@ const { protect } = require('../../middleware/auth');
 const { allow } = require('../../middleware/role');
 const { upload, uploadMemory } = require('../../config/cloudinary');
 
-const canEdit = allow('mhead', 'accounts', 'founder');
+const canEdit = allow('mhead', 'accounts', 'admin', 'masterAdmin');
 
 router.use(protect);
 
@@ -19,6 +19,6 @@ router.delete('/:code/images', canEdit, ctrl.removeImage);
 router.put('/:code/featured-image', canEdit, ctrl.setFeaturedImage);
 router.put('/:code/video', canEdit, uploadMemory.single('video'), ctrl.uploadVideo);
 router.delete('/:code/video', canEdit, ctrl.removeVideo);
-router.delete('/:code', allow('founder'), ctrl.remove);
+router.delete('/:code', allow('admin', 'masterAdmin'), ctrl.remove);
 
 module.exports = router;

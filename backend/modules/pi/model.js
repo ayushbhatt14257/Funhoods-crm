@@ -44,6 +44,16 @@ const piSchema = new mongoose.Schema(
     closeNote: { type: String, default: '' },
     closedBy: { type: String, default: '' },
     closedAt: { type: Date, default: null },
+    // Set when the admin prices a line below the product's base rate — needs
+    // Master Admin sign-off before the PI can be dispatched, but auto-approves
+    // after 1 hour if nobody acts (so a single missed notification doesn't
+    // permanently stall an order).
+    priceApproval: {
+      status: { type: String, enum: ['pending', 'approved'], default: undefined },
+      deadline: { type: Date, default: null },
+      decidedBy: { type: String, default: '' },
+      decidedAt: { type: Date, default: null },
+    },
     by: String, // user name who created it
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     remark: { type: String, default: '' },
@@ -58,5 +68,6 @@ const piSchema = new mongoose.Schema(
 piSchema.index({ status: 1, createdAt: -1 });
 piSchema.index({ dealer: 1, createdAt: -1 });
 piSchema.index({ createdAt: -1 });
+piSchema.index({ 'priceApproval.status': 1 });
 
 module.exports = mongoose.model('PI', piSchema);

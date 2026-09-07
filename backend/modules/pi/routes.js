@@ -6,15 +6,17 @@ const { allow } = require('../../middleware/role');
 
 router.use(protect);
 
-router.post('/parse', allow('field', 'mhead', 'accounts', 'founder'), ctrl.parseOrder);
-router.post('/', allow('field', 'mhead', 'accounts', 'founder'), ctrl.create);
-router.put('/:no', allow('field', 'mhead', 'accounts', 'founder'), ctrl.update);
+router.post('/parse', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.parseOrder);
+router.post('/', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.create);
+router.put('/:no', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.update);
 router.get('/', ctrl.list);
+router.get('/approvals/pending', allow('masterAdmin'), ctrl.listPendingApprovals);
+router.post('/:no/approve-price', allow('masterAdmin'), ctrl.approvePrice);
 router.get('/:no', ctrl.getOne);
-router.patch('/:no/status', allow('field', 'mhead', 'accounts', 'founder'), ctrl.setStatus);
-router.post('/:no/confirm', allow('mhead', 'accounts', 'founder'), ctrl.confirm);
-router.post('/:no/cancel', allow('mhead', 'accounts', 'founder'), ctrl.cancel);
-router.post('/:no/close-remaining', allow('dispatch', 'accounts', 'founder'), ctrl.closeRemaining);
-router.delete('/:no', allow('founder'), ctrl.remove);
+router.patch('/:no/status', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.setStatus);
+router.post('/:no/confirm', allow('mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.confirm);
+router.post('/:no/cancel', allow('mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.cancel);
+router.post('/:no/close-remaining', allow('dispatch', 'accounts', 'admin', 'masterAdmin'), ctrl.closeRemaining);
+router.delete('/:no', allow('admin', 'masterAdmin'), ctrl.remove);
 
 module.exports = router;

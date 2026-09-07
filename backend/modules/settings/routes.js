@@ -7,6 +7,6 @@ const { allow } = require('../../middleware/role');
 router.use(protect);
 
 router.get('/', ctrl.get);
-router.put('/', allow('founder'), ctrl.update);
+router.put('/', allow('admin', 'masterAdmin'), ctrl.update);
 
 module.exports = router;

@@ -5,25 +5,27 @@ import NotificationBell from '../features/notifications/NotificationBell';
 
 const NAV = [
   { group: 'Overview' },
-  { to: '/', label: 'Dashboard', icon: '📊', roles: ['field', 'mhead', 'accounts', 'dispatch', 'founder'] },
+  { to: '/', label: 'Dashboard', icon: '📊', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
   { group: 'Orders' },
-  { to: '/new-order', label: 'New Order', icon: '✎', roles: ['field', 'mhead', 'accounts', 'founder'] },
-  { to: '/pis', label: 'PIs', icon: '📋', roles: ['field', 'mhead', 'accounts', 'dispatch', 'founder'] },
-  { to: '/pipeline', label: 'Pipeline', icon: '🧭', roles: ['field', 'mhead', 'accounts', 'dispatch', 'founder'] },
+  { to: '/new-order', label: 'New Order', icon: '✎', roles: ['field', 'mhead', 'accounts', 'admin', 'masterAdmin'] },
+  { to: '/pis', label: 'PIs', icon: '📋', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
+  { to: '/pipeline', label: 'Pipeline', icon: '🧭', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
+  { to: '/approvals', label: 'Price Approvals', icon: '✅', roles: ['masterAdmin'] },
   { group: 'Fulfilment' },
-  { to: '/dispatch', label: 'Dispatch', icon: '🚚', roles: ['dispatch', 'accounts', 'founder'] },
-  { to: '/invoices', label: 'Tax Invoices', icon: '🧾', roles: ['mhead', 'accounts', 'dispatch', 'delivery', 'founder'] },
+  { to: '/dispatch', label: 'Dispatch', icon: '🚚', roles: ['dispatch', 'accounts', 'admin', 'masterAdmin'] },
+  { to: '/invoices', label: 'Tax Invoices', icon: '🧾', roles: ['mhead', 'accounts', 'dispatch', 'delivery', 'admin', 'masterAdmin'] },
   { group: 'Masters' },
-  { to: '/dealers', label: 'Customers', icon: '👥', roles: ['field', 'mhead', 'accounts', 'founder'] },
-  { to: '/outstanding', label: 'Outstanding', icon: '💰', roles: ['mhead', 'accounts', 'founder'] },
-  { to: '/products', label: 'Products', icon: '📦', roles: ['mhead', 'accounts', 'founder'] },
-  { to: '/aliases', label: 'SKU nicknames', icon: '🏷️', roles: ['mhead', 'accounts', 'founder'] },
-  { to: '/inventory', label: 'Inventory', icon: '📊', roles: ['field', 'mhead', 'accounts', 'dispatch', 'founder'] },
+  { to: '/dealers', label: 'Customers', icon: '👥', roles: ['field', 'mhead', 'accounts', 'admin', 'masterAdmin'] },
+  { to: '/outstanding', label: 'Outstanding', icon: '💰', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
+  { to: '/products', label: 'Products', icon: '📦', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
+  { to: '/aliases', label: 'SKU nicknames', icon: '🏷️', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
+  { to: '/inventory', label: 'Inventory', icon: '📊', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
   { group: 'Setup' },
-  { to: '/import', label: 'Bulk Import', icon: '⬆️', roles: ['mhead', 'accounts', 'founder'] },
-  { to: '/settings', label: 'Company Settings', icon: '⚙️', roles: ['founder'] },
-  { to: '/users', label: 'Users', icon: '👤', roles: ['field', 'mhead', 'accounts', 'dispatch', 'founder'] },
-  { to: '/notifications', label: 'Notifications', icon: '🔔', roles: ['founder'] },
+  { to: '/import', label: 'Bulk Import', icon: '⬆️', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
+  { to: '/settings', label: 'Company Settings', icon: '⚙️', roles: ['admin', 'masterAdmin'] },
+  { to: '/users', label: 'Users', icon: '👤', roles: ['masterAdmin'] },
+  { to: '/profile', label: 'Profile', icon: '🙍', roles: ['field', 'mhead', 'accounts', 'dispatch', 'delivery', 'admin', 'masterAdmin'] },
+  { to: '/notifications', label: 'Notifications', icon: '🔔', roles: ['admin', 'masterAdmin'] },
 ];
 
 export default function Layout() {
@@ -53,7 +55,7 @@ export default function Layout() {
           <span style={{ background: '#fff', borderRadius: 6, padding: '3px 7px' }}>
             <img src="/funhoods-logo.jpg" alt="Funhoods" />
           </span>
-          {user.role === 'founder' && <NotificationBell />}
+          {['admin', 'masterAdmin'].includes(user.role) && <NotificationBell />}
         </div>
         <nav className="sidenav">
           {NAV.map((item, i) =>
@@ -89,7 +91,7 @@ export default function Layout() {
             <span>CRM</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {user.role === 'founder' && <NotificationBell />}
+            {['admin', 'masterAdmin'].includes(user.role) && <NotificationBell />}
             <button className="hburger" onClick={() => setOpen((o) => !o)}>☰ Menu</button>
           </div>
         </div>

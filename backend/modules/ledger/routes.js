@@ -8,6 +8,6 @@ router.use(protect);
 
 router.get('/balances', ctrl.allBalances);
 router.get('/:code', ctrl.forDealer);
-router.post('/payment', allow('accounts', 'founder'), ctrl.recordPayment);
+router.post('/payment', allow('accounts', 'admin', 'masterAdmin'), ctrl.recordPayment);
 
 module.exports = router;

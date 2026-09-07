@@ -1,4 +1,4 @@
-// Usage: router.get('/x', protect, allow('founder','accounts'), handler)
+// Usage: router.get('/x', protect, allow('admin','accounts'), handler)
 function allow(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ message: 'Not authenticated' });

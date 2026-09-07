@@ -11,5 +11,7 @@ export const piApi = {
   confirm: (no) => api.post(`/pi/${no}/confirm`),
   cancel: (no) => api.post(`/pi/${no}/cancel`),
   closeRemaining: (no, note) => api.post(`/pi/${no}/close-remaining`, { note }),
+  listPendingApprovals: () => api.get('/pi/approvals/pending'),
+  approvePrice: (no) => api.post(`/pi/${no}/approve-price`),
   remove: (no) => api.del(`/pi/${no}`),
 };

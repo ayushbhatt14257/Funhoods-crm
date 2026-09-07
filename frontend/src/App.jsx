@@ -12,6 +12,7 @@ import Aliases from './features/aliases/Aliases';
 import NewOrder from './features/pi/NewOrder';
 import PIList from './features/pi/PIList';
 import Pipeline from './features/pi/Pipeline';
+import PendingApprovals from './features/pi/PendingApprovals';
 import PIDetail from './features/pi/PIDetail';
 import Dispatch from './features/dispatch/Dispatch';
 import Invoices from './features/invoices/Invoices';
@@ -20,6 +21,7 @@ import Inventory from './features/inventory/Inventory';
 import Outstanding from './features/ledger/Outstanding';
 import SettingsPage from './features/settings/Settings';
 import Users from './features/users/Users';
+import Profile from './features/users/Profile';
 import Notifications from './features/notifications/Notifications';
 import Import from './features/import/Import';
 
@@ -54,6 +56,7 @@ function AppRoutes() {
         <Route path="new-order" element={<NewOrder />} />
         <Route path="pis" element={<PIList />} />
         <Route path="pipeline" element={<Pipeline />} />
+        <Route path="approvals" element={<PendingApprovals />} />
         <Route path="pis/:no" element={<PIDetail />} />
         <Route path="dispatch" element={<Dispatch />} />
         <Route path="invoices" element={<Invoices />} />
@@ -68,6 +71,7 @@ function AppRoutes() {
         <Route path="import" element={<Import />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="users" element={<Users />} />
+        <Route path="profile" element={<Profile />} />
         <Route path="notifications" element={<Notifications />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -17,7 +17,7 @@ const USERS = [
   { name: 'Anil Mehta', mobile: '9000000005', role: 'mhead', states: [], password: 'Mhead@123' },
   { name: 'Meera Rao', mobile: '9000000006', role: 'accounts', states: [], password: 'Accounts@123' },
   { name: 'Kumar Singh', mobile: '9000000007', role: 'dispatch', states: [], password: 'Dispatch@123' },
-  { name: 'Gaurav Jain', mobile: '9000000008', role: 'founder', states: [], password: 'Founder@123', email: 'founder@funhoods.com' },
+  { name: 'Gaurav Jain', mobile: '9000000008', role: 'admin', states: [], password: 'Admin@123', email: 'admin@funhoods.com' },
 ];
 
 async function run() {

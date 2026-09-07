@@ -7,7 +7,7 @@ const { allow } = require('../../middleware/role');
 router.use(protect);
 
 router.get('/', ctrl.list);
-router.post('/', allow('field', 'mhead', 'accounts', 'founder'), ctrl.create);
-router.delete('/:id', allow('mhead', 'accounts', 'founder'), ctrl.remove);
+router.post('/', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.create);
+router.delete('/:id', allow('mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.remove);
 
 module.exports = router;
