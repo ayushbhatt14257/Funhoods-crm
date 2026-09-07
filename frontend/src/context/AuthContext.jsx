@@ -23,13 +23,23 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
+  // Called after Firebase has already verified the OTP client-side — we just
+  // hand its ID token to our backend, which checks it's genuine and maps the
+  // phone number to one of our existing user accounts.
+  const otpLogin = useCallback(async (idToken) => {
+    const data = await api.post('/auth/otp-login', { idToken });
+    localStorage.setItem('funhoods_token', data.token);
+    setUser(data.user);
+    return data.user;
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem('funhoods_token');
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, otpLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );
