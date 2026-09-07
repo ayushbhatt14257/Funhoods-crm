@@ -118,11 +118,13 @@ function PartyPipelineCard({ group: g }) {
         </div>
         <div style={{ fontSize: 12 }}>
           <b>PIs:</b>{' '}
-          {g.pis.map((p, i) => (
+          {g.pis.map((p) => (
             <span key={p.no}>
               <Link to={`/pis/${p.no}`} className="mono">{p.no}</Link>
+              <span className="mono muted" style={{ fontSize: 10.5, marginLeft: 4 }}>
+                ({new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })})
+              </span>
               <span className={`badge ${p.status === 'Partial Dispatched' ? 'y' : 'g'}`} style={{ marginLeft: 4, marginRight: 8 }}>{p.status}</span>
-              {i < g.pis.length - 1 ? '' : ''}
             </span>
           ))}
         </div>
