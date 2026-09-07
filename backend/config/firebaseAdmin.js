@@ -1,4 +1,5 @@
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
 
 // Phone-number OTP is sent and verified entirely by Firebase on the
 // frontend; all the backend does is verify the resulting ID token really
@@ -9,6 +10,9 @@ const admin = require('firebase-admin');
 // FIREBASE_PRIVATE_KEY is multi-line — when pasting into Render's env var
 // UI (or a local .env), keep it as one line with literal \n sequences; the
 // replace below turns those back into real newlines.
+// NOTE: firebase-admin v13+ moved to a modular API — no more `admin.credential.cert`
+// or `admin.auth(app)`; it's `cert(...)` and `getAuth(app)` imported directly
+// from 'firebase-admin/app' and 'firebase-admin/auth'.
 let firebaseApp = null;
 
 function getFirebaseApp() {
@@ -17,8 +21,8 @@ function getFirebaseApp() {
   if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
     throw new Error('Firebase OTP login is not configured — missing FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY');
   }
-  firebaseApp = admin.initializeApp({
-    credential: admin.credential.cert({
+  firebaseApp = initializeApp({
+    credential: cert({
       projectId: FIREBASE_PROJECT_ID,
       clientEmail: FIREBASE_CLIENT_EMAIL,
       privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
@@ -30,7 +34,7 @@ function getFirebaseApp() {
 // Returns the verified phone number (E.164, e.g. "+919131295174") or throws.
 async function verifyFirebaseIdToken(idToken) {
   const app = getFirebaseApp();
-  const decoded = await admin.auth(app).verifyIdToken(idToken);
+  const decoded = await getAuth(app).verifyIdToken(idToken);
   if (!decoded.phone_number) throw new Error('This sign-in token has no verified phone number attached');
   return decoded.phone_number;
 }
