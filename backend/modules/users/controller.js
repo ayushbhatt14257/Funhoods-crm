@@ -25,10 +25,9 @@ async function create(req, res) {
 
     const tempPassword = Math.random().toString(36).slice(-4).toUpperCase() + Math.random().toString(36).slice(-4).toUpperCase();
     const user = await User.create({ name, mobile, email: email || undefined, role, password: tempPassword });
-    res.status(201).json({
-      id: user._id, name: user.name, mobile: user.mobile, role: user.role,
-      tempPassword, // shown once — frontend must display this and tell the admin to copy it
-    });
+    // Login is OTP-only now — this password only exists to satisfy the
+    // schema and is never used or shown to anyone.
+    res.status(201).json({ id: user._id, name: user.name, mobile: user.mobile, role: user.role });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }

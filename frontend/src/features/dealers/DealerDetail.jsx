@@ -4,6 +4,7 @@ import Loading from '../../components/Loading';
 import { dealersApi } from './api';
 import { piApi } from '../pi/api';
 import { invoicesApi } from '../invoices/api';
+import { piStatusDisplay } from '../pi/statusDisplay';
 
 const badgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Fully Dispatched' ? 'g' : (s === 'Partial Dispatched' || s === 'Closed') ? 'y' : '');
 const invBadgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Delivered' ? 'g' : '');
@@ -89,7 +90,7 @@ export default function DealerDetail() {
                   <td><Link to={`/pis/${p.no}`} className="mono"><b>{p.no}</b></Link></td>
                   <td>{p.lines.length}</td>
                   <td>{Math.round(p.total).toLocaleString('en-IN')}</td>
-                  <td><span className={`badge ${badgeClass(p.status)}`}>{p.status}</span></td>
+                  <td><span className={`badge ${piStatusDisplay(p).cls}`}>{piStatusDisplay(p).label}</span></td>
                   <td>{p.by}</td>
                   <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                 </tr>

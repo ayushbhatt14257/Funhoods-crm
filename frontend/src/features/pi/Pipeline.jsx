@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { piApi } from './api';
 import Loading from '../../components/Loading';
+import { piStatusDisplay } from './statusDisplay';
 import { ddmmyyyy } from '../../utils/print';
 
 const OPEN_STATUSES = 'Sent,Confirmed,Partial Dispatched';
@@ -124,7 +125,7 @@ function PartyPipelineCard({ group: g }) {
               <span className="mono muted" style={{ fontSize: 10.5, marginLeft: 4 }}>
                 ({new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })})
               </span>
-              <span className={`badge ${p.status === 'Partial Dispatched' ? 'y' : 'g'}`} style={{ marginLeft: 4, marginRight: 8 }}>{p.status}</span>
+              <span className={`badge ${piStatusDisplay(p).cls}`} style={{ marginLeft: 4, marginRight: 8 }}>{piStatusDisplay(p).label}</span>
             </span>
           ))}
         </div>

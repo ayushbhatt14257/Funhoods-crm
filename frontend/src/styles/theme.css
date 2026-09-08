@@ -85,6 +85,7 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .badge.g{background:#E3F1E9;color:#1E6B41}
 .badge.r{background:#FCEDEC;color:#B02B22}
 .badge.y{background:#FDF4E3;color:#8A6212}
+.badge.p{background:#F0E8FB;color:#6B2FB3}
 
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px;margin-bottom:18px}
 .stat{background:var(--white);border:1px solid var(--line);border-radius:10px;padding:14px}

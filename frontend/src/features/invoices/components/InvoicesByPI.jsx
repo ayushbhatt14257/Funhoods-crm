@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { invoiceBadgeClass, piBadgeClass } from '../badges';
+import { invoiceBadgeClass } from '../badges';
+import { piStatusDisplay } from '../../pi/statusDisplay';
 
 // Group invoices under their originating PI (partial dispatches of the same PI
 // collapse into one card), and pull the live "still pending" lines straight
@@ -34,7 +35,7 @@ export default function InvoicesByPI({ invoices, pisByNo }) {
               <div>
                 <Link to={`/pis/${g.piRef}`} className="mono"><b>{g.piRef}</b></Link>
                 <span className="muted"> · {g.invoices[0].dealerName}</span>{' '}
-                {g.pi && <span className={`badge ${piBadgeClass(g.pi.status)}`}>{g.pi.status}</span>}
+                {g.pi && <span className={`badge ${piStatusDisplay(g.pi).cls}`}>{piStatusDisplay(g.pi).label}</span>}
               </div>
               <div className="muted" style={{ fontSize: 12 }}>{g.invoices.length} invoice{g.invoices.length > 1 ? 's' : ''} · ₹{Math.round(g.total).toLocaleString('en-IN')} dispatched so far</div>
             </div>

@@ -10,6 +10,7 @@ import ConfirmPopup from '../../components/ConfirmPopup';
 import ProductPickerModal from './components/ProductPickerModal';
 import ConfirmLineModal from './components/ConfirmLineModal';
 import { printAs, ddmmyyyy } from '../../utils/print';
+import { piStatusDisplay } from './statusDisplay';
 
 export default function PIDetail() {
   const { no } = useParams();
@@ -235,7 +236,7 @@ export default function PIDetail() {
 
   return (
     <div>
-      <div className="ph"><div className="eyebrow">PI detail</div><h2>{pi.no}</h2><p>{pi.dealerName} · <span className="badge">{pi.status}</span></p></div>
+      <div className="ph"><div className="eyebrow">PI detail</div><h2>{pi.no}</h2><p>{pi.dealerName} · <span className={`badge ${piStatusDisplay(pi).cls}`}>{piStatusDisplay(pi).label}</span></p></div>
 
       <Letterhead
         kind="PI"
