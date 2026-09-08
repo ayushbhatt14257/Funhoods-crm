@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
+import ConfirmPopup from '../../components/ConfirmPopup';
 import { dispatchApi } from './api';
 import DispatchQueue from './components/DispatchQueue';
 import DispatchForm from './components/DispatchForm';
@@ -34,6 +35,7 @@ export default function Dispatch() {
   const [vehicle, setVehicle] = useState(''); const [lr, setLr] = useState(''); const [eway, setEway] = useState(''); const [driver, setDriver] = useState('');
   const [cartonMap, setCartonMap] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [shortageConfirm, setShortageConfirm] = useState(null); // { message, shortages, onConfirm } — set when dispatch hits a physical-stock shortfall
 
   useEffect(() => {
     dispatchApi.getReadyPIs().then(setReadyPIs);
@@ -144,7 +146,7 @@ export default function Dispatch() {
     showToast(`${additions.length} carton(s) added for the remaining unmapped items`, 'g');
   }
 
-  async function submitPIDispatch() {
+  async function submitPIDispatch(force = false) {
     if (!transporter) return showToast('Mode of transport required', 'err');
     if (submitting) return;
     setSubmitting(true);
@@ -153,13 +155,21 @@ export default function Dispatch() {
         lines: dispatchLines.map((l) => ({ code: l.code, dispatchNow: l.dispatchNow })),
         transporter, vehicle, lr, eway, driver, freight, freightTerm,
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
+        force,
       });
       showToast('Dispatched · Tax Invoice raised', 'g');
       nav(`/invoices/${res.invoice.no}`);
-    } catch (err) { showToast(err.message, 'err'); setSubmitting(false); }
+    } catch (err) {
+      if (err.status === 409 && err.data?.shortages) {
+        setShortageConfirm({ message: err.message, shortages: err.data.shortages, onConfirm: () => { setShortageConfirm(null); submitPIDispatch(true); } });
+        setSubmitting(false);
+        return;
+      }
+      showToast(err.message, 'err'); setSubmitting(false);
+    }
   }
 
-  async function submitManualDispatch() {
+  async function submitManualDispatch(force = false) {
     if (!manualDealer) return showToast('Select a dealer', 'err');
     if (!transporter) return showToast('Mode of transport required', 'err');
     const valid = dispatchLines.filter((l) => l.code && +l.dispatchNow > 0);
@@ -172,10 +182,18 @@ export default function Dispatch() {
         lines: valid.map((l) => ({ code: l.code, pcs: l.dispatchNow })),
         transporter, vehicle, lr, eway, driver, freight, freightTerm,
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
+        force,
       });
       showToast('Manual dispatch complete · Tax Invoice raised', 'g');
       nav(`/invoices/${res.invoice.no}`);
-    } catch (err) { showToast(err.message, 'err'); setSubmitting(false); }
+    } catch (err) {
+      if (err.status === 409 && err.data?.shortages) {
+        setShortageConfirm({ message: err.message, shortages: err.data.shortages, onConfirm: () => { setShortageConfirm(null); submitManualDispatch(true); } });
+        setSubmitting(false);
+        return;
+      }
+      showToast(err.message, 'err'); setSubmitting(false);
+    }
   }
 
   if (mode === 'list') {
@@ -184,25 +202,50 @@ export default function Dispatch() {
 
   const isManual = mode === 'manual';
   return (
-    <DispatchForm
-      isManual={isManual}
-      pi={pi}
-      dealers={dealers}
-      products={products}
-      manualDealer={manualDealer}
-      onManualDealerChange={onManualDealerChange}
-      pendingSuggestion={pendingSuggestion}
-      onUsePendingPI={openFromPI}
-      dispatchLines={dispatchLines}
-      onQtyChange={updateDispatchQty}
-      onManualLineChange={updateManualLine}
-      onAddManualLine={addManualLine}
-      onRemoveManualLine={removeManualLine}
-      transportState={{ transporter, setTransporter, freight, setFreight, freightTerm, setFreightTerm, showAdvanced, setShowAdvanced, vehicle, setVehicle, lr, setLr, eway, setEway, driver, setDriver }}
-      cartonState={{ activeLines, mapped: mappedByCode(), cartonMap, onAddCarton: addCarton, onAutoFill: autoFillCartons, onAddItemToCarton: addItemToCarton, onRemoveCartonItem: removeCartonItem, onRemoveCarton: removeCarton }}
-      onSubmit={isManual ? submitManualDispatch : submitPIDispatch}
-      submitting={submitting}
-      onBack={() => setMode('list')}
-    />
+    <>
+      <DispatchForm
+        isManual={isManual}
+        pi={pi}
+        dealers={dealers}
+        products={products}
+        manualDealer={manualDealer}
+        onManualDealerChange={onManualDealerChange}
+        pendingSuggestion={pendingSuggestion}
+        onUsePendingPI={openFromPI}
+        dispatchLines={dispatchLines}
+        onQtyChange={updateDispatchQty}
+        onManualLineChange={updateManualLine}
+        onAddManualLine={addManualLine}
+        onRemoveManualLine={removeManualLine}
+        transportState={{ transporter, setTransporter, freight, setFreight, freightTerm, setFreightTerm, showAdvanced, setShowAdvanced, vehicle, setVehicle, lr, setLr, eway, setEway, driver, setDriver }}
+        cartonState={{ activeLines, mapped: mappedByCode(), cartonMap, onAddCarton: addCarton, onAutoFill: autoFillCartons, onAddItemToCarton: addItemToCarton, onRemoveCartonItem: removeCartonItem, onRemoveCarton: removeCarton }}
+        onSubmit={() => (isManual ? submitManualDispatch() : submitPIDispatch())}
+        submitting={submitting}
+        onBack={() => setMode('list')}
+      />
+      {shortageConfirm && (
+        <ConfirmPopup
+          title="Not enough physical stock"
+          message={shortageConfirm.message}
+          confirmLabel="Dispatch anyway"
+          danger
+          onConfirm={shortageConfirm.onConfirm}
+          onClose={() => setShortageConfirm(null)}
+        >
+          <table className="dt" style={{ marginTop: -6, marginBottom: 12 }}>
+            <thead><tr><th>Item</th><th>Dispatching</th><th>Physically in stock</th></tr></thead>
+            <tbody>
+              {shortageConfirm.shortages.map((s) => (
+                <tr key={s.code}>
+                  <td>{s.name}</td>
+                  <td style={{ color: 'var(--red)', fontWeight: 600 }}>{s.requested}</td>
+                  <td>{s.physical}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ConfirmPopup>
+      )}
+    </>
   );
 }

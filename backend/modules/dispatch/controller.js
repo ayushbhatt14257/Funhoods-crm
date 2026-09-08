@@ -54,6 +54,24 @@ function notifyDispatched(invoice) {
   });
 }
 
+// Warns (doesn't block) when a dispatch would take physical stock negative —
+// i.e. shipping more of something than is actually sitting in the godown
+// right now. This is deliberately soft: orders can be confirmed beyond
+// current stock (you manufacture more), so this only matters at the moment
+// stock is physically about to leave. Pass `force: true` in the request body
+// to dispatch anyway once the dispatcher has seen the warning.
+async function checkPhysicalShortages(dispatchLines) {
+  const codes = dispatchLines.map((l) => l.code);
+  const invDocs = await Inventory.find({ code: { $in: codes } });
+  const invByCode = Object.fromEntries(invDocs.map((d) => [d.code, d]));
+  const shortages = [];
+  for (const l of dispatchLines) {
+    const physical = invByCode[l.code]?.physical || 0;
+    if (l.pcs > physical) shortages.push({ code: l.code, name: l.name, requested: l.pcs, physical });
+  }
+  return shortages;
+}
+
 // POST /api/dispatch/from-pi/:piNo
 // body: { lines: [{code, dispatchNow}], transporter, vehicle?, lr?, eway?, driver?, freight?, cartonMap: [{no, items:[{code,pcs}]}] }
 async function dispatchFromPI(req, res) {
@@ -85,6 +103,14 @@ async function dispatchFromPI(req, res) {
 
     const cartonError = validateCartonMap(dispatchLines, cartonMap);
     if (cartonError) return res.status(400).json({ message: cartonError });
+
+    if (!req.body.force) {
+      const shortages = await checkPhysicalShortages(dispatchLines);
+      if (shortages.length) {
+        const detail = shortages.map((s) => `${s.name} — dispatching ${s.requested}, only ${s.physical} physically in stock`).join('; ');
+        return res.status(409).json({ message: `Physical stock shortfall: ${detail}. Confirm to dispatch anyway.`, shortages });
+      }
+    }
 
     const subtotal = dispatchLines.reduce((s, l) => s + l.total, 0);
     const frt = +freight || 0;
@@ -175,6 +201,14 @@ async function dispatchManual(req, res) {
 
     const cartonError = validateCartonMap(dispatchLines, cartonMap);
     if (cartonError) return res.status(400).json({ message: cartonError });
+
+    if (!req.body.force) {
+      const shortages = await checkPhysicalShortages(dispatchLines);
+      if (shortages.length) {
+        const detail = shortages.map((s) => `${s.name} — dispatching ${s.requested}, only ${s.physical} physically in stock`).join('; ');
+        return res.status(409).json({ message: `Physical stock shortfall: ${detail}. Confirm to dispatch anyway.`, shortages });
+      }
+    }
 
     const subtotal = dispatchLines.reduce((s, l) => s + l.total, 0);
     const frt = +freight || 0;
