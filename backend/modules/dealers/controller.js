@@ -103,4 +103,33 @@ async function uploadBusinessCard(req, res) {
   res.json(dealer);
 }
 
-module.exports = { list, getOne, create, update, remove, uploadGstCert, uploadAadhar, uploadBusinessCard };
+// GET /api/dealers/utils/pincode-lookup?city=Indore&state=Madhya%20Pradesh
+// Auto-fills the PIN code field once city (+ state, to disambiguate) is
+// typed — uses India Post's free public directory. A city can have several
+// post offices/pincodes, so this returns the best match rather than forcing
+// one; the frontend still leaves the field editable either way.
+async function pincodeLookup(req, res) {
+  const city = String(req.query.city || '').trim();
+  if (!city) return res.status(400).json({ message: 'city required' });
+  const state = String(req.query.state || '').trim().toLowerCase();
+
+  try {
+    const resp = await fetch(`https://api.postalpincode.in/postoffice/${encodeURIComponent(city)}`);
+    const data = await resp.json();
+    const offices = data?.[0]?.Status === 'Success' ? data[0].PostOffice || [] : [];
+    if (!offices.length) return res.json({ pincode: '', matches: [] });
+
+    // Prefer an office in the selected state, and prefer one whose name is
+    // an exact match for the city typed (postoffice search matches substrings too).
+    const scored = offices.map((o) => ({
+      pincode: o.Pincode, district: o.District, state: o.State, name: o.Name,
+      score: (o.State.toLowerCase() === state ? 2 : 0) + (o.Name.toLowerCase() === city.toLowerCase() ? 1 : 0),
+    }));
+    scored.sort((a, b) => b.score - a.score);
+    res.json({ pincode: scored[0].pincode, matches: scored.slice(0, 5) });
+  } catch (err) {
+    res.json({ pincode: '', matches: [] }); // best-effort — never block the form over a lookup failure
+  }
+}
+
+module.exports = { list, getOne, create, update, remove, uploadGstCert, uploadAadhar, uploadBusinessCard, pincodeLookup };

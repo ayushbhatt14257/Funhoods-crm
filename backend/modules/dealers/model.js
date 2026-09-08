@@ -19,6 +19,7 @@ const dealerSchema = new mongoose.Schema(
     creditLimit: { type: Number, default: 0 },
     slab: { type: String, enum: ['A', 'B', 'C'], default: 'C' },
     notes: { type: String, default: '' },
+    referenceName: { type: String, default: '' }, // who referred/introduced this dealer, if anyone
     active: { type: Boolean, default: true },
     createdByName: { type: String, default: '' },
     assignedTo: { type: String, default: '' }, // name of the field/sales user this party belongs to

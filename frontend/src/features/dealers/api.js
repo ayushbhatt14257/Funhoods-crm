@@ -8,4 +8,5 @@ export const dealersApi = {
   update: (code, payload) => api.put(`/dealers/${code}`, payload),
   remove: (code) => api.del(`/dealers/${code}`),
   uploadDoc: (code, field, formData) => api.putForm(`/dealers/${code}/${field}`, formData),
+  pincodeLookup: (city, state) => api.get(`/dealers/utils/pincode-lookup?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state || '')}`),
 };

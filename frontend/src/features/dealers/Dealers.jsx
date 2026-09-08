@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import { dealersApi } from './api';
@@ -6,8 +6,9 @@ import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
 import NewDealerModal from './components/NewDealerModal';
 import Loading from '../../components/Loading';
+import { INDIA_STATES } from './indiaStates';
 
-const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '', type: 'Retailer', payment: 'Advance', creditLimit: 0, slab: 'C', assignedTo: '' };
+const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '', type: 'Retailer', payment: 'Advance', creditLimit: 0, slab: 'C', assignedTo: '', referenceName: '' };
 
 export default function Dealers() {
   const { showToast } = useToast();
@@ -17,6 +18,8 @@ export default function Dealers() {
   const [form, setForm] = useState(emptyForm);
   const [showNewDealer, setShowNewDealer] = useState(false);
   const [users, setUsers] = useState([]);
+  const [pinAutoFilled, setPinAutoFilled] = useState(false);
+  const lookupTimer = useRef(null);
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
 
@@ -27,7 +30,28 @@ export default function Dealers() {
   }
   useEffect(() => { load(); }, [q]);
 
-  function openEdit(d) { setEditing(d); setForm({ ...emptyForm, ...d }); }
+  function openEdit(d) { setEditing(d); setForm({ ...emptyForm, ...d }); setPinAutoFilled(false); }
+
+  function onCityChange(e) {
+    const city = e.target.value;
+    setForm((f) => ({ ...f, city }));
+    clearTimeout(lookupTimer.current);
+    if (!city.trim() || !form.state) return;
+    lookupTimer.current = setTimeout(async () => {
+      try {
+        const res = await dealersApi.pincodeLookup(city.trim(), form.state);
+        if (res.pincode) {
+          setForm((f) => (f.pin && !pinAutoFilled ? f : { ...f, pin: res.pincode }));
+          setPinAutoFilled(true);
+        }
+      } catch { /* best-effort */ }
+    }, 600);
+  }
+
+  function onPinChange(e) {
+    setPinAutoFilled(false);
+    setForm({ ...form, pin: e.target.value });
+  }
 
   async function save() {
     try {
@@ -106,9 +130,16 @@ export default function Dealers() {
             <div className="fg"><label>Mobile</label><input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} /></div>
           </div>
           <div className="row3">
-            <div className="fg"><label>City</label><input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
-            <div className="fg"><label>State</label><input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} /></div>
-            <div className="fg"><label>Pin</label><input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} /></div>
+            <div className="fg"><label>State</label>
+              <select value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })}>
+                <option value="">— Select state —</option>
+                {INDIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="fg"><label>City</label><input value={form.city} onChange={onCityChange} /></div>
+            <div className="fg"><label>Pin {pinAutoFilled && form.pin && <span className="muted" style={{ fontWeight: 400, fontSize: 10 }}>(auto)</span>}</label>
+              <input value={form.pin} onChange={onPinChange} />
+            </div>
           </div>
           <div className="fg"><label>Address</label><textarea value={form.addr} onChange={(e) => setForm({ ...form, addr: e.target.value })} /></div>
           <div className="row3">
@@ -133,12 +164,15 @@ export default function Dealers() {
             <div className="fg"><label>Credit limit ₹</label><input type="number" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} /></div>
           </div>
 
-          <div className="fg">
-            <label>Assigned salesperson (this party belongs to)</label>
-            <select value={form.assignedTo || ''} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}>
-              <option value="">— Unassigned —</option>
-              {users.map((u) => <option key={u._id} value={u.name}>{u.name} ({u.role})</option>)}
-            </select>
+          <div className="row2">
+            <div className="fg">
+              <label>Assigned salesperson (this party belongs to)</label>
+              <select value={form.assignedTo || ''} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}>
+                <option value="">— Unassigned —</option>
+                {users.map((u) => <option key={u._id} value={u.name}>{u.name} ({u.role})</option>)}
+              </select>
+            </div>
+            <div className="fg"><label>Reference (optional)</label><input value={form.referenceName || ''} onChange={(e) => setForm({ ...form, referenceName: e.target.value })} /></div>
           </div>
 
           <div className="row3">
