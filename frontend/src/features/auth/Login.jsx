@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { firebaseAuth } from '../../firebase';
+import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 
@@ -31,6 +32,14 @@ export default function Login() {
     if (!/^\d{10}$/.test(mobile)) return showToast('Enter a 10-digit mobile number', 'err');
     setBusy(true);
     try {
+      // Check the account exists BEFORE Firebase sends an OTP — otherwise
+      // someone burns a real SMS (and their own time) only to find out at
+      // the very end that there's no account for this number.
+      const { exists } = await api.get(`/auth/check-mobile?mobile=${mobile}`);
+      if (!exists) {
+        showToast('No active account found for this number. Ask an admin to add you first.', 'err');
+        return;
+      }
       const result = await signInWithPhoneNumber(firebaseAuth, `+91${mobile}`, getRecaptcha());
       setConfirmation(result);
       showToast('OTP sent', 'g');

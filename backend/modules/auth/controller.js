@@ -92,4 +92,16 @@ async function otpLogin(req, res) {
   }
 }
 
-module.exports = { login, otpLogin, me };
+// GET /api/auth/check-mobile?mobile=9131295174
+// Called before Firebase even sends an OTP, so a mobile number with no
+// account fails fast — no wasted SMS quota, no "please wait" for a code
+// that was never going to work. Deliberately returns only a boolean, never
+// which part is wrong, so this can't be used to enumerate valid accounts.
+async function checkMobile(req, res) {
+  const digits = String(req.query.mobile || '').replace(/\D/g, '').slice(-10);
+  if (digits.length !== 10) return res.json({ exists: false });
+  const user = await User.findOne({ mobile: digits });
+  res.json({ exists: !!(user && user.active) });
+}
+
+module.exports = { login, otpLogin, me, checkMobile };
