@@ -17,7 +17,7 @@ function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x
 function endOfDay(d) { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; }
 function startOfMonth(d) { const x = new Date(d); x.setDate(1); x.setHours(0, 0, 0, 0); return x; }
 
-// GET /api/dashboard/summary?from=YYYY-MM-DD&to=YYYY-MM-DD
+// GET /api/dashboard/summary?from=YYYY-MM-DD&to=YYYY-MM-DD&all=1
 //
 // The dashboard used to fetch every PI and every Invoice ever created just
 // to add up a handful of numbers client-side. That's fine at a few hundred
@@ -27,6 +27,7 @@ function startOfMonth(d) { const x = new Date(d); x.setDate(1); x.setHours(0, 0,
 //
 // `from`/`to` scope the period-based numbers (Open PIs, Pipeline ₹, Open
 // Invoices, Invoiced ₹) — defaults to the current month if not given.
+// `all=1` drops the date filter entirely (all-time totals, no range).
 // Today's Orders/Dispatch are always literally today, regardless of the
 // selected range — they're a real-time pulse, not a period figure.
 // Outstanding ₹ is always the live running balance (a balance is always
@@ -36,9 +37,10 @@ async function summary(req, res) {
   const dealerFilter = scopedCodes ? { dealer: { $in: scopedCodes } } : {};
 
   const now = new Date();
+  const showAll = req.query.all === '1';
   const from = req.query.from ? startOfDay(req.query.from) : startOfMonth(now);
   const to = req.query.to ? endOfDay(req.query.to) : endOfDay(now);
-  const rangeFilter = { createdAt: { $gte: from, $lte: to } };
+  const rangeFilter = showAll ? {} : { createdAt: { $gte: from, $lte: to } };
 
   const todayFilter = { createdAt: { $gte: startOfDay(now), $lte: endOfDay(now) } };
 
@@ -81,7 +83,7 @@ async function summary(req, res) {
     outstanding,
     todayOrders: { count: todayOrdersCount, amount: todayOrdersAgg[0]?.total || 0 },
     todayDispatch: { count: todayDispatchCount, amount: todayDispatchAgg[0]?.total || 0 },
-    range: { from: from.toISOString(), to: to.toISOString() },
+    range: showAll ? { all: true } : { from: from.toISOString(), to: to.toISOString() },
   });
 }
 

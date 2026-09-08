@@ -82,28 +82,26 @@ export default function Dashboard() {
   const today = new Date();
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const [range, setRange] = useState({ from: monthStart.toISOString().slice(0, 10), to: today.toISOString().slice(0, 10) });
-  const [rangeLabel, setRangeLabel] = useState('This month');
+  const [rangeLabel, setRangeLabel] = useState('This month'); // 'This month' | 'Overall' | 'Custom'
 
-  function applyPreset(label) {
+  function applyThisMonth() {
     const now = new Date();
-    let from, to;
-    if (label === 'This month') {
-      from = new Date(now.getFullYear(), now.getMonth(), 1);
-      to = now;
-    } else if (label === 'Last month') {
-      from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      to = new Date(now.getFullYear(), now.getMonth(), 0);
-    }
-    setRange({ from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) });
-    setRangeLabel(label);
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    setRange({ from: from.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) });
+    setRangeLabel('This month');
+  }
+  function applyOverall() {
+    setRangeLabel('Overall');
   }
 
   // Stats (the top numbers) refetch whenever the date range changes —
-  // computed server-side, see /api/dashboard/summary.
+  // computed server-side, see /api/dashboard/summary. "Overall" drops the
+  // date filter entirely instead of just picking a wide range.
   useEffect(() => {
     setStats(null);
-    api.get(`/dashboard/summary?from=${range.from}&to=${range.to}`).then(setStats);
-  }, [range.from, range.to]);
+    const query = rangeLabel === 'Overall' ? 'all=1' : `from=${range.from}&to=${range.to}`;
+    api.get(`/dashboard/summary?${query}`).then(setStats);
+  }, [range.from, range.to, rangeLabel]);
 
   useEffect(() => {
     (async () => {
@@ -162,12 +160,16 @@ export default function Dashboard() {
           {user.role === 'masterAdmin' ? 'Company-wide' : 'Your'} totals for:
         </span>
         <div className="subtabs" style={{ margin: 0 }}>
-          <button className={rangeLabel === 'This month' ? 'on' : ''} onClick={() => applyPreset('This month')}>This month</button>
-          <button className={rangeLabel === 'Last month' ? 'on' : ''} onClick={() => applyPreset('Last month')}>Last month</button>
+          <button className={rangeLabel === 'This month' ? 'on' : ''} onClick={applyThisMonth}>This month</button>
+          <button className={rangeLabel === 'Overall' ? 'on' : ''} onClick={applyOverall}>Overall (all-time)</button>
         </div>
-        <input type="date" value={range.from} max={range.to} onChange={(e) => { setRange((r) => ({ ...r, from: e.target.value })); setRangeLabel('Custom'); }} />
-        <span className="muted" style={{ fontSize: 12 }}>to</span>
-        <input type="date" value={range.to} min={range.from} max={today.toISOString().slice(0, 10)} onChange={(e) => { setRange((r) => ({ ...r, to: e.target.value })); setRangeLabel('Custom'); }} />
+        {rangeLabel !== 'Overall' && (
+          <>
+            <input type="date" value={range.from} max={range.to} onChange={(e) => { setRange((r) => ({ ...r, from: e.target.value })); setRangeLabel('Custom'); }} />
+            <span className="muted" style={{ fontSize: 12 }}>to</span>
+            <input type="date" value={range.to} min={range.from} max={today.toISOString().slice(0, 10)} onChange={(e) => { setRange((r) => ({ ...r, to: e.target.value })); setRangeLabel('Custom'); }} />
+          </>
+        )}
       </div>
 
       <div className="stats">
@@ -176,12 +178,12 @@ export default function Dashboard() {
             <div className="stat">
               <div className="n">{stats.todayOrders.count}</div>
               <div className="l">Today's Orders</div>
-              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>₹{Math.round(stats.todayOrders.amount).toLocaleString('en-IN')}</div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>₹{Math.round(stats.todayOrders.amount).toLocaleString('en-IN')} · always today, not affected by the filter above</div>
             </div>
             <div className="stat">
               <div className="n">{stats.todayDispatch.count}</div>
               <div className="l">Today's Dispatch</div>
-              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>₹{Math.round(stats.todayDispatch.amount).toLocaleString('en-IN')}</div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>₹{Math.round(stats.todayDispatch.amount).toLocaleString('en-IN')} · always today, not affected by the filter above</div>
             </div>
             <div className="stat clickable" onClick={() => nav('/pipeline')}>
               <div className="n">{stats.openPIs}</div><div className="l">Open PIs</div>
