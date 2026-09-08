@@ -4,7 +4,7 @@ import { useToast } from '../../../context/ToastContext';
 import { useAuth } from '../../../context/AuthContext';
 import Modal from '../../../components/Modal';
 import { dealersApi } from '../api';
-import { INDIA_STATES } from '../indiaStates';
+import { INDIA_STATES, STATE_CITIES } from '../indiaStates';
 
 // onCreated(dealer) fires after the dealer is created AND any documents are uploaded.
 export default function NewDealerModal({ onCreated, onClose }) {
@@ -20,30 +20,44 @@ export default function NewDealerModal({ onCreated, onClose }) {
   const [businessCardFile, setBusinessCardFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [pinAutoFilled, setPinAutoFilled] = useState(false); // stops the lookup from clobbering a PIN the user typed themselves
+  const [cityMode, setCityMode] = useState('select'); // 'select' | 'manual' — manual when their town isn't in the list
   const lookupTimer = useRef(null);
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  // Once both city and state are filled in, look up the pincode (debounced,
-  // so it doesn't fire on every keystroke). Never overwrites a PIN the user
-  // already typed by hand — only fills it in while it's still empty or was
-  // itself auto-filled.
-  function onCityChange(e) {
-    const city = e.target.value;
-    setForm((f) => ({ ...f, city }));
+  function lookupPincode(city, state) {
     clearTimeout(lookupTimer.current);
-    if (!city.trim() || !form.state) return;
+    if (!city.trim() || !state) return;
     lookupTimer.current = setTimeout(async () => {
       try {
-        const res = await dealersApi.pincodeLookup(city.trim(), form.state);
+        const res = await dealersApi.pincodeLookup(city.trim(), state);
         if (res.pincode) {
           setForm((f) => (f.pin && !pinAutoFilled ? f : { ...f, pin: res.pincode }));
           setPinAutoFilled(true);
         }
       } catch { /* best-effort — pincode stays manually editable regardless */ }
     }, 600);
+  }
+
+  function onStateChange(e) {
+    const state = e.target.value;
+    setForm((f) => ({ ...f, state, city: '' }));
+    setCityMode('select');
+  }
+
+  function onCitySelect(e) {
+    const val = e.target.value;
+    if (val === '__manual__') { setCityMode('manual'); setForm((f) => ({ ...f, city: '' })); return; }
+    setForm((f) => ({ ...f, city: val }));
+    lookupPincode(val, form.state);
+  }
+
+  function onCityTyped(e) {
+    const city = e.target.value;
+    setForm((f) => ({ ...f, city }));
+    lookupPincode(city, form.state);
   }
 
   function onPinChange(e) {
@@ -111,12 +125,22 @@ export default function NewDealerModal({ onCreated, onClose }) {
       <div className="fg"><label>Address *</label><textarea value={form.addr} onChange={set('addr')} /></div>
       <div className="row3">
         <div className="fg"><label>State</label>
-          <select value={form.state} onChange={set('state')}>
+          <select value={form.state} onChange={onStateChange}>
             <option value="">— Select state —</option>
             {INDIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
-        <div className="fg"><label>City</label><input value={form.city} onChange={onCityChange} placeholder={form.state ? '' : 'Pick a state first'} /></div>
+        <div className="fg"><label>City</label>
+          {cityMode === 'select' ? (
+            <select value={form.city} onChange={onCitySelect} disabled={!form.state}>
+              <option value="">{form.state ? '— Select city —' : 'Pick a state first'}</option>
+              {(STATE_CITIES[form.state] || []).map((c) => <option key={c} value={c}>{c}</option>)}
+              {form.state && <option value="__manual__">Other — type manually</option>}
+            </select>
+          ) : (
+            <input value={form.city} onChange={onCityTyped} placeholder="Type city name" autoFocus />
+          )}
+        </div>
         <div className="fg"><label>Pin {pinAutoFilled && form.pin && <span className="muted" style={{ fontWeight: 400, fontSize: 10 }}>(auto — edit if wrong)</span>}</label>
           <input value={form.pin} onChange={onPinChange} />
         </div>
