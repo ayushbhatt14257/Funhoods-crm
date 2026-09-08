@@ -1,5 +1,4 @@
 const PI = require('../pi/model');
-const { autoApproveIfDue } = require('../pi/controller');
 const Dealer = require('../dealers/model');
 const Product = require('../products/model');
 const Invoice = require('../invoices/model');
@@ -59,12 +58,11 @@ function notifyDispatched(invoice) {
 // body: { lines: [{code, dispatchNow}], transporter, vehicle?, lr?, eway?, driver?, freight?, cartonMap: [{no, items:[{code,pcs}]}] }
 async function dispatchFromPI(req, res) {
   try {
-    let pi = await PI.findOne({ no: req.params.piNo });
+    const pi = await PI.findOne({ no: req.params.piNo });
     if (!pi) return res.status(404).json({ message: 'PI not found' });
     if (!['Confirmed', 'Partial Dispatched'].includes(pi.status)) {
       return res.status(400).json({ message: 'PI must be Confirmed before dispatch' });
     }
-    pi = await autoApproveIfDue(pi);
     if (pi.priceApproval?.status === 'pending') {
       return res.status(400).json({ message: 'This PI has a discounted rate awaiting Master Admin approval — it can\'t be dispatched yet.' });
     }
@@ -227,9 +225,8 @@ async function pendingPIForDealer(req, res) {
 
 async function readyPIs(req, res) {
   const pis = await PI.find({ status: { $in: ['Confirmed', 'Partial Dispatched'] } }).sort({ createdAt: -1 });
-  const settled = await Promise.all(pis.map((p) => (p.priceApproval?.status === 'pending' ? autoApproveIfDue(p) : p)));
   // Still-pending discount approvals stay out of the dispatch queue entirely.
-  res.json(settled.filter((p) => p.priceApproval?.status !== 'pending'));
+  res.json(pis.filter((p) => p.priceApproval?.status !== 'pending'));
 }
 
 module.exports = { dispatchFromPI, dispatchManual, pendingPIForDealer, readyPIs };

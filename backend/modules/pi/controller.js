@@ -102,38 +102,25 @@ async function notifyRateEdits(lines, pi, editorName) {
   }
 }
 
-const PRICE_APPROVAL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-
 // A admin's discount (any line priced below its base rate) needs Master
 // Admin sign-off. Master Admin's own discounts don't — they're the approver.
 function requiresPriceApproval(lines, role) {
   return role === 'admin' && lines.some((l) => l.rate < l.listRate);
 }
 
+// Stays pending until Master Admin explicitly approves it — no timeout,
+// manual only. The PI can't be dispatched while pending (see dispatch/controller.js).
 async function flagForPriceApproval(pi, lines) {
-  pi.priceApproval = { status: 'pending', deadline: new Date(Date.now() + PRICE_APPROVAL_WINDOW_MS), decidedBy: '', decidedAt: null };
+  pi.priceApproval = { status: 'pending', decidedBy: '', decidedAt: null };
   await pi.save();
   const discounted = lines.filter((l) => l.rate < l.listRate);
   await Notification.create({
     type: 'price_approval',
-    message: `${pi.no} (${pi.dealerName}) has a admin-approved discount awaiting Master Admin sign-off — ${discounted.map((l) => `${l.name} ₹${l.listRate}→₹${l.rate}`).join(', ')}. Auto-approves in 1 hour if not reviewed.`,
+    message: `${pi.no} (${pi.dealerName}) has a admin-approved discount awaiting Master Admin sign-off — ${discounted.map((l) => `${l.name} ₹${l.listRate}→₹${l.rate}`).join(', ')}.`,
     relatedNo: pi.no,
     relatedKind: 'pi',
     forRole: 'masterAdmin',
   });
-}
-
-// If a pending approval's 1-hour window has passed, auto-approve it. Called
-// lazily from read paths (no cron in this stack) — same pattern already used
-// for dispatch-overdue and payment-due notifications.
-async function autoApproveIfDue(pi) {
-  if (pi.priceApproval?.status === 'pending' && pi.priceApproval.deadline && Date.now() >= new Date(pi.priceApproval.deadline).getTime()) {
-    pi.priceApproval.status = 'approved';
-    pi.priceApproval.decidedBy = 'Auto (1 hour timeout)';
-    pi.priceApproval.decidedAt = new Date();
-    await pi.save();
-  }
-  return pi;
 }
 
 // POST /api/pi  { dealerCode, lines: [{code, pcs?, outers?, inners?, rate?}], remark?, transport?, freightTerm? }
@@ -194,7 +181,6 @@ async function list(req, res) {
     filter.dealer = { $in: myDealers.map((d) => d.code) };
   }
   const pis = await PI.find(filter).sort({ createdAt: -1 });
-  await Promise.all(pis.filter((p) => p.priceApproval?.status === 'pending').map(autoApproveIfDue));
 
   const dealerCodes = [...new Set(pis.map((p) => p.dealer))];
   const dealers = await Dealer.find({ code: { $in: dealerCodes } }).select('code assignedTo');
@@ -205,9 +191,8 @@ async function list(req, res) {
 }
 
 async function getOne(req, res) {
-  let pi = await PI.findOne({ no: req.params.no });
+  const pi = await PI.findOne({ no: req.params.no });
   if (!pi) return res.status(404).json({ message: 'PI not found' });
-  pi = await autoApproveIfDue(pi);
   res.json(pi);
 }
 
@@ -339,10 +324,8 @@ async function remove(req, res) {
 
 // GET /api/pi/approvals/pending — masterAdmin only
 async function listPendingApprovals(req, res) {
-  const candidates = await PI.find({ 'priceApproval.status': 'pending' }).sort({ 'priceApproval.deadline': 1 });
-  const settled = await Promise.all(candidates.map(autoApproveIfDue));
-  const stillPending = settled.filter((p) => p.priceApproval?.status === 'pending');
-  res.json(stillPending);
+  const pending = await PI.find({ 'priceApproval.status': 'pending' }).sort({ createdAt: -1 });
+  res.json(pending);
 }
 
 // POST /api/pi/:no/approve-price — masterAdmin only
@@ -361,5 +344,5 @@ async function approvePrice(req, res) {
 
 module.exports = {
   parseOrder, create, update, list, getOne, setStatus, confirm, cancel, closeRemaining, remove,
-  listPendingApprovals, approvePrice, autoApproveIfDue,
+  listPendingApprovals, approvePrice,
 };

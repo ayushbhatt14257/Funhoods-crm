@@ -5,8 +5,8 @@ import { useToast } from '../../context/ToastContext';
 import Loading from '../../components/Loading';
 
 // masterAdmin-only: every PI where a admin priced a line below base rate
-// and it's still awaiting sign-off. These block dispatch until approved (or
-// until the 1-hour auto-approve window passes on its own).
+// and it's still awaiting sign-off. These stay pending — and blocked from
+// dispatch — until manually approved here. No auto-approve/timeout.
 export default function PendingApprovals() {
   const { showToast } = useToast();
   const [pis, setPis] = useState(null); // null = loading
@@ -25,14 +25,13 @@ export default function PendingApprovals() {
   return (
     <div>
       <div className="ph"><div className="eyebrow">Master admin</div><h2>Price Approvals</h2>
-        <p>PIs where a admin priced a line below the product's base rate. Each auto-approves on its own after 1 hour if you don't act — none of these can be dispatched until then.</p></div>
+        <p>PIs where a admin priced a line below the product's base rate. None of these can be dispatched until you approve them here.</p></div>
 
       {pis === null ? (
         <Loading label="Loading pending approvals…" />
       ) : pis.length ? (
         pis.map((pi) => {
           const discounted = pi.lines.filter((l) => l.rate < l.listRate);
-          const minsLeft = Math.max(0, Math.round((new Date(pi.priceApproval.deadline) - Date.now()) / 60000));
           return (
             <div className="card" key={pi.no} style={{ marginBottom: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
@@ -40,7 +39,7 @@ export default function PendingApprovals() {
                   <Link to={`/pis/${pi.no}`} className="mono"><b>{pi.no}</b></Link>
                   <span className="muted"> · {pi.dealerName} · by {pi.by}</span>
                 </div>
-                <span className={`badge ${minsLeft <= 15 ? 'r' : 'y'}`}>Auto-approves in {minsLeft}m</span>
+                <span className="badge y">Pending approval</span>
               </div>
               <table className="dt" style={{ marginBottom: 10 }}>
                 <thead><tr><th>Item</th><th>Base ₹</th><th>Priced at ₹</th><th>Qty</th></tr></thead>

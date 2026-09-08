@@ -266,8 +266,7 @@ export default function PIDetail() {
       )}
       {pi.priceApproval?.status === 'pending' && (
         <div className="note r" style={{ fontSize: 12.5, marginTop: 10 }}>
-          <b>⏳ Awaiting Master Admin price approval</b> — this PI has a discounted line and can't be dispatched yet.
-          Auto-approves at {new Date(pi.priceApproval.deadline).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} if not reviewed sooner.
+          <b>⏳ Awaiting Master Admin price approval</b> — this PI has a discounted line and can't be dispatched until a Master Admin approves it.
           {user.role === 'masterAdmin' && (
             <div className="btnrow" style={{ marginTop: 8 }}>
               <button className="btn g sm" disabled={approvingPrice} onClick={approvePricePI}>{approvingPrice ? 'Approving…' : '✓ Approve now'}</button>
