@@ -79,31 +79,51 @@ export default function Dashboard() {
   const [flags, setFlags] = useState(null);
   const [activity, setActivity] = useState(null);
 
+  const today = new Date();
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const [range, setRange] = useState({ from: monthStart.toISOString().slice(0, 10), to: today.toISOString().slice(0, 10) });
+  const [rangeLabel, setRangeLabel] = useState('This month');
+
+  function applyPreset(label) {
+    const now = new Date();
+    let from, to;
+    if (label === 'This month') {
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
+      to = now;
+    } else if (label === 'Last month') {
+      from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      to = new Date(now.getFullYear(), now.getMonth(), 0);
+    }
+    setRange({ from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) });
+    setRangeLabel(label);
+  }
+
+  // Stats (the top numbers) refetch whenever the date range changes —
+  // computed server-side, see /api/dashboard/summary.
+  useEffect(() => {
+    setStats(null);
+    api.get(`/dashboard/summary?from=${range.from}&to=${range.to}`).then(setStats);
+  }, [range.from, range.to]);
+
   useEffect(() => {
     (async () => {
-      // Stats (the 5 top numbers) are computed server-side now — see
-      // /api/dashboard/summary — instead of shipping every PI/Invoice ever
-      // created just to add a handful of numbers up in the browser.
-      const statsPromise = api.get('/dashboard/summary');
-
       // The kanban board only ever displays open PIs and recently-touched
       // invoices anyway (buildCards() already throws away Fully
       // Dispatched/Cancelled PIs and Cancelled invoices) — so only fetch
       // that slice instead of the full all-time history. This is the fetch
       // that would otherwise grow without bound as order volume grows.
+      // (Independent of the date-range filter above — the board always
+      // shows what's currently open/recent, not a historical period.)
       const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
       const [pis, invoices, balances] = await Promise.all([
         api.get('/pi?status=Draft,Sent,Confirmed,Partial Dispatched'),
         api.get(`/invoices?from=${ninetyDaysAgo}`),
         api.get('/ledger/balances'),
       ]);
-      const stats = await statsPromise;
-      const outstanding = balances.reduce((s, b) => s + b.balance, 0);
 
-      setStats({ ...stats, outstanding });
       setCards(buildCards(pis, invoices, balances));
 
-      // Founder flags — mirrors the HTML demo's three checks
+      // Admin flags — mirrors the HTML demo's three checks
       const flagList = [];
       const stalePIs = pis.filter((p) => p.status === 'Sent' && daysAgo(p.updatedAt || p.createdAt) > 3);
       if (stalePIs.length) flagList.push({ label: 'PIs sent but not confirmed >3 days', n: stalePIs.length, c: 'y' });
@@ -137,9 +157,32 @@ export default function Dashboard() {
         <p>Every order at every stage. Click any card to open. Cards go orange after 3 days at the same stage, red after 7.</p>
       </div>
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {user.role === 'masterAdmin' ? 'Company-wide' : 'Your'} totals for:
+        </span>
+        <div className="subtabs" style={{ margin: 0 }}>
+          <button className={rangeLabel === 'This month' ? 'on' : ''} onClick={() => applyPreset('This month')}>This month</button>
+          <button className={rangeLabel === 'Last month' ? 'on' : ''} onClick={() => applyPreset('Last month')}>Last month</button>
+        </div>
+        <input type="date" value={range.from} max={range.to} onChange={(e) => { setRange((r) => ({ ...r, from: e.target.value })); setRangeLabel('Custom'); }} />
+        <span className="muted" style={{ fontSize: 12 }}>to</span>
+        <input type="date" value={range.to} min={range.from} max={today.toISOString().slice(0, 10)} onChange={(e) => { setRange((r) => ({ ...r, to: e.target.value })); setRangeLabel('Custom'); }} />
+      </div>
+
       <div className="stats">
         {stats ? (
           <>
+            <div className="stat">
+              <div className="n">{stats.todayOrders.count}</div>
+              <div className="l">Today's Orders</div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>₹{Math.round(stats.todayOrders.amount).toLocaleString('en-IN')}</div>
+            </div>
+            <div className="stat">
+              <div className="n">{stats.todayDispatch.count}</div>
+              <div className="l">Today's Dispatch</div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>₹{Math.round(stats.todayDispatch.amount).toLocaleString('en-IN')}</div>
+            </div>
             <div className="stat clickable" onClick={() => nav('/pipeline')}>
               <div className="n">{stats.openPIs}</div><div className="l">Open PIs</div>
             </div>
