@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { piApi } from './api';
 import Loading from '../../components/Loading';
 import { piStatusDisplay } from './statusDisplay';
+import PartialDispatchByCustomer from './components/PartialDispatchByCustomer';
 
 const STATUSES = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Closed', 'Cancelled'];
 const PAGE_SIZES = [10, 30, 50, 100];
@@ -185,6 +186,8 @@ export default function PIList() {
             </div>
           </div>
         </>
+      ) : status === 'Partial Dispatched' ? (
+        <PartialDispatchByCustomer pis={pis} />
       ) : (
         (() => {
           const groups = buildCustomerGroups();
