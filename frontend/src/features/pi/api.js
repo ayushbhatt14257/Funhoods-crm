@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 // Everything the PI (Proforma Invoice / order) feature does against /api/pi.
 export const piApi = {
   list: (queryString = '') => api.get(`/pi${queryString ? `?${queryString}` : ''}`),
+  getCounts: (queryString = '') => api.get(`/pi/counts${queryString ? `?${queryString}` : ''}`),
   getByNo: (no) => api.get(`/pi/${no}`),
   parseOrderText: (text) => api.post('/pi/parse', { text }),
   create: (payload) => api.post('/pi', payload),

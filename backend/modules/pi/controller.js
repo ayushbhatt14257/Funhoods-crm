@@ -162,12 +162,13 @@ async function create(req, res) {
 }
 
 async function list(req, res) {
-  const { q, status, by, dealer, from, to } = req.query;
+  const { q, status, by, dealer, from, to, page, limit, pendingApproval } = req.query;
   const filter = {};
   if (status) {
     const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
     filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
   }
+  if (pendingApproval === '1') filter['priceApproval.status'] = 'pending';
   if (dealer) filter.dealer = dealer;
   if (by) filter.by = by;
   if (from || to) {
@@ -180,14 +181,59 @@ async function list(req, res) {
     const myDealers = await Dealer.find({ assignedTo: req.user.name }).select('code');
     filter.dealer = { $in: myDealers.map((d) => d.code) };
   }
-  const pis = await PI.find(filter).sort({ createdAt: -1 });
+
+  // Pagination is opt-in via `page` — every existing caller that doesn't
+  // send it (Pipeline, "by customer" grouping, invoice/PI cross-lookups)
+  // keeps getting the full array exactly as before. Only the PI list's flat
+  // table asks for a page, since that's the view that actually needs to stay
+  // fast as PI volume grows into the thousands.
+  let query = PI.find(filter).sort({ createdAt: -1 });
+  let total = null;
+  if (page) {
+    const pageNum = Math.max(1, +page || 1);
+    const pageSize = Math.min(200, Math.max(1, +limit || 25));
+    total = await PI.countDocuments(filter);
+    query = query.skip((pageNum - 1) * pageSize).limit(pageSize);
+  }
+  const pis = await query;
 
   const dealerCodes = [...new Set(pis.map((p) => p.dealer))];
   const dealers = await Dealer.find({ code: { $in: dealerCodes } }).select('code assignedTo');
   const assignedByCode = Object.fromEntries(dealers.map((d) => [d.code, d.assignedTo || '']));
 
   const withAssigned = pis.map((p) => ({ ...p.toObject(), dealerAssignedTo: assignedByCode[p.dealer] || '' }));
-  res.json(withAssigned);
+  if (total !== null) return res.json({ items: withAssigned, total });
+  return res.json(withAssigned);
+}
+
+// GET /api/pi/counts — same filters as list() minus status/page, but returns
+// just the count per status (+ pending-approval) instead of fetching every
+// matching document. Powers the PI list's status tab badges without a second
+// full-table fetch.
+async function statusCounts(req, res) {
+  const { q, by, dealer, from, to } = req.query;
+  const filter = {};
+  if (dealer) filter.dealer = dealer;
+  if (by) filter.by = by;
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = new Date(from);
+    if (to) filter.createdAt.$lte = new Date(new Date(to).getTime() + 86399999);
+  }
+  if (q) filter.$or = [{ no: new RegExp(q, 'i') }, { dealerName: new RegExp(q, 'i') }];
+  if (['field', 'mhead'].includes(req.user.role)) {
+    const myDealers = await Dealer.find({ assignedTo: req.user.name }).select('code');
+    filter.dealer = { $in: myDealers.map((d) => d.code) };
+  }
+
+  const statuses = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Closed', 'Cancelled'];
+  const [all, pendingApproval, ...perStatus] = await Promise.all([
+    PI.countDocuments(filter),
+    PI.countDocuments({ ...filter, 'priceApproval.status': 'pending' }),
+    ...statuses.map((s) => PI.countDocuments({ ...filter, status: s })),
+  ]);
+  const counts = Object.fromEntries(statuses.map((s, i) => [s, perStatus[i]]));
+  res.json({ all, pendingApproval, ...counts });
 }
 
 async function getOne(req, res) {
@@ -343,6 +389,6 @@ async function approvePrice(req, res) {
 }
 
 module.exports = {
-  parseOrder, create, update, list, getOne, setStatus, confirm, cancel, closeRemaining, remove,
+  parseOrder, create, update, list, statusCounts, getOne, setStatus, confirm, cancel, closeRemaining, remove,
   listPendingApprovals, approvePrice,
 };

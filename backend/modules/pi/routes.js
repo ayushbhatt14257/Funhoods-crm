@@ -10,6 +10,7 @@ router.post('/parse', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'
 router.post('/', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.create);
 router.put('/:no', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.update);
 router.get('/', ctrl.list);
+router.get('/counts', ctrl.statusCounts);
 router.get('/approvals/pending', allow('masterAdmin'), ctrl.listPendingApprovals);
 router.post('/:no/approve-price', allow('masterAdmin'), ctrl.approvePrice);
 router.get('/:no', ctrl.getOne);

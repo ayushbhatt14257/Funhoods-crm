@@ -5,13 +5,16 @@ import { piApi } from './api';
 import Loading from '../../components/Loading';
 import { piStatusDisplay } from './statusDisplay';
 
-const badgeClass = (s) => (s === 'Cancelled' ? 'r' : s === 'Fully Dispatched' ? 'g' : (s === 'Partial Dispatched' || s === 'Closed') ? 'y' : '');
 const STATUSES = ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched', 'Fully Dispatched', 'Closed', 'Cancelled'];
+const PAGE_SIZES = [10, 30, 50, 100];
+const PENDING_APPROVAL_TAB = '__pendingApproval__'; // not a real PI status — a separate filter dimension
 
 export default function PIList() {
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
   const [pis, setPis] = useState(null); // null = loading
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState(null);
   const [users, setUsers] = useState([]);
   const [q, setQ] = useState('');
   // Pre-filled from a dashboard stat-card link, e.g. /pis?status=Sent,Confirmed,Partial%20Dispatched
@@ -21,32 +24,47 @@ export default function PIList() {
   const [to, setTo] = useState('');
   const [view, setView] = useState('flat'); // 'flat' | 'byCustomer'
   const [openDealers, setOpenDealers] = useState({}); // dealer code -> expanded?
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
-  // Unfiltered-by-status PI list (still respects search/user/date filters), fetched
-  // separately so the status tabs can show a live count next to each label.
-  const [allPis, setAllPis] = useState(null);
-  useEffect(() => {
+
+  function baseParams() {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (by) params.set('by', by);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
-    piApi.list(params.toString()).then(setAllPis);
+    return params;
+  }
+
+  // Status-tab counts — a lightweight counts-only call, not a second full fetch of every PI.
+  useEffect(() => {
+    piApi.getCounts(baseParams().toString()).then(setCounts);
   }, [q, by, from, to]);
 
+  // Reset to page 1 whenever a filter changes, so you don't land on an empty page 4 of a narrowed search.
+  useEffect(() => { setPage(1); }, [q, status, by, from, to, view]);
+
+  // Flat list is paginated (fast at any PI volume); "By customer" needs the
+  // full matching set to group correctly, so it fetches unpaginated — same
+  // trade-off as before, just isolated to the one view that actually needs it.
   useEffect(() => {
     setPis(null);
-    const params = new URLSearchParams();
-    if (q) params.set('q', q);
-    if (status) params.set('status', status);
-    if (by) params.set('by', by);
-    if (from) params.set('from', from);
-    if (to) params.set('to', to);
-    piApi.list(params.toString()).then(setPis);
-  }, [q, status, by, from, to]);
+    const params = baseParams();
+    if (status === PENDING_APPROVAL_TAB) params.set('pendingApproval', '1');
+    else if (status) params.set('status', status);
 
-  // Group the currently-filtered PI list by dealer for the "By customer" view.
+    if (view === 'flat') {
+      params.set('page', page);
+      params.set('limit', pageSize);
+      piApi.list(params.toString()).then((res) => { setPis(res.items); setTotal(res.total); });
+    } else {
+      piApi.list(params.toString()).then((res) => { setPis(res); setTotal(res.length); });
+    }
+  }, [q, status, by, from, to, view, page, pageSize]);
+
+  // Group the currently-fetched PI list by dealer for the "By customer" view.
   function buildCustomerGroups() {
     const groups = {}; // dealer code -> { dealerName, dealerAssignedTo, pis[] }
     (pis || []).forEach((p) => {
@@ -63,6 +81,8 @@ export default function PIList() {
       .sort((a, b) => b.latest - a.latest);
   }
 
+  const totalPages = view === 'flat' ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+
   return (
     <div>
       <div className="ph"><div className="eyebrow">Proforma invoices</div><h2>PI list</h2></div>
@@ -73,13 +93,16 @@ export default function PIList() {
       )}
       <div className="subtabs" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
         <button className={status === '' ? 'on' : ''} onClick={() => setStatus('')}>
-          All {allPis ? `(${allPis.length})` : ''}
+          All {counts ? `(${counts.all})` : ''}
         </button>
         {STATUSES.map((s) => (
           <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>
-            {s}{allPis ? ` (${allPis.filter((p) => p.status === s).length})` : ''}
+            {s}{counts ? ` (${counts[s] ?? 0})` : ''}
           </button>
         ))}
+        <button className={status === PENDING_APPROVAL_TAB ? 'on' : ''} onClick={() => setStatus(PENDING_APPROVAL_TAB)} style={status === PENDING_APPROVAL_TAB ? { color: '#6B2FB3' } : undefined}>
+          Waiting for approval{counts ? ` (${counts.pendingApproval})` : ''}
+        </button>
       </div>
       <div className="subtabs" style={{ marginBottom: 14 }}>
         <button className={view === 'flat' ? 'on' : ''} onClick={() => setView('flat')}>Flat list</button>
@@ -100,40 +123,59 @@ export default function PIList() {
       {pis === null ? (
         <Loading label="Loading PIs…" />
       ) : view === 'flat' ? (
-        <div className="tblwrap">
-          <table className="dt">
-            <thead><tr><th>PI no</th><th>Dealer</th><th>Assigned to</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th><th></th></tr></thead>
-            <tbody>
-              {pis.map((p) => {
-                const canEdit = ['Draft', 'Sent'].includes(p.status);
-                return (
-                <tr key={p.no}>
-                  <td><Link to={`/pis/${p.no}`} className="mono"><b>{p.no}</b></Link></td>
-                  <td>{p.dealerName}</td>
-                  <td>{p.dealerAssignedTo || '—'}</td>
-                  <td>{p.lines.length}</td>
-                  <td>{Math.round(p.total).toLocaleString('en-IN')}</td>
-                  <td><span className={`badge ${piStatusDisplay(p).cls}`}>{piStatusDisplay(p).label}</span></td>
-                  <td>{p.by}</td>
-                  <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
-                  <td>
-                    <button
-                      className={canEdit ? 'btn o sm' : 'btn o sm'}
-                      disabled={!canEdit}
-                      title={canEdit ? 'Edit this PI' : 'Can only edit while Draft or Sent'}
-                      style={!canEdit ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-                      onClick={() => canEdit && nav(`/pis/${p.no}?edit=1`)}
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-                );
-              })}
-              {!pis.length && <tr><td colSpan={9}><div className="empty">No PIs match</div></td></tr>}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="tblwrap">
+            <table className="dt">
+              <thead><tr><th>PI no</th><th>Dealer</th><th>Assigned to</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th><th></th></tr></thead>
+              <tbody>
+                {pis.map((p) => {
+                  const canEdit = ['Draft', 'Sent'].includes(p.status);
+                  return (
+                  <tr key={p.no}>
+                    <td><Link to={`/pis/${p.no}`} className="mono"><b>{p.no}</b></Link></td>
+                    <td>{p.dealerName}</td>
+                    <td>{p.dealerAssignedTo || '—'}</td>
+                    <td>{p.lines.length}</td>
+                    <td>{Math.round(p.total).toLocaleString('en-IN')}</td>
+                    <td><span className={`badge ${piStatusDisplay(p).cls}`}>{piStatusDisplay(p).label}</span></td>
+                    <td>{p.by}</td>
+                    <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                    <td>
+                      <button
+                        className="btn o sm"
+                        disabled={!canEdit}
+                        title={canEdit ? 'Edit this PI' : 'Can only edit while Draft or Sent'}
+                        style={!canEdit ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                        onClick={() => canEdit && nav(`/pis/${p.no}?edit=1`)}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                  );
+                })}
+                {!pis.length && <tr><td colSpan={9}><div className="empty">No PIs match</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+              <span className="muted">Rows per page:</span>
+              <select value={pageSize} onChange={(e) => setPageSize(+e.target.value)} style={{ padding: '4px 8px', fontSize: 12.5 }}>
+                {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <span className="muted">
+                {total === 0 ? '0 of 0' : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total}`}
+              </span>
+            </div>
+            <div className="btnrow" style={{ margin: 0 }}>
+              <button className="btn o sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Prev</button>
+              <span className="muted" style={{ fontSize: 12.5, alignSelf: 'center' }}>Page {page} of {totalPages}</span>
+              <button className="btn o sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next →</button>
+            </div>
+          </div>
+        </>
       ) : (
         (() => {
           const groups = buildCustomerGroups();
