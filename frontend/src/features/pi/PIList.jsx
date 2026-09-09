@@ -43,13 +43,21 @@ export default function PIList() {
     piApi.getCounts(baseParams().toString()).then(setCounts);
   }, [q, by, from, to]);
 
-  // Reset to page 1 whenever a filter changes, so you don't land on an empty page 4 of a narrowed search.
-  useEffect(() => { setPage(1); }, [q, status, by, from, to, view]);
+  // Reset to page 1 whenever a filter (or the page size itself) changes, so
+  // you don't land on a stale page number that no longer exists for the new result set.
+  useEffect(() => { setPage(1); }, [q, status, by, from, to, view, pageSize]);
 
   // Flat list is paginated (fast at any PI volume); "By customer" needs the
   // full matching set to group correctly, so it fetches unpaginated — same
   // trade-off as before, just isolated to the one view that actually needs it.
+  //
+  // Guarded against out-of-order responses: switching a filter fires this
+  // effect once with the old `page` (before the reset-effect above catches
+  // up) and again with the corrected page=1 — without this guard, whichever
+  // request happens to resolve last wins, which could silently show the
+  // stale/wrong result even after `page` itself is already correct on screen.
   useEffect(() => {
+    let ignore = false;
     setPis(null);
     const params = baseParams();
     if (status === PENDING_APPROVAL_TAB) params.set('pendingApproval', '1');
@@ -58,10 +66,11 @@ export default function PIList() {
     if (view === 'flat') {
       params.set('page', page);
       params.set('limit', pageSize);
-      piApi.list(params.toString()).then((res) => { setPis(res.items); setTotal(res.total); });
+      piApi.list(params.toString()).then((res) => { if (!ignore) { setPis(res.items); setTotal(res.total); } });
     } else {
-      piApi.list(params.toString()).then((res) => { setPis(res); setTotal(res.length); });
+      piApi.list(params.toString()).then((res) => { if (!ignore) { setPis(res); setTotal(res.length); } });
     }
+    return () => { ignore = true; };
   }, [q, status, by, from, to, view, page, pageSize]);
 
   // Group the currently-fetched PI list by dealer for the "By customer" view.
