@@ -7,6 +7,7 @@ import Loading from '../../components/Loading';
 import { productsApi } from './api';
 import { categoriesApi } from './categoriesApi';
 import CategoryManagerModal from './components/CategoryManagerModal';
+import DispatchBreakdownModal from './components/DispatchBreakdownModal';
 
 const emptyForm = { code: '', name: '', size: '', category: '', cartonOuter: '', cartonInner: '', rate: '', gst_pct: 5 };
 
@@ -21,6 +22,7 @@ export default function Products() {
   const [form, setForm] = useState(emptyForm);
   const [isNew, setIsNew] = useState(false);
   const [managingCategories, setManagingCategories] = useState(false);
+  const [breakdownProduct, setBreakdownProduct] = useState(null); // product object mid-breakdown-view
 
   async function load() { setProducts(await productsApi.list(q)); }
   async function loadCategories() { setCategories(await categoriesApi.list()); }
@@ -110,7 +112,11 @@ export default function Products() {
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Carton: {p.cartonOuter} outer / {p.cartonInner} inner</div>
               {user.role === 'masterAdmin' && (
-                <div style={{ fontSize: 11.5, color: 'var(--spruce)', marginTop: 2, fontWeight: 600 }}>
+                <div
+                  style={{ fontSize: 11.5, color: 'var(--spruce)', marginTop: 2, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                  onClick={() => setBreakdownProduct(p)}
+                  title="Click to see which parties got this"
+                >
                   Dispatched (all-time): {(dispatchedTotals?.[p.code] || 0).toLocaleString('en-IN')} pcs
                 </div>
               )}
@@ -199,6 +205,13 @@ export default function Products() {
           categories={categories}
           onChange={loadCategories}
           onClose={() => setManagingCategories(false)}
+        />
+      )}
+
+      {breakdownProduct && (
+        <DispatchBreakdownModal
+          product={breakdownProduct}
+          onClose={() => setBreakdownProduct(null)}
         />
       )}
     </div>

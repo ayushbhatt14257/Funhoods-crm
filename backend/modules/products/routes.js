@@ -12,6 +12,7 @@ router.use(protect);
 router.get('/', ctrl.list);
 router.get('/dispatched-totals', allow('masterAdmin'), ctrl.dispatchedTotals);
 router.get('/:code', ctrl.getOne);
+router.get('/:code/dispatch-breakdown', allow('masterAdmin'), ctrl.dispatchBreakdown);
 router.post('/', canEdit, ctrl.create);
 router.put('/:code', canEdit, ctrl.update);
 router.put('/:code/photo', canEdit, upload.single('photo'), ctrl.uploadPhoto); // legacy, kept for back-compat

@@ -68,13 +68,14 @@ export default function PartialDispatchByCustomer({ pis }) {
                       {piOpen && (
                         <div className="tblwrap" style={{ marginTop: 8 }}>
                           <table className="dt">
-                            <thead><tr><th>Item</th><th>Order</th><th>Dispatched</th><th>Pending</th></tr></thead>
+                            <thead><tr><th></th><th>Item</th><th>Order</th><th>Dispatched</th><th>Pending</th></tr></thead>
                             <tbody>
                               {p.lines.map((l) => {
                                 const pending = l.pending != null ? l.pending : l.pcs;
                                 const dispatched = l.pcs - pending;
                                 return (
                                   <tr key={l.code}>
+                                    <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 26, height: 26, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
                                     <td>{l.name} <span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span></td>
                                     <td>{l.pcs}</td>
                                     <td style={{ color: 'var(--green)', fontWeight: 600 }}>{dispatched}</td>

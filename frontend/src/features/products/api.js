@@ -14,4 +14,5 @@ export const productsApi = {
   uploadVideo: (code, formData) => api.putForm(`/products/${code}/video`, formData),
   removeVideo: (code) => api.del(`/products/${code}/video`),
   getDispatchedTotals: () => api.get('/products/dispatched-totals'),
+  getDispatchBreakdown: (code, params = '') => api.get(`/products/${code}/dispatch-breakdown${params ? `?${params}` : ''}`),
 };

@@ -178,8 +178,37 @@ async function dispatchedTotals(req, res) {
   res.json(Object.fromEntries(rows.map((r) => [r._id, r.total])));
 }
 
+// GET /api/products/:code/dispatch-breakdown?date=YYYY-MM-DD | ?month=YYYY-MM
+// masterAdmin only. Which parties got this product, how many pieces, all-time
+// or narrowed to one exact day or one calendar month. Aggregated in the DB —
+// unwinds every invoice's lines, keeps only the ones for this product, and
+// sums per dealer.
+async function dispatchBreakdown(req, res) {
+  const code = req.params.code.toUpperCase();
+  const { date, month } = req.query;
+  const filter = { status: { $ne: 'Cancelled' }, 'lines.code': code };
+
+  if (date) {
+    const start = new Date(date); start.setHours(0, 0, 0, 0);
+    const end = new Date(date); end.setHours(23, 59, 59, 999);
+    filter.createdAt = { $gte: start, $lte: end };
+  } else if (month) {
+    const [y, m] = month.split('-').map(Number);
+    if (y && m) filter.createdAt = { $gte: new Date(y, m - 1, 1), $lte: new Date(y, m, 0, 23, 59, 59, 999) };
+  }
+
+  const rows = await Invoice.aggregate([
+    { $match: filter },
+    { $unwind: '$lines' },
+    { $match: { 'lines.code': code } },
+    { $group: { _id: '$dealer', dealerName: { $first: '$dealerName' }, total: { $sum: '$lines.pcs' }, invoices: { $addToSet: '$no' } } },
+    { $sort: { total: -1 } },
+  ]);
+  res.json(rows.map((r) => ({ dealer: r._id, dealerName: r.dealerName, total: r.total, invoiceCount: r.invoices.length })));
+}
+
 module.exports = {
   list, getOne, create, update, uploadPhoto, remove,
   uploadImages, removeImage, setFeaturedImage, uploadVideo, removeVideo,
-  dispatchedTotals,
+  dispatchedTotals, dispatchBreakdown,
 };
