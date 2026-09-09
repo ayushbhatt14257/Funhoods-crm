@@ -10,6 +10,7 @@ const canEdit = allow('mhead', 'accounts', 'admin', 'masterAdmin');
 router.use(protect);
 
 router.get('/', ctrl.list);
+router.get('/dispatched-totals', allow('masterAdmin'), ctrl.dispatchedTotals);
 router.get('/:code', ctrl.getOne);
 router.post('/', canEdit, ctrl.create);
 router.put('/:code', canEdit, ctrl.update);

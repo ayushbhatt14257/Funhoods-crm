@@ -13,4 +13,5 @@ export const productsApi = {
   setFeaturedImage: (code, publicId) => api.put(`/products/${code}/featured-image`, { publicId }),
   uploadVideo: (code, formData) => api.putForm(`/products/${code}/video`, formData),
   removeVideo: (code) => api.del(`/products/${code}/video`),
+  getDispatchedTotals: () => api.get('/products/dispatched-totals'),
 };

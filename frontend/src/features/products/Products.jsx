@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
 import Loading from '../../components/Loading';
@@ -12,6 +13,8 @@ const emptyForm = { code: '', name: '', size: '', category: '', cartonOuter: '',
 export default function Products() {
   const { showToast } = useToast();
   const [products, setProducts] = useState(null); // null = loading
+  const { user } = useAuth();
+  const [dispatchedTotals, setDispatchedTotals] = useState(null); // masterAdmin-only, code -> total pcs ever dispatched
   const [categories, setCategories] = useState([]);
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(null); // product object or null — quick basic-field edit only
@@ -23,6 +26,9 @@ export default function Products() {
   async function loadCategories() { setCategories(await categoriesApi.list()); }
   useEffect(() => { load(); }, [q]);
   useEffect(() => { loadCategories(); }, []);
+  useEffect(() => {
+    if (user.role === 'masterAdmin') productsApi.getDispatchedTotals().then(setDispatchedTotals);
+  }, [user.role]);
 
   function openEdit(p) {
     setEditing(p);
@@ -103,6 +109,11 @@ export default function Products() {
                 <span>₹{p.rate}</span><span>GST {p.gst_pct}%</span>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Carton: {p.cartonOuter} outer / {p.cartonInner} inner</div>
+              {user.role === 'masterAdmin' && (
+                <div style={{ fontSize: 11.5, color: 'var(--spruce)', marginTop: 2, fontWeight: 600 }}>
+                  Dispatched (all-time): {(dispatchedTotals?.[p.code] || 0).toLocaleString('en-IN')} pcs
+                </div>
+              )}
               {p.category && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.category}</div>}
               <div className="btnrow" style={{ marginTop: 9 }}>
                 <Link to={`/products/${p.code}`} className="btn sm" style={{ flex: 1, textAlign: 'center' }}>View / Gallery</Link>

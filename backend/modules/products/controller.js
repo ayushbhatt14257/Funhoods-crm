@@ -1,6 +1,7 @@
 const Product = require('./model');
 const Inventory = require('../inventory/model');
 const PI = require('../pi/model');
+const Invoice = require('../invoices/model');
 const { uploadBuffer, destroyAsset } = require('../../config/cloudinary');
 
 async function list(req, res) {
@@ -164,7 +165,21 @@ async function removeVideo(req, res) {
   res.json(product);
 }
 
+// GET /api/products/dispatched-totals — masterAdmin only. Total pieces ever
+// actually dispatched per product, all-time, across every invoice (excluding
+// Cancelled ones, since those reverse the dispatch). Aggregated in the DB so
+// this stays cheap even with a large invoice history.
+async function dispatchedTotals(req, res) {
+  const rows = await Invoice.aggregate([
+    { $match: { status: { $ne: 'Cancelled' } } },
+    { $unwind: '$lines' },
+    { $group: { _id: '$lines.code', total: { $sum: '$lines.pcs' } } },
+  ]);
+  res.json(Object.fromEntries(rows.map((r) => [r._id, r.total])));
+}
+
 module.exports = {
   list, getOne, create, update, uploadPhoto, remove,
   uploadImages, removeImage, setFeaturedImage, uploadVideo, removeVideo,
+  dispatchedTotals,
 };
