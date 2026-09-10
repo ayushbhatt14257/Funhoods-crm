@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { piApi } from './api';
 import Loading from '../../components/Loading';
+import Modal from '../../components/Modal';
 import { piStatusDisplay } from './statusDisplay';
 import PartialDispatchByCustomer from './components/PartialDispatchByCustomer';
 
@@ -27,6 +28,7 @@ export default function PIList() {
   const [openDealers, setOpenDealers] = useState({}); // dealer code -> expanded?
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
+  const [priceChangesFor, setPriceChangesFor] = useState(null); // PI object mid-view
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
 
@@ -147,7 +149,19 @@ export default function PIList() {
                     <td>{p.dealerAssignedTo || '—'}</td>
                     <td>{p.lines.length}</td>
                     <td>{Math.round(p.total).toLocaleString('en-IN')}</td>
-                    <td><span className={`badge ${piStatusDisplay(p).cls}`}>{piStatusDisplay(p).label}</span></td>
+                    <td>
+                      <span className={`badge ${piStatusDisplay(p).cls}`}>{piStatusDisplay(p).label}</span>
+                      {p.lines.some((l) => l.listRate != null && l.rate !== l.listRate) && (
+                        <button
+                          className="btn o sm"
+                          style={{ marginLeft: 6, padding: '2px 6px', fontSize: 10 }}
+                          onClick={() => setPriceChangesFor(p)}
+                          title="See which items had their price changed"
+                        >
+                          💰 Price changed
+                        </button>
+                      )}
+                    </td>
                     <td>{p.by}</td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                     <td>
@@ -222,7 +236,19 @@ export default function PIList() {
                                 <td><Link to={`/pis/${p.no}`} className="mono"><b>{p.no}</b></Link></td>
                                 <td>{p.lines.length}</td>
                                 <td>{Math.round(p.total).toLocaleString('en-IN')}</td>
-                                <td><span className={`badge ${piStatusDisplay(p).cls}`}>{piStatusDisplay(p).label}</span></td>
+                                <td>
+                                  <span className={`badge ${piStatusDisplay(p).cls}`}>{piStatusDisplay(p).label}</span>
+                                  {p.lines.some((l) => l.listRate != null && l.rate !== l.listRate) && (
+                                    <button
+                                      className="btn o sm"
+                                      style={{ marginLeft: 6, padding: '2px 6px', fontSize: 10 }}
+                                      onClick={() => setPriceChangesFor(p)}
+                                      title="See which items had their price changed"
+                                    >
+                                      💰
+                                    </button>
+                                  )}
+                                </td>
                                 <td>{p.by}</td>
                                 <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                               </tr>
@@ -238,6 +264,25 @@ export default function PIList() {
             </>
           );
         })()
+      )}
+
+      {priceChangesFor && (
+        <Modal title={`Price changes — ${priceChangesFor.no}`} onClose={() => setPriceChangesFor(null)}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>{priceChangesFor.dealerName}</div>
+          <table className="dt">
+            <thead><tr><th>Item</th><th>Original ₹</th><th>Changed ₹</th><th>Qty</th></tr></thead>
+            <tbody>
+              {priceChangesFor.lines.filter((l) => l.listRate != null && l.rate !== l.listRate).map((l) => (
+                <tr key={l.code}>
+                  <td>{l.name} <span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span></td>
+                  <td>{l.listRate}</td>
+                  <td style={{ color: l.rate < l.listRate ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>{l.rate}</td>
+                  <td>{l.pcs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Modal>
       )}
     </div>
   );
