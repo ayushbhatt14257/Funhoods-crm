@@ -215,12 +215,33 @@ async function dispatchManual(req, res) {
     const grand = subtotal + frt;
     const packing = await buildPackingFromCartonMap(cartonMap);
 
+    // A manual dispatch used to leave no paper trail beyond the invoice — now
+    // it also creates a matching PI (already fully dispatched, since every
+    // line here is dispatched in this same action), so every dispatch has a
+    // proper order record behind it, same as one that started from the Dispatch queue.
+    const piCount = await PI.countDocuments();
+    const piNo = 'PI-' + new Date().toISOString().slice(2, 7).replace('-', '') + '-' + String(piCount + 1).padStart(4, '0');
+    const autoPI = await PI.create({
+      no: piNo,
+      dealer: dealer.code,
+      dealerName: dealer.name,
+      lines: dispatchLines.map((l) => ({ ...l, pending: 0 })), // fully dispatched immediately — nothing left pending
+      subtotal,
+      transport: frt,
+      freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
+      total: grand,
+      status: 'Fully Dispatched',
+      by: dealer.assignedTo || req.user.name,
+      createdBy: req.user._id,
+      remark: 'Auto-created from a manual dispatch (booked without an existing PI).',
+    });
+
     const invoice = await Invoice.create({
       no: await nextInvoiceNo(),
       date: todayISODate(),
       dealer: dealer.code,
       dealerName: dealer.name,
-      piRef: '',
+      piRef: autoPI.no,
       manual: true,
       lines: dispatchLines,
       subtotal, transport: frt, total: grand,
@@ -241,11 +262,11 @@ async function dispatchManual(req, res) {
 
     await Ledger.create({
       date: todayISODate(), dealer: dealer.code, type: 'Invoice', ref: invoice.no,
-      debit: grand, credit: 0, note: 'Manual dispatch (no PI)',
+      debit: grand, credit: 0, note: `Manual dispatch — auto-created ${autoPI.no}`,
     });
     await notifyDispatched(invoice);
 
-    res.status(201).json({ invoice });
+    res.status(201).json({ invoice, pi: autoPI });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }

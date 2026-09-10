@@ -31,31 +31,29 @@ export function PIQuantityStep({ dispatchLines, onQtyChange, onPrint }) {
   );
 }
 
-// Manual (no-PI) dispatch variant: freely pick products + pieces, no "pending" concept.
-export function ManualLinesStep({ dispatchLines, products, onLineChange, onAddLine, onRemoveLine }) {
+// Manual (no-PI) dispatch variant: shows items already added (from the same
+// pick-product → confirm-quantity flow used in New Order), no free-text dropdown.
+export function ManualLinesStep({ dispatchLines, onRemoveLine, onAddItemClick }) {
   return (
-    <div className="card">
-      <div className="tblwrap" style={{ marginTop: 10 }}>
-        <table className="dt">
-          <thead><tr><th></th><th>Product</th><th>Pieces</th><th></th></tr></thead>
-          <tbody>
-            {dispatchLines.map((l, i) => (
-              <tr key={i}>
-                <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 26, height: 26, borderRadius: 4, objectFit: 'cover' }} /> : ''}</td>
-                <td>
-                  <select value={l.code} onChange={(e) => onLineChange(i, 'code', e.target.value)}>
-                    <option value="">— pick —</option>
-                    {products.map((p) => <option key={p.code} value={p.code}>{p.code} · {p.name}</option>)}
-                  </select>
-                </td>
-                <td><input type="number" style={{ width: 90 }} value={l.dispatchNow} onChange={(e) => onLineChange(i, 'dispatchNow', +e.target.value)} /></td>
-                <td><button className="btn o sm" onClick={() => onRemoveLine(i)}>×</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="btnrow"><button className="btn o sm" onClick={onAddLine}>+ Add item</button></div>
+    <div style={{ marginTop: 14 }}>
+      {dispatchLines.length > 0 && (
+        <div className="tblwrap" style={{ marginBottom: 10 }}>
+          <table className="dt">
+            <thead><tr><th></th><th>Product</th><th>Pieces</th><th></th></tr></thead>
+            <tbody>
+              {dispatchLines.map((l, i) => (
+                <tr key={i}>
+                  <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 26, height: 26, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
+                  <td><b>{l.name}</b> <span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span></td>
+                  <td>{l.dispatchNow}</td>
+                  <td><button className="btn o sm" onClick={() => onRemoveLine(i)}>×</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <button className="btn o sm" onClick={onAddItemClick}>+ Add item</button>
     </div>
   );
 }

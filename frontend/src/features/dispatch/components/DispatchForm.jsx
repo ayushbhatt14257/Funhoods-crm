@@ -3,13 +3,20 @@ import CartonMappingStep from './CartonMappingStep';
 import { PIQuantityStep, ManualLinesStep } from './LineQuantityStep';
 import DispatchSlip from './DispatchSlip';
 import { printAs, ddmmyyyy } from '../../../utils/print';
+import DealerPickerModal from '../../pi/components/DealerPickerModal';
+import ProductPickerModal from '../../pi/components/ProductPickerModal';
+import ConfirmLineModal from '../../pi/components/ConfirmLineModal';
 
 // Everything after "pick a PI (or go manual)": the 3-step dispatch entry
 // form. All state lives in the parent (Dispatch.jsx) and is passed down —
 // this component is purely presentational/orchestration, no API calls.
 export default function DispatchForm({
-  isManual, pi, dealers, products, manualDealer, onManualDealerChange, pendingSuggestion, onUsePendingPI,
-  dispatchLines, onQtyChange, onManualLineChange, onAddManualLine, onRemoveManualLine,
+  isManual, pi, dealers, products, manualDealer, manualDealerObj, onManualDealerChange,
+  showDealerPicker, onOpenDealerPicker, onCloseDealerPicker, onDealerCreated,
+  showProductPicker, onOpenProductPicker, onCloseProductPicker,
+  confirmingProduct, onPickProduct, onConfirmProduct, onCloseConfirmProduct,
+  pendingSuggestion, onUsePendingPI,
+  dispatchLines, onQtyChange, onRemoveManualLine,
   transportState, cartonState, onSubmit, submitting, onBack,
 }) {
   const { activeLines, mapped, cartonMap, onAddCarton, onAutoFill, onAddItemToCarton, onRemoveCartonItem, onRemoveCarton } = cartonState;
@@ -24,26 +31,29 @@ export default function DispatchForm({
 
       {isManual && (
         <div className="card">
-          <div className="fg">
-            <label>Dealer *</label>
-            <select value={manualDealer} onChange={(e) => onManualDealerChange(e.target.value)}>
-              <option value="">— Select dealer —</option>
-              {dealers.map((d) => <option key={d.code} value={d.code}>{d.name} · {d.city}</option>)}
-            </select>
-          </div>
+          <label style={{ display: 'block', marginBottom: 6 }}>Dealer *</label>
+          {manualDealerObj ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px' }}>
+              <div>
+                <b>{manualDealerObj.name}</b> <span className="muted" style={{ fontSize: 12 }}>· {manualDealerObj.city}</span>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                  Assigned to: {manualDealerObj.assignedTo || '— Unassigned —'}
+                </div>
+              </div>
+              <button className="btn o sm" onClick={onOpenDealerPicker}>Change</button>
+            </div>
+          ) : (
+            <button className="btn o" onClick={onOpenDealerPicker}>+ Pick dealer</button>
+          )}
+
           {pendingSuggestion && (
-            <div className="note y" style={{ fontSize: 12 }}>
+            <div className="note y" style={{ fontSize: 12, marginTop: 10 }}>
               This dealer has a pending PI <b>{pendingSuggestion.no}</b>.{' '}
               <button className="btn sm" onClick={() => onUsePendingPI(pendingSuggestion.no)}>Use that PI instead</button>
             </div>
           )}
-          <ManualLinesStep
-            dispatchLines={dispatchLines}
-            products={products}
-            onLineChange={onManualLineChange}
-            onAddLine={onAddManualLine}
-            onRemoveLine={onRemoveManualLine}
-          />
+
+          <ManualLinesStep dispatchLines={dispatchLines} onRemoveLine={onRemoveManualLine} onAddItemClick={onOpenProductPicker} />
         </div>
       )}
 
@@ -69,6 +79,21 @@ export default function DispatchForm({
       </div>
 
       {!isManual && <DispatchSlip pi={pi} dispatchLines={dispatchLines} transporter={transportState.transporter} />}
+
+      {showDealerPicker && (
+        <DealerPickerModal
+          dealers={dealers}
+          onPick={(d) => onManualDealerChange(d.code)}
+          onClose={onCloseDealerPicker}
+          onDealerCreated={onDealerCreated}
+        />
+      )}
+      {showProductPicker && (
+        <ProductPickerModal products={products} onPick={onPickProduct} onClose={onCloseProductPicker} />
+      )}
+      {confirmingProduct && (
+        <ConfirmLineModal product={confirmingProduct} onConfirm={onConfirmProduct} onClose={onCloseConfirmProduct} />
+      )}
     </div>
   );
 }

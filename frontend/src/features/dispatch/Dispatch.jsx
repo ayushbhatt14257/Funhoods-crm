@@ -26,6 +26,9 @@ export default function Dispatch() {
   // Shared dispatch-entry state
   const [pi, setPi] = useState(null); // for PI-based
   const [manualDealer, setManualDealer] = useState('');
+  const [showDealerPicker, setShowDealerPicker] = useState(false);
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [confirmingProduct, setConfirmingProduct] = useState(null); // product mid-confirmation for manual mode
   const [pendingSuggestion, setPendingSuggestion] = useState(null);
   const [dispatchLines, setDispatchLines] = useState([]); // {code, name, photo, orderedNow?, dispatchNow}
   const [transporter, setTransporter] = useState('');
@@ -67,6 +70,9 @@ export default function Dispatch() {
   function openManual() {
     setMode('manual');
     setManualDealer('');
+    setShowDealerPicker(false);
+    setShowProductPicker(false);
+    setConfirmingProduct(null);
     setPendingSuggestion(null);
     setDispatchLines([]);
     resetEntryFields();
@@ -74,21 +80,29 @@ export default function Dispatch() {
 
   async function onManualDealerChange(code) {
     setManualDealer(code);
+    setShowDealerPicker(false);
     if (!code) { setPendingSuggestion(null); return; }
     const pending = await dispatchApi.getPendingPIForDealer(code);
     setPendingSuggestion(pending);
   }
 
-  function addManualLine() { setDispatchLines([...dispatchLines, { code: '', dispatchNow: 0 }]); }
-  function updateManualLine(i, field, val) {
-    const next = [...dispatchLines];
-    next[i] = { ...next[i], [field]: val };
-    if (field === 'code') {
-      const p = products.find((x) => x.code === val);
-      next[i].name = p?.name || val;
-      next[i].photo = p?.photo || '';
+  // Same "pick product → confirm outer/inner/exact pcs" flow as New Order,
+  // reused here so manual dispatch entry feels identical instead of a plain dropdown.
+  function addConfirmedManualLine(product, outers, inners, directPcs) {
+    if (!outers && !inners && !directPcs) return showToast('Enter outer/inner cartons, or exact pieces', 'err');
+    const pcs = directPcs ? directPcs : outers * product.cartonOuter + inners * product.cartonInner;
+
+    const existingIdx = dispatchLines.findIndex((l) => l.code === product.code);
+    if (existingIdx >= 0) {
+      const next = [...dispatchLines];
+      next[existingIdx] = { ...next[existingIdx], dispatchNow: next[existingIdx].dispatchNow + pcs };
+      setDispatchLines(next);
+      showToast(`${product.name} was already added — quantities combined`, 'g');
+    } else {
+      setDispatchLines([...dispatchLines, { code: product.code, name: product.name, photo: product.photo || '', dispatchNow: pcs }]);
     }
-    setDispatchLines(next);
+    setConfirmingProduct(null);
+    setShowProductPicker(false);
   }
   function removeManualLine(i) { setDispatchLines(dispatchLines.filter((_, idx) => idx !== i)); }
 
@@ -201,6 +215,7 @@ export default function Dispatch() {
   }
 
   const isManual = mode === 'manual';
+  const manualDealerObj = dealers.find((d) => d.code === manualDealer) || null;
   return (
     <>
       <DispatchForm
@@ -209,13 +224,23 @@ export default function Dispatch() {
         dealers={dealers}
         products={products}
         manualDealer={manualDealer}
+        manualDealerObj={manualDealerObj}
         onManualDealerChange={onManualDealerChange}
+        showDealerPicker={showDealerPicker}
+        onOpenDealerPicker={() => setShowDealerPicker(true)}
+        onCloseDealerPicker={() => setShowDealerPicker(false)}
+        onDealerCreated={(d) => setDealers((prev) => [d, ...prev])}
+        showProductPicker={showProductPicker}
+        onOpenProductPicker={() => setShowProductPicker(true)}
+        onCloseProductPicker={() => setShowProductPicker(false)}
+        confirmingProduct={confirmingProduct}
+        onPickProduct={setConfirmingProduct}
+        onConfirmProduct={addConfirmedManualLine}
+        onCloseConfirmProduct={() => setConfirmingProduct(null)}
         pendingSuggestion={pendingSuggestion}
         onUsePendingPI={openFromPI}
         dispatchLines={dispatchLines}
         onQtyChange={updateDispatchQty}
-        onManualLineChange={updateManualLine}
-        onAddManualLine={addManualLine}
         onRemoveManualLine={removeManualLine}
         transportState={{ transporter, setTransporter, freight, setFreight, freightTerm, setFreightTerm, showAdvanced, setShowAdvanced, vehicle, setVehicle, lr, setLr, eway, setEway, driver, setDriver }}
         cartonState={{ activeLines, mapped: mappedByCode(), cartonMap, onAddCarton: addCarton, onAutoFill: autoFillCartons, onAddItemToCarton: addItemToCarton, onRemoveCartonItem: removeCartonItem, onRemoveCarton: removeCarton }}
