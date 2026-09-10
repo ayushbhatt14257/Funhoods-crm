@@ -280,6 +280,24 @@ export default function PIDetail() {
           ✅ Price approved by <b>{pi.priceApproval.decidedBy}</b> on {new Date(pi.priceApproval.decidedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
         </div>
       )}
+      {pi.lines.some((l) => l.listRate != null && l.rate !== l.listRate) && (
+        <div className="card" style={{ marginTop: 10 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 8 }}>Price changes on this PI</h3>
+          <table className="dt">
+            <thead><tr><th>Item</th><th>Original ₹</th><th>Changed ₹</th><th>Qty</th></tr></thead>
+            <tbody>
+              {pi.lines.filter((l) => l.listRate != null && l.rate !== l.listRate).map((l) => (
+                <tr key={l.code}>
+                  <td>{l.name} <span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span></td>
+                  <td>{l.listRate}</td>
+                  <td style={{ color: l.rate < l.listRate ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>{l.rate}</td>
+                  <td>{l.pcs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {showDeleteConfirm && (
         <ConfirmPopup
           title="Delete this PI?"
