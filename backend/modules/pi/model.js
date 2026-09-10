@@ -44,6 +44,11 @@ const piSchema = new mongoose.Schema(
     closeNote: { type: String, default: '' },
     closedBy: { type: String, default: '' },
     closedAt: { type: Date, default: null },
+    // Set exactly once, the moment a PI is confirmed ("Mark confirmed by
+    // customer") — distinct from `updatedAt`, which changes on every save
+    // (dispatch, cancel, edits, price approval...). This is specifically
+    // "when did the customer confirm this," nothing else.
+    confirmedAt: { type: Date, default: null },
     // Set when the admin prices a line below the product's base rate — needs
     // Master Admin sign-off before the PI can be dispatched, but auto-approves
     // after 1 hour if nobody acts (so a single missed notification doesn't

@@ -187,13 +187,15 @@ async function list(req, res) {
   // keeps getting the full array exactly as before. Only the PI list's flat
   // table asks for a page, since that's the view that actually needs to stay
   // fast as PI volume grows into the thousands.
-  // The paginated flat-list view now displays "Last updated" rather than
-  // creation date (see PIList.jsx), so its sort order matches that column —
-  // most-recently-updated first, so the visible order and the visible dates
-  // always agree. Every other caller (Pipeline, "by customer", cross-lookups
-  // from Invoices) is unpaginated and keeps the original newest-created-first
-  // order, since none of them display or depend on this sort direction.
-  let query = PI.find(filter).sort(page ? { updatedAt: -1 } : { createdAt: -1 });
+  // The paginated flat-list view displays "Confirmed" (when the customer
+  // confirmed the order) rather than creation date — sort to match: most
+  // recently confirmed first. PIs never confirmed (Draft/Sent, or Cancelled
+  // before confirmation) have no confirmedAt, so they fall to the bottom of
+  // this ordering, tie-broken by creation date. Every other caller (Pipeline,
+  // "by customer", cross-lookups from Invoices) is unpaginated and keeps the
+  // original newest-created-first order, since none of them display or
+  // depend on this sort direction.
+  let query = PI.find(filter).sort(page ? { confirmedAt: -1, createdAt: -1 } : { createdAt: -1 });
   let total = null;
   if (page) {
     const pageNum = Math.max(1, +page || 1);
@@ -304,6 +306,7 @@ async function confirm(req, res) {
     await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: l.pcs } }, { upsert: true });
   }
   pi.status = 'Confirmed';
+  pi.confirmedAt = new Date();
   await pi.save();
   res.json(pi);
 }
