@@ -165,7 +165,7 @@ export default function PIList() {
                     <td>{p.by}</td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                     <td className="mono muted" style={{ fontSize: 11 }}>
-                      {p.confirmedAt ? new Date(p.confirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
+                      {new Date(p.confirmedAt || p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                     </td>
                     <td>
                       <button
@@ -255,7 +255,7 @@ export default function PIList() {
                                 <td>{p.by}</td>
                                 <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                                 <td className="mono muted" style={{ fontSize: 11 }}>
-                                  {p.confirmedAt ? new Date(p.confirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
+                                  {new Date(p.confirmedAt || p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                                 </td>
                               </tr>
                             ))}
