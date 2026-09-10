@@ -1,5 +1,49 @@
 const Inventory = require('./model');
 const Product = require('../products/model');
+const XLSX = require('xlsx');
+
+// Shared by both the on-screen table and the Excel export, so the two can
+// never drift apart. "Need to produce" = confirmed-order demand (Reserved)
+// beyond what's physically on hand — the same number that shows as a
+// negative free-to-sell elsewhere, just flipped to a positive "make this many".
+async function buildProductionPlan() {
+  const items = await Inventory.find();
+  const products = await Product.find();
+  const productMap = Object.fromEntries(products.map((p) => [p.code, p]));
+
+  return items
+    .map((i) => {
+      const p = productMap[i.code] || {};
+      const needed = Math.max(0, i.reserved - i.physical);
+      return { code: i.code, name: p.name || i.code, physical: i.physical, reserved: i.reserved, needed };
+    })
+    .filter((r) => r.needed > 0)
+    .sort((a, b) => b.needed - a.needed);
+}
+
+// GET /api/inventory/production-planning — admin/masterAdmin only
+async function productionPlanning(req, res) {
+  res.json(await buildProductionPlan());
+}
+
+// GET /api/inventory/production-planning/export — same data, as a .xlsx download
+async function exportProductionPlanning(req, res) {
+  const rows = await buildProductionPlan();
+  const sheetData = [
+    ['Code', 'Item', 'Physical stock', 'Reserved (demand)', 'Need to produce'],
+    ...rows.map((r) => [r.code, r.name, r.physical, r.reserved, r.needed]),
+  ];
+  const sheet = XLSX.utils.aoa_to_sheet(sheetData);
+  sheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 16 }];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Production Planning');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  const filename = `production-planning-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(buffer);
+}
 
 async function list(req, res) {
   const items = await Inventory.find();
@@ -55,4 +99,4 @@ async function bulkSet(req, res) {
   res.json({ results });
 }
 
-module.exports = { list, adjust, bulkSet };
+module.exports = { list, adjust, bulkSet, productionPlanning, exportProductionPlanning };
