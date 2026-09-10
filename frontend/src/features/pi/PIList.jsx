@@ -88,7 +88,7 @@ export default function PIList() {
         ...g,
         total: g.pis.reduce((s, p) => s + p.total, 0),
         openCount: g.pis.filter((p) => ['Draft', 'Sent', 'Confirmed', 'Partial Dispatched'].includes(p.status)).length,
-        latest: Math.max(...g.pis.map((p) => new Date(p.createdAt).getTime())),
+        latest: Math.max(...g.pis.map((p) => new Date(p.updatedAt || p.createdAt).getTime())),
       }))
       .sort((a, b) => b.latest - a.latest);
   }
@@ -138,7 +138,7 @@ export default function PIList() {
         <>
           <div className="tblwrap">
             <table className="dt">
-              <thead><tr><th>PI no</th><th>Dealer</th><th>Assigned to</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th><th></th></tr></thead>
+              <thead><tr><th>PI no</th><th>Dealer</th><th>Assigned to</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Last updated</th><th></th></tr></thead>
               <tbody>
                 {pis.map((p) => {
                   const canEdit = ['Draft', 'Sent'].includes(p.status);
@@ -163,7 +163,7 @@ export default function PIList() {
                       )}
                     </td>
                     <td>{p.by}</td>
-                    <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                    <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.updatedAt || p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                     <td>
                       <button
                         className="btn o sm"
@@ -229,7 +229,7 @@ export default function PIList() {
                     {isOpen && (
                       <div className="tblwrap" style={{ marginTop: 10 }}>
                         <table className="dt">
-                          <thead><tr><th>PI no</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Date</th></tr></thead>
+                          <thead><tr><th>PI no</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Last updated</th></tr></thead>
                           <tbody>
                             {g.pis.map((p) => (
                               <tr key={p.no}>
@@ -250,7 +250,7 @@ export default function PIList() {
                                   )}
                                 </td>
                                 <td>{p.by}</td>
-                                <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                                <td className="mono muted" style={{ fontSize: 11 }}>{new Date(p.updatedAt || p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                               </tr>
                             ))}
                           </tbody>
