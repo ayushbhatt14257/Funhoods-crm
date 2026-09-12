@@ -18,6 +18,8 @@ import Dispatch from './features/dispatch/Dispatch';
 import Invoices from './features/invoices/Invoices';
 import InvoiceDetail from './features/invoices/InvoiceDetail';
 import Inventory from './features/inventory/Inventory';
+import GenerateBarcodes from './features/inventory/GenerateBarcodes';
+import ScanStockIn from './features/inventory/ScanStockIn';
 import Outstanding from './features/ledger/Outstanding';
 import SettingsPage from './features/settings/Settings';
 import Users from './features/users/Users';
@@ -67,6 +69,8 @@ function AppRoutes() {
         <Route path="products/:code" element={<ProductDetail />} />
         <Route path="aliases" element={<Aliases />} />
         <Route path="inventory" element={<Inventory />} />
+        <Route path="generate-barcodes" element={<GenerateBarcodes />} />
+        <Route path="stock-in" element={<ScanStockIn />} />
         <Route path="outstanding" element={<Outstanding />} />
         <Route path="import" element={<Import />} />
         <Route path="settings" element={<SettingsPage />} />

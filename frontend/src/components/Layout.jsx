@@ -20,6 +20,8 @@ const NAV = [
   { to: '/products', label: 'Products', icon: '📦', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/aliases', label: 'SKU nicknames', icon: '🏷️', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/inventory', label: 'Inventory', icon: '📊', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
+  { to: '/stock-in', label: 'Stock In (Scan)', icon: '📷', roles: ['mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
+  { to: '/generate-barcodes', label: 'Generate Barcodes', icon: '🏷️', roles: ['admin', 'masterAdmin'] },
   { group: 'Setup' },
   { to: '/import', label: 'Bulk Import', icon: '⬆️', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/settings', label: 'Company Settings', icon: '⚙️', roles: ['admin', 'masterAdmin'] },
