@@ -23,6 +23,17 @@ const dealerSchema = new mongoose.Schema(
     active: { type: Boolean, default: true },
     createdByName: { type: String, default: '' },
     assignedTo: { type: String, default: '' }, // name of the field/sales user this party belongs to
+    // A real dispatch block — usually requested by the marketing/sales
+    // person for a specific reason (payment issue etc.), not just a label.
+    // While active, this party's confirmed items can't be dispatched at
+    // all (checked server-side, not just hidden in the UI) until someone
+    // explicitly releases it.
+    dispatchHold: {
+      active: { type: Boolean, default: false },
+      reason: { type: String, default: '' },
+      heldBy: { type: String, default: '' },
+      heldAt: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 );

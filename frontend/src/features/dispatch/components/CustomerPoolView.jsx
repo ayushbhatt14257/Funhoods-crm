@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 
-// Quantity is always whole outer/inner cartons — never raw pieces. Given a
-// pending pcs total and a product's carton sizes, this is the natural
-// "how would you actually pack this" greedy breakdown, used as the default
-// selected quantity (dispatch everything available is the common case).
+// Quantity is always whole outer/inner cartons — never raw pieces, and never
+// editable here. Dispatch is a pure "confirm and ship exactly what's
+// confirmed" step now — no quantity adjustment, no price change, no partial
+// selection below the full available amount. Checking an item dispatches
+// everything currently pending for it (as whole cartons); whatever doesn't
+// divide evenly into a full carton just stays in the pool for next time.
 function maxCartons(pendingPcs, cartonOuter, cartonInner) {
   if (!cartonOuter) return { outers: 0, inners: 0 };
   const outers = Math.floor(pendingPcs / cartonOuter);
@@ -24,19 +26,13 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange })
       .filter((it) => !q || it.name.toLowerCase().includes(q.toLowerCase()) || it.code.toLowerCase().includes(q.toLowerCase()))
       .map((it) => {
         const key = rowKey(it);
-        const maxOuters = it.cartonOuter ? Math.floor(it.pendingPcs / it.cartonOuter) : 0;
-        const maxInners = it.cartonInner ? Math.floor(it.pendingPcs / it.cartonInner) : 0;
-        const state = selection[key] || { checked: false, ...maxCartons(it.pendingPcs, it.cartonOuter, it.cartonInner) };
-        return { item: it, key, maxOuters, maxInners, ...state };
+        const { outers, inners } = maxCartons(it.pendingPcs, it.cartonOuter, it.cartonInner);
+        return { item: it, key, outers, inners, checked: !!selection[key] };
       });
   }, [pool, q, selection]);
 
-  function setRow(key, patch) {
-    onSelectionChange({ ...selection, [key]: { ...selection[key], ...patch } });
-  }
-
   function toggle(row) {
-    setRow(row.key, { checked: !row.checked, outers: row.outers, inners: row.inners });
+    onSelectionChange({ ...selection, [row.key]: !row.checked });
   }
 
   const grandTotal = rows.reduce((sum, r) => {
@@ -78,18 +74,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange })
                     <td><b>{r.item.name}</b></td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
-                      <input
-                        type="number" min={0} max={r.maxOuters} style={{ width: 64 }}
-                        value={r.outers}
-                        onChange={(e) => setRow(r.key, { outers: Math.max(0, Math.min(r.maxOuters, +e.target.value || 0)) })}
-                      />
+                      <b>{r.outers}</b>
+                      {r.item.cartonOuter > 0 && <div className="muted" style={{ fontSize: 10 }}>× {r.item.cartonOuter} pcs</div>}
                     </td>
                     <td>
-                      <input
-                        type="number" min={0} max={r.maxInners} style={{ width: 64 }}
-                        value={r.inners}
-                        onChange={(e) => setRow(r.key, { inners: Math.max(0, Math.min(r.maxInners, +e.target.value || 0)) })}
-                      />
+                      <b>{r.inners}</b>
+                      {r.item.cartonInner > 0 && <div className="muted" style={{ fontSize: 10 }}>× {r.item.cartonInner} pcs</div>}
                     </td>
                     <td>{r.item.rate}</td>
                     <td>{r.item.gstPct}</td>

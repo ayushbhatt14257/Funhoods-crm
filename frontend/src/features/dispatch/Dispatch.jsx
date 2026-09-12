@@ -6,6 +6,7 @@ import ConfirmPopup from '../../components/ConfirmPopup';
 import { dispatchApi } from './api';
 import DealerPickerModal from '../pi/components/DealerPickerModal';
 import CustomerPoolView from './components/CustomerPoolView';
+import PendingDispatchList from './components/PendingDispatchList';
 import TransportStep from './components/TransportStep';
 import CartonMappingStep from './components/CartonMappingStep';
 import DispatchForm from './components/DispatchForm';
@@ -30,10 +31,10 @@ export default function Dispatch() {
   const [products, setProducts] = useState([]);
 
   // --- pool-mode state ---
-  const [showCustomerPicker, setShowCustomerPicker] = useState(!dealerParam);
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [dealerCode, setDealerCode] = useState(dealerParam || '');
   const [pool, setPool] = useState(null); // null = loading/none picked yet
-  const [selection, setSelection] = useState({}); // rowKey -> {checked, outers, inners}
+  const [selection, setSelection] = useState({}); // rowKey -> checked (bool) — qty is fixed/read-only now, not stored per-row
 
   // --- manual-mode state (unchanged from before) ---
   const [manualDealer, setManualDealer] = useState('');
@@ -136,15 +137,25 @@ export default function Dispatch() {
   function removeManualLine(i) { setManualLines(manualLines.filter((_, idx) => idx !== i)); }
 
   // --- carton mapping (shared by both modes) ---
+  // Same whole-carton breakdown CustomerPoolView uses for display — quantity
+  // for a checked item is always this, never edited.
+  function maxCartonsFor(item) {
+    if (!item.cartonOuter) return { outers: 0, inners: 0 };
+    const outers = Math.floor(item.pendingPcs / item.cartonOuter);
+    const afterOuters = item.pendingPcs - outers * item.cartonOuter;
+    const inners = item.cartonInner ? Math.floor(afterOuters / item.cartonInner) : 0;
+    return { outers, inners };
+  }
   function poolActiveLines() {
     // One entry per unique product code (summed across any rate-variant
     // rows) — cartons are physical, they don't know about invoice rates.
     const byCode = {};
-    Object.entries(selection).forEach(([key, sel]) => {
-      if (!sel.checked) return;
+    Object.entries(selection).forEach(([key, checked]) => {
+      if (!checked) return;
       const item = pool?.items.find((it) => `${it.code}|${it.rate}` === key);
       if (!item) return;
-      const pcs = (sel.outers || 0) * item.cartonOuter + (sel.inners || 0) * item.cartonInner;
+      const { outers, inners } = maxCartonsFor(item);
+      const pcs = outers * item.cartonOuter + inners * item.cartonInner;
       if (pcs <= 0) return;
       if (!byCode[item.code]) byCode[item.code] = { code: item.code, name: item.name, dispatchNow: 0 };
       byCode[item.code].dispatchNow += pcs;
@@ -201,11 +212,13 @@ export default function Dispatch() {
   async function submitPoolDispatch(force = false) {
     if (!transporter) return showToast('Mode of transport required', 'err');
     const lines = Object.entries(selection)
-      .filter(([, sel]) => sel.checked && ((sel.outers || 0) > 0 || (sel.inners || 0) > 0))
-      .map(([key, sel]) => {
+      .filter(([, checked]) => checked)
+      .map(([key]) => {
         const item = pool.items.find((it) => `${it.code}|${it.rate}` === key);
-        return { code: item.code, rate: item.rate, gstPct: item.gstPct, outers: sel.outers || 0, inners: sel.inners || 0 };
-      });
+        const { outers, inners } = maxCartonsFor(item);
+        return { code: item.code, rate: item.rate, gstPct: item.gstPct, outers, inners };
+      })
+      .filter((l) => l.outers > 0 || l.inners > 0);
     if (!lines.length) return showToast('Select at least one item with a whole-carton quantity', 'err');
     if (submitting) return;
     setSubmitting(true);
@@ -318,24 +331,35 @@ export default function Dispatch() {
     );
   }
 
+  function pickCustomerByCode(code) {
+    setDealerCode(code);
+    setShowCustomerPicker(false);
+    resetEntryFields();
+    nav(`/dispatch?dealer=${code}`, { replace: true });
+  }
+
   return (
     <div>
       <div className="ph"><div className="eyebrow">Goods leaving the gate</div><h2>Dispatch</h2>
-        <p>Pick a customer to see every confirmed item still owed to them, across all their orders.</p></div>
+        <p>Every party with confirmed, undispatched items — pick one to check off and dispatch, across all their orders.</p></div>
 
       <div className="btnrow" style={{ marginBottom: 14 }}>
-        {pool && <button className="btn o sm" onClick={changeCustomer}>↺ Change customer</button>}
+        {pool && <button className="btn o sm" onClick={changeCustomer}>↺ Back to pending list</button>}
+        {!pool && <button className="btn o sm" onClick={() => setShowCustomerPicker(true)}>🔍 Search any customer</button>}
         <button className="btn o sm" onClick={openManual}>🚚 Manual dispatch (no PI)</button>
       </div>
 
       {!dealerCode ? (
-        <div className="card" style={{ maxWidth: 420 }}>
-          <button className="btn" onClick={() => setShowCustomerPicker(true)}>+ Search / pick customer</button>
-        </div>
+        <PendingDispatchList onSelectDealer={pickCustomerByCode} />
       ) : pool === null ? (
         <Loading label="Loading confirmed items…" />
       ) : (
         <>
+          {pool.dealer.dispatchHold?.active && (
+            <div className="note r" style={{ marginBottom: 14 }}>
+              <b>⏸ {pool.dealer.name} is on hold</b> — "{pool.dealer.dispatchHold.reason}" (by {pool.dealer.dispatchHold.heldBy}). This customer can't be dispatched until the hold is released from the pending list.
+            </div>
+          )}
           <CustomerPoolView pool={pool} selection={selection} onSelectionChange={setSelection} />
           <TransportStep {...transportState} />
           <CartonMappingStep
@@ -349,7 +373,7 @@ export default function Dispatch() {
             onRemoveCarton={removeCarton}
           />
           <div className="btnrow">
-            <button className="btn g" disabled={submitting} onClick={() => submitPoolDispatch()}>{submitting ? 'Saving…' : '→ Dispatch selected items'}</button>
+            <button className="btn g" disabled={submitting || pool.dealer.dispatchHold?.active} onClick={() => submitPoolDispatch()}>{submitting ? 'Saving…' : '→ Dispatch selected items'}</button>
           </div>
         </>
       )}

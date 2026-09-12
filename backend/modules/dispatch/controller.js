@@ -111,7 +111,99 @@ async function getCustomerPool(req, res) {
     .map((g) => ({ ...g, cartonOuter: productMap[g.code]?.cartonOuter || 0, cartonInner: productMap[g.code]?.cartonInner || 0 }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  res.json({ dealer: { code: dealer.code, name: dealer.name, assignedTo: dealer.assignedTo }, items });
+  res.json({
+    dealer: { code: dealer.code, name: dealer.name, assignedTo: dealer.assignedTo, dispatchHold: dealer.dispatchHold },
+    items,
+  });
+}
+
+// GET /api/dispatch/pending-overview?from=&to=
+//
+// The Dispatch page's default landing view: every party with something
+// confirmed and still undispatched, grouped exactly like getCustomerPool
+// but rolled up across ALL parties at once, so a dispatcher can see
+// everything waiting without searching one customer at a time. `from`/`to`
+// filter by when each PI was CONFIRMED (not created) — this is a discovery
+// tool for "what got confirmed recently and needs picking up," so only PIs
+// confirmed inside the window contribute to the totals shown.
+async function getPendingOverview(req, res) {
+  const { from, to } = req.query;
+  const filter = { status: { $in: ['Confirmed', 'Partial Dispatched'] } };
+  if (from || to) {
+    filter.confirmedAt = {};
+    if (from) filter.confirmedAt.$gte = new Date(from);
+    if (to) filter.confirmedAt.$lte = new Date(new Date(to).getTime() + 86399999);
+  }
+
+  const pis = await PI.find(filter).sort({ confirmedAt: 1, createdAt: 1 });
+  const eligible = pis.filter((p) => p.priceApproval?.status !== 'pending');
+
+  const byDealer = {}; // dealer code -> { dealerName, items: {key: {...}}, lastConfirmedAt }
+  for (const pi of eligible) {
+    const confirmedDate = pi.confirmedAt || pi.createdAt;
+    // If a date range was given, only count lines from PIs confirmed inside it —
+    // a PI confirmed outside the window contributes nothing here, even if the
+    // party has other, in-window PIs too.
+    if ((from || to) && !pi.confirmedAt) continue;
+
+    let hasPending = false;
+    const lineTotals = {};
+    for (const line of pi.lines) {
+      const pending = line.pending != null ? line.pending : line.pcs;
+      if (pending <= 0) continue;
+      hasPending = true;
+      const key = `${line.code}|${line.rate}`;
+      lineTotals[key] = lineTotals[key] || { code: line.code, name: line.name, rate: line.rate, pendingPcs: 0 };
+      lineTotals[key].pendingPcs += pending;
+    }
+    if (!hasPending) continue;
+
+    if (!byDealer[pi.dealer]) byDealer[pi.dealer] = { dealer: pi.dealer, dealerName: pi.dealerName, items: {}, lastConfirmedAt: confirmedDate };
+    const g = byDealer[pi.dealer];
+    if (confirmedDate > g.lastConfirmedAt) g.lastConfirmedAt = confirmedDate;
+    for (const [key, line] of Object.entries(lineTotals)) {
+      if (!g.items[key]) g.items[key] = { ...line, pendingPcs: 0 };
+      g.items[key].pendingPcs += line.pendingPcs;
+    }
+  }
+
+  const dealerCodes = Object.keys(byDealer);
+  const dealers = await Dealer.find({ code: { $in: dealerCodes } });
+  const dealerMap = Object.fromEntries(dealers.map((d) => [d.code, d]));
+
+  const parties = Object.values(byDealer)
+    .map((g) => ({
+      dealer: g.dealer,
+      dealerName: g.dealerName,
+      lastConfirmedAt: g.lastConfirmedAt,
+      onHold: !!dealerMap[g.dealer]?.dispatchHold?.active,
+      holdReason: dealerMap[g.dealer]?.dispatchHold?.reason || '',
+      heldBy: dealerMap[g.dealer]?.dispatchHold?.heldBy || '',
+      items: Object.values(g.items).sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => new Date(b.lastConfirmedAt) - new Date(a.lastConfirmedAt));
+
+  res.json(parties);
+}
+
+// POST /api/dispatch/hold/:dealerCode  { reason }
+async function holdDealer(req, res) {
+  const reason = String(req.body.reason || '').trim();
+  if (!reason) return res.status(400).json({ message: 'A reason is required to put a customer on hold.' });
+  const dealer = await Dealer.findOne({ code: req.params.dealerCode });
+  if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
+  dealer.dispatchHold = { active: true, reason, heldBy: req.user.name, heldAt: new Date() };
+  await dealer.save();
+  res.json({ message: `${dealer.name} put on hold — won't be dispatchable until released.` });
+}
+
+// POST /api/dispatch/unhold/:dealerCode
+async function unholdDealer(req, res) {
+  const dealer = await Dealer.findOne({ code: req.params.dealerCode });
+  if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
+  dealer.dispatchHold = { active: false, reason: '', heldBy: '', heldAt: null };
+  await dealer.save();
+  res.json({ message: `${dealer.name} released — can be dispatched again.` });
 }
 
 // Carton mapping is entirely optional for the customer-pool dispatch flow —
@@ -151,6 +243,9 @@ async function dispatchFromPool(req, res) {
     const { dealerCode, lines: requestedLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap } = req.body;
     const dealer = await Dealer.findOne({ code: dealerCode });
     if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
+    if (dealer.dispatchHold?.active) {
+      return res.status(400).json({ message: `${dealer.name} is on hold — "${dealer.dispatchHold.reason}" (by ${dealer.dispatchHold.heldBy}). Release the hold before dispatching.` });
+    }
     if (!transporter) return res.status(400).json({ message: 'Mode of transport is required' });
     if (!Array.isArray(requestedLines) || !requestedLines.length) return res.status(400).json({ message: 'Select at least one item' });
 
@@ -368,4 +463,4 @@ async function pendingPIForDealer(req, res) {
   res.json(pi || null);
 }
 
-module.exports = { dispatchManual, pendingPIForDealer, getCustomerPool, dispatchFromPool };
+module.exports = { dispatchManual, pendingPIForDealer, getCustomerPool, dispatchFromPool, getPendingOverview, holdDealer, unholdDealer };

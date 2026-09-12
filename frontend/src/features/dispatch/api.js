@@ -4,7 +4,10 @@ import { api } from '../../api/client';
 // than the raw REST path — callers don't need to know the URL shape.
 export const dispatchApi = {
   getPendingPIForDealer: (dealerCode) => api.get(`/dispatch/pending-pi/${dealerCode}`),
+  getPendingOverview: (params = '') => api.get(`/dispatch/pending-overview${params ? `?${params}` : ''}`),
   getCustomerPool: (dealerCode) => api.get(`/dispatch/customer-pool/${dealerCode}`),
   dispatchFromPool: (payload) => api.post('/dispatch/from-customer-pool', payload),
   dispatchManual: (payload) => api.post('/dispatch/manual', payload),
+  holdDealer: (dealerCode, reason) => api.post(`/dispatch/hold/${dealerCode}`, { reason }),
+  unholdDealer: (dealerCode) => api.post(`/dispatch/unhold/${dealerCode}`),
 };
