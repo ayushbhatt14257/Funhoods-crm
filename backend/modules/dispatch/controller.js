@@ -72,40 +72,141 @@ async function checkPhysicalShortages(dispatchLines) {
   return shortages;
 }
 
-// POST /api/dispatch/from-pi/:piNo
-// body: { lines: [{code, dispatchNow}], transporter, vehicle?, lr?, eway?, driver?, freight?, cartonMap: [{no, items:[{code,pcs}]}] }
-async function dispatchFromPI(req, res) {
-  try {
-    const pi = await PI.findOne({ no: req.params.piNo });
-    if (!pi) return res.status(404).json({ message: 'PI not found' });
-    if (!['Confirmed', 'Partial Dispatched'].includes(pi.status)) {
-      return res.status(400).json({ message: 'PI must be Confirmed before dispatch' });
-    }
-    if (pi.priceApproval?.status === 'pending') {
-      return res.status(400).json({ message: 'This PI has a discounted rate awaiting Master Admin approval — it can\'t be dispatched yet.' });
-    }
+// GET /api/dispatch/customer-pool/:dealerCode
+//
+// The new dispatch model: instead of opening one PI at a time, this
+// aggregates every still-pending line across ALL of a dealer's Confirmed /
+// Partial Dispatched PIs into one pool, grouped by product+rate (a
+// different negotiated rate for the same product shows as its own row,
+// since it'll need its own invoice line later). This is what replaced the
+// old PI-by-PI dispatch queue entirely.
+async function getCustomerPool(req, res) {
+  const dealer = await Dealer.findOne({ code: req.params.dealerCode });
+  if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
 
-    const { lines: dispatchInput, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap } = req.body;
+  const pis = await PI.find({ dealer: dealer.code, status: { $in: ['Confirmed', 'Partial Dispatched'] } })
+    .sort({ confirmedAt: 1, createdAt: 1 });
+  const eligible = pis.filter((p) => p.priceApproval?.status !== 'pending'); // same rule the old queue used — a discount awaiting sign-off can't be dispatched yet
+
+  const groups = {}; // key = code|rate — a different rate for the same product is a different line
+  for (const pi of eligible) {
+    const confirmedDate = pi.confirmedAt || pi.createdAt;
+    for (const line of pi.lines) {
+      const pending = line.pending != null ? line.pending : line.pcs;
+      if (pending <= 0) continue;
+      const key = `${line.code}|${line.rate}`;
+      if (!groups[key]) {
+        groups[key] = { code: line.code, name: line.name, photo: line.photo, rate: line.rate, gstPct: line.gstPct, pendingPcs: 0, lastConfirmedAt: confirmedDate };
+      }
+      groups[key].pendingPcs += pending;
+      if (confirmedDate > groups[key].lastConfirmedAt) groups[key].lastConfirmedAt = confirmedDate;
+    }
+  }
+
+  const codes = [...new Set(Object.values(groups).map((g) => g.code))];
+  const products = await Product.find({ code: { $in: codes } });
+  const productMap = Object.fromEntries(products.map((p) => [p.code, p]));
+
+  const items = Object.values(groups)
+    .map((g) => ({ ...g, cartonOuter: productMap[g.code]?.cartonOuter || 0, cartonInner: productMap[g.code]?.cartonInner || 0 }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  res.json({ dealer: { code: dealer.code, name: dealer.name, assignedTo: dealer.assignedTo }, items });
+}
+
+// Carton mapping is entirely optional for the customer-pool dispatch flow —
+// deliberately separate from validateCartonMap() above (which stays
+// mandatory and untouched, since Manual Dispatch still relies on that exact
+// behavior). If a map IS provided, it still has to actually add up right;
+// it's the "must provide one at all" requirement that's gone. Sums by
+// product code first, since the same code can legitimately appear as two
+// separate dispatch lines here (once per contributing rate).
+function validateOptionalCartonMap(dispatchLines, cartonMap) {
+  if (!Array.isArray(cartonMap) || !cartonMap.length) return null;
+  const mappedByCode = {};
+  cartonMap.forEach((c) => (c.items || []).forEach((it) => { mappedByCode[it.code] = (mappedByCode[it.code] || 0) + it.pcs; }));
+  const neededByCode = {};
+  dispatchLines.forEach((l) => { neededByCode[l.code] = (neededByCode[l.code] || 0) + l.pcs; });
+  const mismatches = Object.entries(neededByCode).filter(([code, pcs]) => (mappedByCode[code] || 0) !== pcs);
+  if (mismatches.length) {
+    const names = mismatches.map(([code]) => dispatchLines.find((l) => l.code === code)?.name || code).join(', ');
+    return `Carton mapping doesn't match dispatched qty for: ${names}`;
+  }
+  return null;
+}
+
+// POST /api/dispatch/from-customer-pool
+// body: { dealerCode, lines: [{code, rate, outers, inners}], transporter,
+//         vehicle?, lr?, eway?, driver?, freight?, freightTerm?, cartonMap?, force? }
+//
+// Quantity always arrives as whole outer/inner cartons (never raw pieces —
+// the frontend only ever offers whole-carton amounts), converted to pcs
+// here using the product's actual carton size. Consumes pending quantity
+// FIFO across whichever PIs contributed it (oldest confirmed first) — a
+// single dispatch here can and normally will clear pending off more than
+// one PI at once. No `piRef` on the resulting invoice: this dispatch isn't
+// "against" any one PI, it's against the dealer's whole confirmed pool.
+async function dispatchFromPool(req, res) {
+  try {
+    const { dealerCode, lines: requestedLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap } = req.body;
+    const dealer = await Dealer.findOne({ code: dealerCode });
+    if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
     if (!transporter) return res.status(400).json({ message: 'Mode of transport is required' });
+    if (!Array.isArray(requestedLines) || !requestedLines.length) return res.status(400).json({ message: 'Select at least one item' });
+
+    const pis = await PI.find({ dealer: dealerCode, status: { $in: ['Confirmed', 'Partial Dispatched'] } }).sort({ confirmedAt: 1, createdAt: 1 });
+    const eligiblePIs = pis.filter((p) => p.priceApproval?.status !== 'pending');
 
     const dispatchLines = [];
-    for (const di of dispatchInput.filter((l) => +l.dispatchNow > 0)) {
-      const orig = pi.lines.find((l) => l.code === di.code);
-      if (!orig) continue;
-      const pcs = +di.dispatchNow;
-      const total = +(orig.gross * pcs).toFixed(2);
+    const touchedPIs = new Map(); // no -> PI doc
+
+    for (const reqLine of requestedLines) {
+      const product = await Product.findOne({ code: String(reqLine.code).toUpperCase() });
+      if (!product) return res.status(400).json({ message: `Product ${reqLine.code} not found` });
+
+      const outers = +reqLine.outers || 0;
+      const inners = +reqLine.inners || 0;
+      const needed = outers * (product.cartonOuter || 0) + inners * (product.cartonInner || 0);
+      if (needed <= 0) continue;
+
+      const rate = +reqLine.rate;
+      let remaining = needed;
+      for (const pi of eligiblePIs) {
+        if (remaining <= 0) break;
+        for (const line of pi.lines) {
+          if (remaining <= 0) break;
+          if (line.code !== product.code || line.rate !== rate) continue;
+          const pending = line.pending != null ? line.pending : line.pcs;
+          if (pending <= 0) continue;
+          const take = Math.min(pending, remaining);
+          line.pending = pending - take;
+          remaining -= take;
+          touchedPIs.set(pi.no, pi);
+        }
+      }
+      if (remaining > 0) {
+        return res.status(400).json({ message: `Not enough confirmed pending stock for ${product.name} at ₹${rate} — short by ${remaining} pcs. Someone may have just dispatched it — refresh and try again.` });
+      }
+
+      const gstPct = reqLine.gstPct || product.gst_pct || 5;
+      const tax = +((rate * gstPct) / 100).toFixed(2);
+      const gross = +(rate + tax).toFixed(2);
       dispatchLines.push({
-        no: orig.no, code: orig.code, name: orig.name, photo: orig.photo, pcs,
-        rate: orig.rate, gstPct: orig.gstPct, tax: orig.tax, gross: orig.gross, total,
+        no: dispatchLines.length + 1, code: product.code, name: product.name, photo: product.photo || '',
+        pcs: needed, rate, gstPct, tax, gross, total: +(gross * needed).toFixed(2),
       });
     }
-    if (!dispatchLines.length) return res.status(400).json({ message: 'Enter dispatched quantity on at least one line' });
+    if (!dispatchLines.length) return res.status(400).json({ message: 'Select at least one item with a whole-carton quantity' });
 
-    const cartonError = validateCartonMap(dispatchLines, cartonMap);
+    const cartonError = validateOptionalCartonMap(dispatchLines, cartonMap);
     if (cartonError) return res.status(400).json({ message: cartonError });
 
     if (!req.body.force) {
-      const shortages = await checkPhysicalShortages(dispatchLines);
+      // Same product can appear as two lines here (two rates) — combine by
+      // code first, since physical stock doesn't know about invoice rates.
+      const byCode = {};
+      dispatchLines.forEach((l) => { byCode[l.code] = { code: l.code, name: l.name, pcs: (byCode[l.code]?.pcs || 0) + l.pcs }; });
+      const shortages = await checkPhysicalShortages(Object.values(byCode));
       if (shortages.length) {
         const detail = shortages.map((s) => `${s.name} — dispatching ${s.requested}, only ${s.physical} physically in stock`).join('; ');
         return res.status(409).json({ message: `Physical stock shortfall: ${detail}. Confirm to dispatch anyway.`, shortages });
@@ -115,58 +216,47 @@ async function dispatchFromPI(req, res) {
     const subtotal = dispatchLines.reduce((s, l) => s + l.total, 0);
     const frt = +freight || 0;
     const grand = subtotal + frt;
-    const packing = await buildPackingFromCartonMap(cartonMap);
-    const dealer = await Dealer.findOne({ code: pi.dealer });
+    const packing = await buildPackingFromCartonMap(cartonMap || []);
 
     const invoice = await Invoice.create({
       no: await nextInvoiceNo(),
       date: todayISODate(),
-      dealer: pi.dealer,
-      dealerName: pi.dealerName,
-      piRef: pi.no,
+      dealer: dealer.code,
+      dealerName: dealer.name,
+      piRef: '', // not tied to any single PI — this is a pool dispatch, possibly clearing several PIs at once
       manual: false,
       lines: dispatchLines,
-      subtotal,
-      transport: frt,
-      total: grand,
+      subtotal, transport: frt, total: grand,
       status: 'Dispatched',
       by: dealer.assignedTo || req.user.name,
       createdBy: req.user._id,
       transporter, vehicle: vehicle || '', lr: lr || '', eway: eway || '', driver: driver || '',
-      cartons: cartonMap.length,
+      cartons: (cartonMap || []).length,
       freight: frt,
-    freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
+      freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       packing,
       dispatchDate: todayISODate(),
     });
 
-    // Update PI pending quantities
-    for (const dl of dispatchLines) {
-      const line = pi.lines.find((l) => l.code === dl.code && l.no === dl.no);
-      if (line) {
-        const currentPending = line.pending != null ? line.pending : line.pcs;
-        line.pending = Math.max(0, currentPending - dl.pcs);
-      }
+    for (const pi of touchedPIs.values()) {
+      const allDone = pi.lines.every((l) => (l.pending != null ? l.pending : l.pcs) === 0);
+      pi.status = allDone ? 'Fully Dispatched' : 'Partial Dispatched';
+      await pi.save();
     }
-    const allDone = pi.lines.every((l) => (l.pending != null ? l.pending : l.pcs) === 0);
-    pi.status = allDone ? 'Fully Dispatched' : 'Partial Dispatched';
-    await pi.save();
 
-    // Inventory: physical and reserved both drop (goods have left, reservation is released)
-    for (const dl of dispatchLines) {
-      await Inventory.findOneAndUpdate(
-        { code: dl.code },
-        { $inc: { physical: -dl.pcs, reserved: -dl.pcs } }
-      );
+    const invByCode = {};
+    dispatchLines.forEach((l) => { invByCode[l.code] = (invByCode[l.code] || 0) + l.pcs; });
+    for (const [code, pcs] of Object.entries(invByCode)) {
+      await Inventory.findOneAndUpdate({ code }, { $inc: { physical: -pcs, reserved: -pcs } });
     }
 
     await Ledger.create({
-      date: todayISODate(), dealer: pi.dealer, type: 'Invoice', ref: invoice.no,
-      debit: grand, credit: 0, note: `From PI ${pi.no}`,
+      date: todayISODate(), dealer: dealer.code, type: 'Invoice', ref: invoice.no,
+      debit: grand, credit: 0, note: `Dispatched from confirmed order pool (cleared ${[...touchedPIs.keys()].join(', ')})`,
     });
     await notifyDispatched(invoice);
 
-    res.status(201).json({ invoice, piStatus: pi.status });
+    res.status(201).json({ invoice });
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
@@ -278,10 +368,4 @@ async function pendingPIForDealer(req, res) {
   res.json(pi || null);
 }
 
-async function readyPIs(req, res) {
-  const pis = await PI.find({ status: { $in: ['Confirmed', 'Partial Dispatched'] } }).sort({ createdAt: -1 });
-  // Still-pending discount approvals stay out of the dispatch queue entirely.
-  res.json(pis.filter((p) => p.priceApproval?.status !== 'pending'));
-}
-
-module.exports = { dispatchFromPI, dispatchManual, pendingPIForDealer, readyPIs };
+module.exports = { dispatchManual, pendingPIForDealer, getCustomerPool, dispatchFromPool };

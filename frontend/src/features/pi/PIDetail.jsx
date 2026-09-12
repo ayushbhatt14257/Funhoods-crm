@@ -254,7 +254,7 @@ export default function PIDetail() {
         {canEdit && <button className="btn o" onClick={startEdit}>Edit PI</button>}
         {canSend && <button className="btn g" disabled={actionBusy} onClick={sendToCustomer}>{actionBusy ? 'Working…' : 'Save + send to customer'}</button>}
         {canConfirm && <button className="btn g" disabled={actionBusy} onClick={confirmPI}>{actionBusy ? 'Working…' : 'Mark confirmed by customer'}</button>}
-        {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?pi=${pi.no}`)}>→ Book dispatch</button>}
+        {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?dealer=${pi.dealer}`)}>→ Book dispatch</button>}
         {canCancel && <button className="btn rd" disabled={actionBusy} onClick={cancelPI}>{actionBusy ? 'Working…' : 'Cancel PI'}</button>}
         {canCloseRemaining && <button className="btn o" disabled={actionBusy} onClick={() => setShowCloseRemaining(true)}>Close remaining (write off)</button>}
         <button className="btn o" onClick={() => printAs(`${pi.dealerName} ${ddmmyyyy(pi.date || pi.createdAt)}`)}>🖨️ Print / Save PDF</button>
