@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { API_URL, getToken } from '../../api/client';
 import Modal from '../../components/Modal';
 import Loading from '../../components/Loading';
 import { productsApi } from './api';
@@ -23,6 +24,7 @@ export default function Products() {
   const [isNew, setIsNew] = useState(false);
   const [managingCategories, setManagingCategories] = useState(false);
   const [breakdownProduct, setBreakdownProduct] = useState(null); // product object mid-breakdown-view
+  const [exporting, setExporting] = useState(false);
 
   async function load() { setProducts(await productsApi.list(q)); }
   async function loadCategories() { setCategories(await categoriesApi.list()); }
@@ -41,6 +43,23 @@ export default function Products() {
     setEditing({});
     setIsNew(true);
     setForm(emptyForm);
+  }
+
+  async function downloadExcel() {
+    setExporting(true);
+    try {
+      const res = await fetch(`${API_URL}/products/export`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) return showToast('Export failed', 'err');
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `products-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function save() {
@@ -86,6 +105,7 @@ export default function Products() {
       <div className="btnrow" style={{ marginBottom: 14 }}>
         <input placeholder="Search product name or code" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
         <button className="btn" onClick={openNew}>+ New product</button>
+        <button className="btn o" disabled={exporting} onClick={downloadExcel}>{exporting ? 'Preparing…' : '⬇ Download Excel'}</button>
       </div>
       {products === null ? (
         <Loading label="Loading products…" />

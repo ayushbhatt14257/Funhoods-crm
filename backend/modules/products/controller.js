@@ -207,8 +207,71 @@ async function dispatchBreakdown(req, res) {
   res.json(rows.map((r) => ({ dealer: r._id, dealerName: r.dealerName, total: r.total, invoiceCount: r.invoices.length })));
 }
 
+// GET /api/products/export — every product as a downloadable .xlsx, with the
+// actual product photo embedded in each row (not just a link), plus a
+// "Total Products" count at the top. Images are fetched concurrently so
+// this stays reasonably fast even with a few hundred products; any single
+// image that fails to fetch is skipped without failing the whole export.
+async function exportProducts(req, res) {
+  const ExcelJS = require('exceljs');
+  const products = await Product.find().sort({ name: 1 });
+
+  const imageBuffers = await Promise.all(
+    products.map(async (p) => {
+      if (!p.photo) return null;
+      try {
+        const resp = await fetch(p.photo);
+        if (!resp.ok) return null;
+        return Buffer.from(await resp.arrayBuffer());
+      } catch {
+        return null; // best-effort — a broken/slow image link shouldn't block the whole export
+      }
+    })
+  );
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Products');
+  sheet.columns = [
+    { width: 14 }, { width: 34 }, { width: 14 }, { width: 14 }, { width: 14 },
+  ];
+
+  sheet.mergeCells('A1:E1');
+  const totalCell = sheet.getCell('A1');
+  totalCell.value = `Total Products: ${products.length}`;
+  totalCell.font = { bold: true, size: 14 };
+  sheet.getRow(1).height = 24;
+
+  const headerRow = sheet.getRow(2);
+  headerRow.values = ['Image', 'Name', 'Code', 'Outer Qty (pcs/carton)', 'Inner Qty (pcs/carton)'];
+  headerRow.font = { bold: true };
+  headerRow.eachCell((cell) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEFEF' } }; });
+
+  products.forEach((p, i) => {
+    const rowNum = i + 3; // rows 1-2 are the total + header
+    const row = sheet.getRow(rowNum);
+    row.height = 60;
+    row.getCell(2).value = p.name;
+    row.getCell(3).value = p.code;
+    row.getCell(4).value = p.cartonOuter || 0;
+    row.getCell(5).value = p.cartonInner || 0;
+
+    const buf = imageBuffers[i];
+    if (buf) {
+      const ext = p.photo.toLowerCase().includes('.png') ? 'png' : 'jpeg';
+      const imgId = workbook.addImage({ buffer: buf, extension: ext });
+      sheet.addImage(imgId, { tl: { col: 0, row: rowNum - 1 }, ext: { width: 55, height: 55 } });
+    }
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const filename = `products-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(buffer);
+}
+
 module.exports = {
   list, getOne, create, update, uploadPhoto, remove,
   uploadImages, removeImage, setFeaturedImage, uploadVideo, removeVideo,
-  dispatchedTotals, dispatchBreakdown,
+  dispatchedTotals, dispatchBreakdown, exportProducts,
 };
