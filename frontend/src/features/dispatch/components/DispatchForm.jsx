@@ -66,7 +66,7 @@ export default function DispatchForm({
       />
 
       <div className="btnrow">
-        <button className="btn g" disabled={submitting} onClick={onSubmit}>{submitting ? 'Saving…' : '→ Cross-check & generate Tax Invoice'}</button>
+        <button className="btn g" disabled={submitting} onClick={onSubmit}>{submitting ? 'Saving…' : '→ Cross-check & generate Delivery Challan'}</button>
       </div>
 
       {showDealerPicker && (

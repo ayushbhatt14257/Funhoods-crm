@@ -331,7 +331,7 @@ export default function PIDetail() {
           />
         </ConfirmPopup>
       )}
-      <div className="note b" style={{ fontSize: 12, marginTop: 14 }}>Tax Invoice is generated at dispatch (actual shipped qty), not at PI stage.</div>
+      <div className="note b" style={{ fontSize: 12, marginTop: 14 }}>Delivery Challan is generated at dispatch (actual shipped qty), not at PI stage.</div>
     </div>
   );
 }

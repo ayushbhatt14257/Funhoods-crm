@@ -1,6 +1,6 @@
 // Renders the same letterhead format used in PIPreview, but read-only —
 // for viewing an already-saved PI or Invoice. kind: 'PI' | 'INVOICE'
-export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightTerm, total, remark, settings, extraHeaderRight, cartons }) {
+export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons }) {
   if (!settings || !dealer) return null;
   const s = settings;
   const isInvoice = kind === 'INVOICE';
@@ -15,7 +15,7 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
           <div>Phone: {s.phone || '—'} · Email: {s.email || '—'}</div>
           <div><b>GSTIN: {s.gstin || '—'}</b></div>
           <div style={{ marginTop: 6, fontFamily: 'var(--mono)', fontSize: 11, background: 'var(--paper-d)', padding: '3px 8px', borderRadius: 4, display: 'inline-block' }}>
-            {isInvoice ? 'TAX INVOICE' : 'PROFORMA INVOICE'}
+            {isInvoice ? 'DELIVERY CHALLAN' : 'PROFORMA INVOICE'}
           </div>
         </div>
         <div className="r">
@@ -65,7 +65,12 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
 
       <div className="totals">
         <div className="line"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
-        {isInvoice && <div className="line"><span>Transport {freightTerm ? `(${freightTerm})` : ''}</span><span>₹{transport.toFixed(2)}</span></div>}
+        {isInvoice && (
+          <>
+            <div className="line"><span>Transport{transporter ? ` via ${transporter}` : ''} {freightTerm ? `(${freightTerm})` : ''}</span><span>₹{transport.toFixed(2)}</span></div>
+            {freightGst > 0 && <div className="line"><span>GST on transport (5%)</span><span>₹{freightGst.toFixed(2)}</span></div>}
+          </>
+        )}
         <div className="line grand"><span>GRAND TOTAL</span><span>₹{total.toFixed(2)}</span></div>
       </div>
 
@@ -86,8 +91,8 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
 
       <div className="terms">
         {isInvoice
-          ? 'This is a TAX INVOICE for goods dispatched. Please verify GST rate with your CA.'
-          : "This is a PROFORMA — Tax Invoice will be issued at time of dispatch based on actual quantity shipped. Please verify GST rate with your CA."}
+          ? 'This is a DELIVERY CHALLAN for goods dispatched. Please verify GST rate with your CA.'
+          : "This is a PROFORMA — Delivery Challan will be issued at time of dispatch based on actual quantity shipped. Please verify GST rate with your CA."}
       </div>
     </div>
   );

@@ -47,7 +47,7 @@ export default function Invoices() {
 
   return (
     <div>
-      <div className="ph"><div className="eyebrow">Goods dispatched</div><h2>Tax Invoices</h2></div>
+      <div className="ph"><div className="eyebrow">Goods dispatched</div><h2>Delivery Challans</h2></div>
       {status.includes(',') && (
         <div className="note b" style={{ fontSize: 12, marginBottom: 10 }}>
           Showing: {status.split(',').join(' + ')} · <button className="btn o sm" onClick={() => setStatus('')}>Clear filter</button>

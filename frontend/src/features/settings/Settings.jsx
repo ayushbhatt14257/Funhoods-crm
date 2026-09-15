@@ -18,7 +18,7 @@ export default function Settings() {
 
   return (
     <div>
-      <div className="ph"><div className="eyebrow">Prints on every PI + Tax Invoice</div><h2>Company Settings</h2></div>
+      <div className="ph"><div className="eyebrow">Prints on every PI + Delivery Challan</div><h2>Company Settings</h2></div>
       <div className="card">
         <div className="row2">
           <div className="fg"><label>Company name</label><input value={form.company} onChange={set('company')} /></div>

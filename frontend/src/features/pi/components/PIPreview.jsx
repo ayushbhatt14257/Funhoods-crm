@@ -163,7 +163,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
         {remark && <div className="note y" style={{ fontSize: 12.5, marginTop: 10 }}><b>Remark:</b> {remark}</div>}
 
         <div className="terms">
-          This is a PROFORMA — Tax Invoice will be issued at time of dispatch based on actual quantity shipped. Please verify GST rate with your CA.
+          This is a PROFORMA — Delivery Challan will be issued at time of dispatch based on actual quantity shipped. Please verify GST rate with your CA.
         </div>
       </div>
 

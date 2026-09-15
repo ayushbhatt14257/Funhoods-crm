@@ -12,7 +12,7 @@ function todayISODate() {
 
 async function nextInvoiceNo() {
   const count = await Invoice.countDocuments();
-  return 'INV-' + new Date().toISOString().slice(2, 7).replace('-', '') + '-' + String(count + 1001);
+  return 'DLV-' + new Date().toISOString().slice(2, 7).replace('-', '') + '-' + String(count + 1001);
 }
 
 function validateCartonMap(dispatchLines, cartonMap) {
@@ -310,7 +310,8 @@ async function dispatchFromPool(req, res) {
 
     const subtotal = dispatchLines.reduce((s, l) => s + l.total, 0);
     const frt = +freight || 0;
-    const grand = subtotal + frt;
+    const frtGst = +(frt * 0.05).toFixed(2); // 5% GST on transport/freight — new for invoices from this point forward
+    const grand = subtotal + frt + frtGst;
     const packing = await buildPackingFromCartonMap(cartonMap || []);
 
     const invoice = await Invoice.create({
@@ -323,11 +324,13 @@ async function dispatchFromPool(req, res) {
       lines: dispatchLines,
       subtotal, transport: frt, total: grand,
       status: 'Dispatched',
-      by: dealer.assignedTo || req.user.name,
+      by: dealer.assignedTo || req.user.name, // salesperson responsible for this dealer — used for notifications/the "by" filter, unrelated to who physically dispatched it
+      bookedBy: req.user.name, // whoever actually clicked dispatch, for the "Booked by" column
       createdBy: req.user._id,
       transporter, vehicle: vehicle || '', lr: lr || '', eway: eway || '', driver: driver || '',
       cartons: (cartonMap || []).length,
       freight: frt,
+      freightGst: frtGst,
       freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       packing,
       dispatchDate: todayISODate(),
@@ -397,7 +400,8 @@ async function dispatchManual(req, res) {
 
     const subtotal = dispatchLines.reduce((s, l) => s + l.total, 0);
     const frt = +freight || 0;
-    const grand = subtotal + frt;
+    const frtGst = +(frt * 0.05).toFixed(2); // 5% GST on transport/freight — new for invoices from this point forward
+    const grand = subtotal + frt + frtGst;
     const packing = await buildPackingFromCartonMap(cartonMap);
 
     // A manual dispatch used to leave no paper trail beyond the invoice — now
@@ -431,11 +435,13 @@ async function dispatchManual(req, res) {
       lines: dispatchLines,
       subtotal, transport: frt, total: grand,
       status: 'Dispatched',
-      by: dealer.assignedTo || req.user.name,
+      by: dealer.assignedTo || req.user.name, // salesperson responsible for this dealer — used for notifications/the "by" filter, unrelated to who physically dispatched it
+      bookedBy: req.user.name, // whoever actually clicked dispatch, for the "Booked by" column
       createdBy: req.user._id,
       transporter, vehicle: vehicle || '', lr: lr || '', eway: eway || '', driver: driver || '',
       cartons: cartonMap.length,
       freight: frt,
+      freightGst: frtGst,
     freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       packing,
       dispatchDate: todayISODate(),

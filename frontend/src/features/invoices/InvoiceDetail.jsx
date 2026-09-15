@@ -92,6 +92,8 @@ export default function InvoiceDetail() {
         lines={inv.lines}
         subtotal={inv.subtotal}
         transport={inv.transport || inv.freight || 0}
+        freightGst={inv.freightGst || 0}
+        transporter={inv.transporter}
         freightTerm={inv.freightTerm}
         total={inv.total}
         cartons={inv.cartons}

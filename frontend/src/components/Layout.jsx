@@ -13,7 +13,7 @@ const NAV = [
   { to: '/approvals', label: 'Price Approvals', icon: '✅', roles: ['masterAdmin'] },
   { group: 'Fulfilment' },
   { to: '/dispatch', label: 'Dispatch', icon: '🚚', roles: ['dispatch', 'accounts', 'admin', 'masterAdmin'] },
-  { to: '/invoices', label: 'Tax Invoices', icon: '🧾', roles: ['mhead', 'accounts', 'dispatch', 'delivery', 'admin', 'masterAdmin'] },
+  { to: '/invoices', label: 'Delivery Challans', icon: '🧾', roles: ['mhead', 'accounts', 'dispatch', 'delivery', 'admin', 'masterAdmin'] },
   { group: 'Masters' },
   { to: '/dealers', label: 'Customers', icon: '👥', roles: ['field', 'mhead', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/outstanding', label: 'Outstanding', icon: '💰', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },

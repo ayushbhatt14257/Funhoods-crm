@@ -228,7 +228,7 @@ export default function Dispatch() {
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
         force,
       });
-      showToast('Dispatched · Tax Invoice raised', 'g');
+      showToast('Dispatched · Delivery Challan raised', 'g');
       nav(`/invoices/${res.invoice.no}`);
     } catch (err) {
       if (err.status === 409 && err.data?.shortages) {
@@ -255,7 +255,7 @@ export default function Dispatch() {
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
         force,
       });
-      showToast('Manual dispatch complete · Tax Invoice raised', 'g');
+      showToast('Manual dispatch complete · Delivery Challan raised', 'g');
       nav(`/invoices/${res.invoice.no}`);
     } catch (err) {
       if (err.status === 409 && err.data?.shortages) {

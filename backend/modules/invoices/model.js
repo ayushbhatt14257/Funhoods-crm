@@ -44,6 +44,7 @@ const invoiceSchema = new mongoose.Schema(
       default: 'Dispatched',
     },
     by: String,
+    bookedBy: { type: String, default: '' }, // who actually performed the dispatch action — distinct from `by`, which is the dealer's assigned salesperson (used for notifications/filtering)
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     // Simplified transport: single mode/via field. Advanced fields optional.
     transporter: { type: String, default: '' }, // mode/via, e.g. "Railway", "Safe Express"
@@ -53,6 +54,7 @@ const invoiceSchema = new mongoose.Schema(
     driver: { type: String, default: '' },
     cartons: { type: Number, default: 0 },
     freight: { type: Number, default: 0 },
+    freightGst: { type: Number, default: 0 }, // 5% GST on transport/freight charges — only present on invoices created after this was added
     freightTerm: { type: String, enum: ['To Pay', 'Paid'], default: 'To Pay' },
     packing: [packingCartonSchema],
     dispatchDate: Date,
