@@ -266,8 +266,8 @@ export default function GenerateBarcodes() {
       <style>{`
         .label-sheet {
           --label-w: 100mm;   /* the slip's own reading orientation — unchanged from before */
-          --label-h: 75mm;
-          --page-w: 75mm;     /* the roll's actual fixed feed width */
+          --label-h: 77mm;
+          --page-w: 77mm;     /* the roll's actual fixed feed width */
           --page-h: 100mm;    /* length along the feed direction */
           display: flex;
           flex-direction: column;
@@ -310,11 +310,11 @@ export default function GenerateBarcodes() {
           .no-print { display: none !important; }
           /* Literal values only — Chrome does not reliably apply CSS custom
              properties (var(...)) inside @page, so this must stay hardcoded.
-             75mm x 100mm matches the roll's fixed feed width — the landscape
+             77mm x 100mm matches the roll's fixed feed width — the landscape
              reading direction comes from the rotate(90deg) on .label above,
              not from this page size. If the roll size changes, update this
              line AND --page-w/--page-h/--label-w/--label-h above together. */
-          @page { size: 75mm 100mm; margin: 0; }
+          @page { size: 77mm 100mm; margin: 0; }
           .label-page { border: none; page-break-after: always; }
           .label-page:last-child { page-break-after: auto; }
         }
