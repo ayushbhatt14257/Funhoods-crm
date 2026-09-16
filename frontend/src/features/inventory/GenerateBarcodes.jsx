@@ -303,8 +303,18 @@ export default function GenerateBarcodes() {
              labels, or a margin before the very first one — doesn't fit on
              that now-full page and spills onto its own near-blank page
              before the next real label starts. Zeroing both here is what
-             makes it come out as exactly one page per label. */
-          .label-sheet { gap: 0; margin-top: 0; }
+             makes it come out as exactly one page per label.
+             SEPARATE, deeper issue on top of that: Chrome's print pagination
+             of a "display:flex" container with page-break-after on its
+             children is unreliable — it doesn't always account for flex
+             layout correctly, which is what was still causing one stray
+             blank page even after the gap/margin above were zeroed. Forcing
+             plain block layout for print sidesteps that Chrome quirk
+             entirely. Each .label is 100mm wide — exactly the full page
+             width — so no horizontal centering is needed once it's a block
+             box; the on-screen flex/align-items centering (for a screen
+             wider than 100mm) is unaffected since this only applies to print. */
+          .label-sheet { gap: 0; margin-top: 0; display: block; }
           .label { border: none; page-break-after: always; }
           .label:last-child { page-break-after: auto; }
         }
