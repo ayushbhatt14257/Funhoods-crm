@@ -8,14 +8,12 @@ import { barcodeApi } from './barcodeApi';
 // ~30KB doesn't sit in the main app bundle for everyone who never opens this screen.
 //
 // PRINT LAYOUT NOTES (for whoever tunes this next time the label stock changes):
-// The roll prints 2 labels side by side, each roughly 50x25mm, and the
-// printer's configured page size is 3in x 4.094in (that's the printer
-// driver's "page", not one physical label — the roll just keeps feeding
-// through that page height, a few label-rows at a time, then the driver
-// advances/cuts). All the tunable numbers live in the CSS custom properties
-// at the top of the <style> block below — adjust --page-w/--page-h if the
-// printer's page size setting changes, or --label-h if labels come out too
-// cramped/too loose vertically. Print a test sheet after any change.
+// This is a different, bigger roll than the earlier 2.42x2.03in one — each
+// slip here is 100mm x 75mm, printed landscape (wider than tall), one slip
+// per page: product name on top, quantity below that, then the barcode with
+// its readable code underneath. All the tunable numbers live in the CSS
+// custom properties at the top of the <style> block below. Print a test
+// sheet after any change.
 export default function GenerateBarcodes() {
   const { showToast } = useToast();
   const [tab, setTab] = useState('generate'); // 'generate' | 'track'
@@ -49,11 +47,9 @@ export default function GenerateBarcodes() {
       const JsBarcode = (await import('jsbarcode')).default;
       batch.cartons.forEach((c) => {
         const svg = document.getElementById(`barcode-${c.code}`);
-        // The real label is 2.42in wide (confirmed from the BarTender template) —
-        // comfortably roomy, so this doesn't need to be squeezed to the bare
-        // minimum. A small margin here gives the scanner a proper quiet zone,
-        // which the earlier zero-margin version didn't have.
-        if (svg) JsBarcode(svg, c.code, { format: 'CODE128', displayValue: false, height: 45, width: 1.3, margin: 4 });
+        // 100x75mm gives a lot more room than the old 2.42x2.03in label, so
+        // this can be sized up for an easier, more reliable scan.
+        if (svg) JsBarcode(svg, c.code, { format: 'CODE128', displayValue: false, height: 90, width: 2.2, margin: 6 });
       });
     })();
   }, [batch]);
@@ -160,9 +156,9 @@ export default function GenerateBarcodes() {
                   {batch.cartons.map((c) => (
                     <div className="label" key={c.code}>
                       <div className="label-name">{batch.product.name}</div>
+                      <div className="label-qty">{batch.qty} pcs</div>
                       <svg id={`barcode-${c.code}`}></svg>
-                      <div className="label-meta">{c.code}</div>
-                      <div className="label-meta">{batch.qty} pcs</div>
+                      <div className="label-code">{c.code}</div>
                     </div>
                   ))}
                 </div>
@@ -267,38 +263,42 @@ export default function GenerateBarcodes() {
 
       <style>{`
         .label-sheet {
-          --label-w: 2.42in;   /* matches the actual BarTender template size on your TSC setup */
-          --label-h: 2.03in;
-          --label-gap: 2mm;
+          --label-w: 100mm;   /* the new, bigger slip roll — 100 x 75mm, landscape */
+          --label-h: 75mm;
           display: flex;
-          flex-direction: column;   /* 2 labels stack vertically per page, not side by side */
-          align-items: center;      /* labels are narrower than the 3in page — center them */
-          gap: var(--label-gap);
+          flex-direction: column;
+          align-items: center;
+          gap: 16px;
           margin-top: 16px;
         }
         .label {
           border: 1px dashed var(--line);
-          border-radius: 4px;
-          padding: 6px;
+          border-radius: 6px;
+          padding: 14px 18px;
           text-align: center;
           width: var(--label-w);
           height: var(--label-h);
+          box-sizing: border-box;
           display: flex;
           flex-direction: column;
           justify-content: center;
+          align-items: center;
           overflow: hidden;
         }
-        .label-name { font-weight: 700; font-size: 13px; line-height: 1.2; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .label svg { width: 100%; height: auto; max-width: 100%; display: block; }
-        .label-meta { font-family: var(--mono); font-size: 10px; color: var(--muted); line-height: 1.3; }
+        .label-name { font-weight: 700; font-size: 26px; line-height: 1.2; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .label-qty { font-weight: 600; font-size: 20px; color: var(--muted); margin-bottom: 10px; }
+        .label svg { width: 90%; height: auto; max-width: 90%; display: block; }
+        .label-code { font-family: var(--mono); font-size: 15px; color: var(--muted); margin-top: 6px; letter-spacing: 0.02em; }
         @media print {
           .no-print { display: none !important; }
           /* Literal values only — Chrome does not reliably apply CSS custom
              properties (var(...)) inside @page, so this must stay hardcoded.
-             If your TSC page size ever changes, update both this line and
+             Width first, then height — 100mm x 75mm is what makes this print
+             landscape. If the roll size changes, update this line AND
              --label-w/--label-h above together. */
-          @page { size: 3in 4.094in; margin: 0; }
-          .label { border: none; break-inside: avoid; page-break-inside: avoid; }
+          @page { size: 100mm 75mm; margin: 0; }
+          .label { border: none; page-break-after: always; }
+          .label:last-child { page-break-after: auto; }
         }
       `}</style>
     </div>
