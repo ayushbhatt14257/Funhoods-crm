@@ -49,10 +49,11 @@ export default function GenerateBarcodes() {
       const JsBarcode = (await import('jsbarcode')).default;
       batch.cartons.forEach((c) => {
         const svg = document.getElementById(`barcode-${c.code}`);
-        // width = module (bar) width in px, kept at the minimum that still
-        // scans reliably — this + the shorter carton code is what makes the
-        // barcode fit a 50mm-wide label instead of running off the edge.
-        if (svg) JsBarcode(svg, c.code, { format: 'CODE128', displayValue: false, height: 34, width: 1, margin: 0 });
+        // The real label is 2.42in wide (confirmed from the BarTender template) —
+        // comfortably roomy, so this doesn't need to be squeezed to the bare
+        // minimum. A small margin here gives the scanner a proper quiet zone,
+        // which the earlier zero-margin version didn't have.
+        if (svg) JsBarcode(svg, c.code, { format: 'CODE128', displayValue: false, height: 45, width: 1.3, margin: 4 });
       });
     })();
   }, [batch]);
@@ -150,15 +151,21 @@ export default function GenerateBarcodes() {
               <div className="btnrow no-print" style={{ marginTop: 16 }}>
                 <button className="btn g" onClick={printLabels}>🖨️ Print {batch.cartons.length} labels</button>
               </div>
-              <div className="label-sheet">
-                {batch.cartons.map((c) => (
-                  <div className="label" key={c.code}>
-                    <div className="label-name">{batch.product.name}</div>
-                    <svg id={`barcode-${c.code}`}></svg>
-                    <div className="label-meta">{c.code}</div>
-                    <div className="label-meta">{batch.qty} pcs</div>
-                  </div>
-                ))}
+              {/* #print-area is the app-wide convention (see theme.css / Letterhead.jsx) —
+                  the global print stylesheet hides everything on the page EXCEPT this,
+                  so without this wrapper the printed sheet comes out completely blank
+                  regardless of what's inside .label-sheet. */}
+              <div id="print-area">
+                <div className="label-sheet">
+                  {batch.cartons.map((c) => (
+                    <div className="label" key={c.code}>
+                      <div className="label-name">{batch.product.name}</div>
+                      <svg id={`barcode-${c.code}`}></svg>
+                      <div className="label-meta">{c.code}</div>
+                      <div className="label-meta">{batch.qty} pcs</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </>
           )}
@@ -260,35 +267,38 @@ export default function GenerateBarcodes() {
 
       <style>{`
         .label-sheet {
-          --page-w: 3in;
-          --page-h: 4.094in;
-          --cols: 2;
-          --label-h: 1in;      /* ≈25mm — bump up/down if labels look cramped/loose */
+          --label-w: 2.42in;   /* matches the actual BarTender template size on your TSC setup */
+          --label-h: 2.03in;
           --label-gap: 2mm;
-          display: grid;
-          grid-template-columns: repeat(var(--cols), 1fr);
+          display: flex;
+          flex-direction: column;   /* 2 labels stack vertically per page, not side by side */
+          align-items: center;      /* labels are narrower than the 3in page — center them */
           gap: var(--label-gap);
           margin-top: 16px;
         }
         .label {
           border: 1px dashed var(--line);
           border-radius: 4px;
-          padding: 3px 4px;
+          padding: 6px;
           text-align: center;
+          width: var(--label-w);
           height: var(--label-h);
           display: flex;
           flex-direction: column;
           justify-content: center;
           overflow: hidden;
         }
-        .label-name { font-weight: 700; font-size: 9px; line-height: 1.1; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .label-name { font-weight: 700; font-size: 13px; line-height: 1.2; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .label svg { width: 100%; height: auto; max-width: 100%; display: block; }
-        .label-meta { font-family: var(--mono); font-size: 7px; color: var(--muted); line-height: 1.2; }
+        .label-meta { font-family: var(--mono); font-size: 10px; color: var(--muted); line-height: 1.3; }
         @media print {
           .no-print { display: none !important; }
-          @page { size: var(--page-w, 3in) var(--page-h, 4.094in); margin: 0; }
-          .label-sheet { gap: var(--label-gap); }
-          .label { border: none; break-inside: avoid; }
+          /* Literal values only — Chrome does not reliably apply CSS custom
+             properties (var(...)) inside @page, so this must stay hardcoded.
+             If your TSC page size ever changes, update both this line and
+             --label-w/--label-h above together. */
+          @page { size: 3in 4.094in; margin: 0; }
+          .label { border: none; break-inside: avoid; page-break-inside: avoid; }
         }
       `}</style>
     </div>
