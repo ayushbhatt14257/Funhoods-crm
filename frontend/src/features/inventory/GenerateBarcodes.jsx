@@ -296,6 +296,13 @@ export default function GenerateBarcodes() {
              100mm x 70mm, landscape, one slip per page. If the roll size
              changes, update this line AND --label-w/--label-h above together. */
           @page { size: 100mm 70mm; margin: 0; }
+          /* The 16px on-screen gap between labels is nice for the preview,
+             but each label already fills a full page exactly (100x70mm) —
+             ANY extra height after it (even a small gap) doesn't fit on that
+             now-full page, so it spills onto its own near-blank page before
+             the next label starts. That's exactly the "skips every other
+             one" bug — removing the gap for print fixes it. */
+          .label-sheet { gap: 0; }
           .label { border: none; page-break-after: always; }
           .label:last-child { page-break-after: auto; }
         }
