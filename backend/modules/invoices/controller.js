@@ -23,7 +23,7 @@ async function list(req, res) {
     const myDealers = await Dealer.find({ assignedTo: req.user.name }).select('code');
     filter.dealer = { $in: myDealers.map((d) => d.code) };
   }
-  const invoices = await Invoice.find(filter).sort({ createdAt: -1 });
+  const invoices = await Invoice.find(filter).sort({ createdAt: -1 }).populate('createdBy', 'name');
 
   const dealerCodes = [...new Set(invoices.map((i) => i.dealer))];
   const dealers = await Dealer.find({ code: { $in: dealerCodes } }).select('code assignedTo');
@@ -34,7 +34,7 @@ async function list(req, res) {
 }
 
 async function getOne(req, res) {
-  const inv = await Invoice.findOne({ no: req.params.no });
+  const inv = await Invoice.findOne({ no: req.params.no }).populate('createdBy', 'name');
   if (!inv) return res.status(404).json({ message: 'Invoice not found' });
   res.json(inv);
 }

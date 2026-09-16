@@ -55,7 +55,7 @@ export default function InvoicesByCustomer({ invoices }) {
                         <td>{Math.round(i.total).toLocaleString('en-IN')}</td>
                         <td><span className={`badge ${invoiceBadgeClass(i.status)}`}>{i.status}</span></td>
                         <td>{i.piRef ? <Link to={`/pis/${i.piRef}`} className="mono">{i.piRef}</Link> : <span className="badge y">Manual</span>}</td>
-                        <td>{i.bookedBy || i.by}</td>
+                        <td>{i.createdBy?.name || i.bookedBy || i.by}</td>
                         <td className="mono muted" style={{ fontSize: 11 }}>{new Date(i.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
                       </tr>
                     ))}
