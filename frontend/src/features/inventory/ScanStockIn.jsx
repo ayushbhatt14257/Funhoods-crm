@@ -71,13 +71,24 @@ export default function ScanStockIn() {
     const { BrowserMultiFormatReader } = await import('@zxing/browser');
     const reader = new BrowserMultiFormatReader();
     readerRef.current = reader;
+    const onResult = (result) => {
+      if (result) {
+        stopCamera();
+        lookup(result.getText());
+      }
+    };
     try {
-      await reader.decodeFromVideoDevice(undefined, videoRef.current, (result) => {
-        if (result) {
-          stopCamera();
-          lookup(result.getText());
-        }
-      });
+      // decodeFromVideoDevice(undefined, ...) leaves the browser to pick any
+      // camera — on phones that's often the front (selfie) camera, which is
+      // why scanning never worked on mobile: it was looking at the user's
+      // face, not the carton. Ask explicitly for the rear camera instead.
+      // "ideal" (not "exact") so this still works on a laptop with only one
+      // (front) camera instead of hard-failing.
+      await reader.decodeFromConstraints(
+        { video: { facingMode: { ideal: 'environment' } } },
+        videoRef.current,
+        onResult
+      );
     } catch (err) {
       showToast('Could not access camera — ' + err.message, 'err');
       setCameraOn(false);
@@ -120,7 +131,10 @@ export default function ScanStockIn() {
         </form>
 
         {cameraOn && (
-          <video ref={videoRef} style={{ width: '100%', marginTop: 12, borderRadius: 8 }} />
+          // playsInline + muted + autoPlay are required on iOS Safari — without
+          // them the browser either refuses to show the feed inline or takes
+          // it fullscreen, and the decode loop never sees a usable frame.
+          <video ref={videoRef} playsInline muted autoPlay style={{ width: '100%', marginTop: 12, borderRadius: 8 }} />
         )}
       </div>
 

@@ -19,6 +19,9 @@ router.post('/bulk-set', allow('mhead', 'accounts', 'admin', 'masterAdmin'), ctr
 // stock day to day, same role set as manually adjusting inventory.
 router.post('/stock-in-batches', allow('admin', 'masterAdmin'), barcodeCtrl.generateBatch);
 router.get('/stock-in-batches/:batchId', allow('admin', 'masterAdmin'), barcodeCtrl.getBatch);
+// Must come before '/carton/:code' below — otherwise Express matches
+// "by-product" itself as the :code param and this route never fires.
+router.get('/carton/by-product/:code', allow('admin', 'masterAdmin'), barcodeCtrl.getByProduct);
 router.get('/carton/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.lookupCarton);
 router.post('/carton/:code/confirm', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.confirmCarton);
 

@@ -3,11 +3,15 @@ const CartonBarcode = require('./cartonBarcodeModel');
 const Inventory = require('./model');
 const Product = require('../products/model');
 
-// 12 hex chars (48 bits) of randomness per carton, namespaced under the
-// product code — astronomically collision-safe even at millions of cartons
-// over many years, while staying short enough to print and scan reliably.
+// 6 hex chars (24 bits, ~16.7M combos) of randomness per carton, namespaced
+// under the product code. Shortened from 12 hex chars specifically so the
+// printed barcode fits a small 50x25mm thermal label — CODE128 width scales
+// directly with string length. Still comfortably collision-safe at this
+// business's volume (generateBatch caps a single batch at 2000, and
+// insertMany runs ordered:false so the one-in-millions duplicate just gets
+// skipped rather than aborting the batch — see generateBatch below).
 function randomSuffix() {
-  return crypto.randomBytes(6).toString('hex').toUpperCase();
+  return crypto.randomBytes(3).toString('hex').toUpperCase();
 }
 
 // POST /api/inventory/stock-in-batches  { code, cartonCount, qtyOverride? }
@@ -46,6 +50,47 @@ async function getBatch(req, res) {
   const cartons = await CartonBarcode.find({ batchId: req.params.batchId }).sort({ createdAt: 1 });
   if (!cartons.length) return res.status(404).json({ message: 'Batch not found' });
   res.json({ batchId: req.params.batchId, product: { code: cartons[0].product, name: cartons[0].productName }, qty: cartons[0].qty, cartons });
+}
+
+// GET /api/inventory/carton/by-product/:code — admin/masterAdmin only.
+// Every batch ever generated for this product, newest first, with a
+// used/unused count per batch (not the individual cartons — that's what
+// getBatch is for when someone drills into one batch). Powers the "Track"
+// tab so someone can see at a glance which batches still have unscanned
+// cartons out on the floor.
+async function getByProduct(req, res) {
+  const code = String(req.params.code || '').toUpperCase();
+  const product = await Product.findOne({ code });
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+
+  const rows = await CartonBarcode.aggregate([
+    { $match: { product: code } },
+    {
+      $group: {
+        _id: '$batchId',
+        qty: { $first: '$qty' },
+        createdAt: { $min: '$createdAt' },
+        createdBy: { $first: '$createdBy' },
+        total: { $sum: 1 },
+        used: { $sum: { $cond: [{ $eq: ['$status', 'used'] }, 1, 0] } },
+      },
+    },
+    { $sort: { createdAt: -1 } },
+  ]);
+
+  const summary = rows.reduce(
+    (s, r) => ({ total: s.total + r.total, used: s.used + r.used }),
+    { total: 0, used: 0 }
+  );
+
+  res.json({
+    product: { code: product.code, name: product.name, photo: product.photo || '' },
+    summary: { ...summary, unused: summary.total - summary.used },
+    batches: rows.map((r) => ({
+      batchId: r._id, qty: r.qty, createdAt: r.createdAt, createdBy: r.createdBy || '',
+      total: r.total, used: r.used, unused: r.total - r.used,
+    })),
+  });
 }
 
 // GET /api/inventory/carton/:code — look up a scanned barcode. Read-only —
@@ -87,4 +132,4 @@ async function confirmCarton(req, res) {
   res.json({ message: `${carton.qty} pcs of ${carton.productName} added to stock.`, qty: carton.qty, productName: carton.productName });
 }
 
-module.exports = { generateBatch, getBatch, lookupCarton, confirmCarton };
+module.exports = { generateBatch, getBatch, getByProduct, lookupCarton, confirmCarton };
