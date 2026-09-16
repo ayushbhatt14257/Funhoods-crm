@@ -21,6 +21,7 @@ export default function ScanStockIn() {
   const inputRef = useRef(null);
   const videoRef = useRef(null);
   const readerRef = useRef(null);
+  const controlsRef = useRef(null); // returned by decodeFromConstraints — this is what actually stops a scan
 
   useEffect(() => { inputRef.current?.focus(); }, [pending]);
 
@@ -84,7 +85,11 @@ export default function ScanStockIn() {
       // face, not the carton. Ask explicitly for the rear camera instead.
       // "ideal" (not "exact") so this still works on a laptop with only one
       // (front) camera instead of hard-failing.
-      await reader.decodeFromConstraints(
+      //
+      // decodeFromConstraints resolves an IScannerControls object once the
+      // stream is live — THIS, not reader.reset(), is what actually stops a
+      // scan in this version of the library (see stopCamera below).
+      controlsRef.current = await reader.decodeFromConstraints(
         { video: { facingMode: { ideal: 'environment' } } },
         videoRef.current,
         onResult
@@ -95,12 +100,18 @@ export default function ScanStockIn() {
     }
   }
 
+  // reader.reset() does not exist on this library's BrowserMultiFormatReader
+  // (@zxing/browser 0.2.1) — calling it threw every time a scan succeeded,
+  // which silently aborted the callback before lookup() ever ran. That's why
+  // the camera would close but the confirm popup never appeared. The scan
+  // controls object returned by decodeFromConstraints is the real way to stop.
   function stopCamera() {
-    readerRef.current?.reset();
+    controlsRef.current?.stop();
+    controlsRef.current = null;
     setCameraOn(false);
   }
 
-  useEffect(() => () => readerRef.current?.reset(), []); // stop the camera if we navigate away mid-scan
+  useEffect(() => () => controlsRef.current?.stop(), []); // stop the camera if we navigate away mid-scan
 
   return (
     <div>
