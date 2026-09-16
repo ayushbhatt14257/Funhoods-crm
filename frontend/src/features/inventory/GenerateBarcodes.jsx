@@ -154,11 +154,13 @@ export default function GenerateBarcodes() {
               <div id="print-area">
                 <div className="label-sheet">
                   {batch.cartons.map((c) => (
-                    <div className="label" key={c.code}>
-                      <div className="label-name">{batch.product.name}</div>
-                      <div className="label-qty">{batch.qty} pcs</div>
-                      <svg id={`barcode-${c.code}`}></svg>
-                      <div className="label-code">{c.code}</div>
+                    <div className="label-page" key={c.code}>
+                      <div className="label">
+                        <div className="label-name">{batch.product.name}</div>
+                        <div className="label-qty">{batch.qty} pcs</div>
+                        <svg id={`barcode-${c.code}`}></svg>
+                        <div className="label-code">{c.code}</div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -263,22 +265,37 @@ export default function GenerateBarcodes() {
 
       <style>{`
         .label-sheet {
-          --label-w: 100mm;   /* the new, bigger slip roll — 100 x 75mm, landscape */
+          --label-w: 100mm;   /* the slip's own reading orientation — unchanged from before */
           --label-h: 75mm;
+          --page-w: 75mm;     /* the roll's actual fixed feed width */
+          --page-h: 100mm;    /* length along the feed direction */
           display: flex;
           flex-direction: column;
           align-items: center;
           gap: 16px;
           margin-top: 16px;
         }
-        .label {
+        .label-page {
+          width: var(--page-w);
+          height: var(--page-h);
+          position: relative;
           border: 1px dashed var(--line);
-          border-radius: 6px;
-          padding: 14px 18px;
-          text-align: center;
+        }
+        .label {
           width: var(--label-w);
           height: var(--label-h);
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          /* The roll only has 75mm to feed across, but the slip reads
+             landscape (100mm wide) — rotating 90° clockwise ("turned right")
+             makes a 100x75 box's printed footprint exactly 75x100, matching
+             the physical roll, while the content itself still reads landscape
+             once the printed slip comes off rotated the same way. */
+          transform: translate(-50%, -50%) rotate(90deg);
           box-sizing: border-box;
+          padding: 14px 18px;
+          text-align: center;
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -293,12 +310,13 @@ export default function GenerateBarcodes() {
           .no-print { display: none !important; }
           /* Literal values only — Chrome does not reliably apply CSS custom
              properties (var(...)) inside @page, so this must stay hardcoded.
-             Width first, then height — 100mm x 75mm is what makes this print
-             landscape. If the roll size changes, update this line AND
-             --label-w/--label-h above together. */
-          @page { size: 100mm 75mm; margin: 0; }
-          .label { border: none; page-break-after: always; }
-          .label:last-child { page-break-after: auto; }
+             75mm x 100mm matches the roll's fixed feed width — the landscape
+             reading direction comes from the rotate(90deg) on .label above,
+             not from this page size. If the roll size changes, update this
+             line AND --page-w/--page-h/--label-w/--label-h above together. */
+          @page { size: 75mm 100mm; margin: 0; }
+          .label-page { border: none; page-break-after: always; }
+          .label-page:last-child { page-break-after: auto; }
         }
       `}</style>
     </div>
