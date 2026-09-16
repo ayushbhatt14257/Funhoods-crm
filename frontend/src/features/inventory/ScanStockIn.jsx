@@ -69,8 +69,23 @@ export default function ScanStockIn() {
 
   async function startCamera() {
     setCameraOn(true);
-    const { BrowserMultiFormatReader } = await import('@zxing/browser');
-    const reader = new BrowserMultiFormatReader();
+    const [{ BrowserMultiFormatReader }, { DecodeHintType, BarcodeFormat }] = await Promise.all([
+      import('@zxing/browser'),
+      import('@zxing/library'),
+    ]);
+    // Restricting to CODE128 (the only format we ever print) means every
+    // frame only has to be checked against one symbology instead of all of
+    // them (QR, PDF417, DataMatrix, every 1D format...) — this alone is a
+    // big chunk of the "takes forever to align" slowness, since the library
+    // was doing several times the necessary work on every single frame.
+    const hints = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]);
+    // The other big chunk: the library's default is to wait 500ms after
+    // EVERY failed attempt before trying again — so if the first frame
+    // isn't perfectly sharp/aligned, that's already half a second gone
+    // before it even retries. Dropping this to 80ms makes it retry fast
+    // enough that a decent alignment reads almost the instant it's steady.
+    const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 80 });
     readerRef.current = reader;
     const onResult = (result) => {
       if (result) {
@@ -84,13 +99,16 @@ export default function ScanStockIn() {
       // why scanning never worked on mobile: it was looking at the user's
       // face, not the carton. Ask explicitly for the rear camera instead.
       // "ideal" (not "exact") so this still works on a laptop with only one
-      // (front) camera instead of hard-failing.
+      // (front) camera instead of hard-failing. focusMode: continuous nudges
+      // phones that support it to keep refocusing as you move the carton
+      // into position, instead of staying locked on whatever it first saw —
+      // unsupported browsers just ignore this constraint rather than failing.
       //
       // decodeFromConstraints resolves an IScannerControls object once the
       // stream is live — THIS, not reader.reset(), is what actually stops a
       // scan in this version of the library (see stopCamera below).
       controlsRef.current = await reader.decodeFromConstraints(
-        { video: { facingMode: { ideal: 'environment' } } },
+        { video: { facingMode: { ideal: 'environment' }, advanced: [{ focusMode: 'continuous' }] } },
         videoRef.current,
         onResult
       );
@@ -145,7 +163,28 @@ export default function ScanStockIn() {
           // playsInline + muted + autoPlay are required on iOS Safari — without
           // them the browser either refuses to show the feed inline or takes
           // it fullscreen, and the decode loop never sees a usable frame.
-          <video ref={videoRef} playsInline muted autoPlay style={{ width: '100%', marginTop: 12, borderRadius: 8 }} />
+          <div style={{ position: 'relative', marginTop: 12 }}>
+            <video ref={videoRef} playsInline muted autoPlay style={{ width: '100%', display: 'block', borderRadius: 8 }} />
+            {/* Purely visual alignment guide — a box + centre line to line the
+                barcode up against. This doesn't affect decoding at all (the
+                library still scans the whole frame), it just makes it obvious
+                where to hold the carton for a clean, fast read. */}
+            <div style={{
+              position: 'absolute', inset: 0, pointerEvents: 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <div style={{
+                width: '78%', height: '38%', position: 'relative',
+                border: '2px solid rgba(255,255,255,0.85)', borderRadius: 8,
+                boxShadow: '0 0 0 999px rgba(0,0,0,0.35)',
+              }}>
+                <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', height: 2, background: 'var(--red)', transform: 'translateY(-1px)' }} />
+              </div>
+            </div>
+            <div style={{ position: 'absolute', bottom: 8, left: 0, right: 0, textAlign: 'center', color: '#fff', fontSize: 11.5, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+              Line the barcode up with the box
+            </div>
+          </div>
         )}
       </div>
 
