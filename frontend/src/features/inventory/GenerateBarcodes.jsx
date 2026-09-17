@@ -4,15 +4,23 @@ import { api } from '../../api/client';
 import ProductPickerModal from '../pi/components/ProductPickerModal';
 import { barcodeApi } from './barcodeApi';
 
-// admin/masterAdmin only. jsbarcode is loaded lazily (dynamic import) so its
-// ~30KB doesn't sit in the main app bundle for everyone who never opens this screen.
+// admin/masterAdmin only. qrcode is loaded lazily (dynamic import) so it
+// doesn't sit in the main app bundle for everyone who never opens this screen.
 //
 // PRINT LAYOUT NOTES (for whoever tunes this next time the label stock changes):
 // Straight landscape slip, 100mm wide x 70mm tall, one per page, no rotation
 // needed — the roll feeds this shape directly. Content top to bottom: product
-// name, product code, quantity, barcode, then the readable carton code. All
+// name, product code, quantity, QR code, then the readable carton code. All
 // the tunable numbers live in the CSS custom properties at the top of the
 // <style> block below. Print a test sheet after any change.
+//
+// QR over barcode: switched from a CODE128 barcode to a QR code because a
+// phone camera locks onto a QR's finder pattern almost instantly from any
+// angle, where a 1D barcode needs careful axis alignment — that's the actual
+// fix for "takes forever to scan". High error correction (see below) also
+// means a QR keeps scanning even if part of it is dirty, smudged, or torn,
+// which a barcode (zero error correction) cannot do at all — worth having
+// given cartons will pick up wear over time in the warehouse.
 export default function GenerateBarcodes() {
   const { showToast } = useToast();
   const [tab, setTab] = useState('generate'); // 'generate' | 'track'
@@ -38,17 +46,19 @@ export default function GenerateBarcodes() {
 
   useEffect(() => { api.get('/products').then(setProducts); }, []);
 
-  // Render each carton's Code128 barcode into its label's <svg> once the
-  // batch is on screen. Re-runs whenever a new batch comes in.
+  // Render each carton's QR code onto its label's <canvas> once the batch is
+  // on screen. Re-runs whenever a new batch comes in.
   useEffect(() => {
     if (!batch) return;
     (async () => {
-      const JsBarcode = (await import('jsbarcode')).default;
+      const QRCode = (await import('qrcode')).default;
       batch.cartons.forEach((c) => {
-        const svg = document.getElementById(`barcode-${c.code}`);
-        // 100x75mm gives a lot more room than the old 2.42x2.03in label, so
-        // this can be sized up for an easier, more reliable scan.
-        if (svg) JsBarcode(svg, c.code, { format: 'CODE128', displayValue: false, height: 65, width: 2, margin: 6 });
+        const canvas = document.getElementById(`qr-${c.code}`);
+        // errorCorrectionLevel 'H' (~30% of the code can be damaged/dirty and
+        // it still scans) — the whole point of moving to QR was resilience
+        // against exactly that, so this is intentionally the highest level
+        // rather than the library's 'M' default.
+        if (canvas) QRCode.toCanvas(canvas, c.code, { errorCorrectionLevel: 'H', width: 400, margin: 1 });
       });
     })();
   }, [batch]);
@@ -157,7 +167,7 @@ export default function GenerateBarcodes() {
                       <div className="label-name">{batch.product.name}</div>
                       <div className="label-sku">{batch.product.code}</div>
                       <div className="label-qty">{batch.qty} pcs</div>
-                      <svg id={`barcode-${c.code}`}></svg>
+                      <canvas id={`qr-${c.code}`} className="label-qr"></canvas>
                       <div className="label-code">{c.code}</div>
                     </div>
                   ))}
@@ -287,7 +297,7 @@ export default function GenerateBarcodes() {
         .label-name { font-weight: 700; font-size: 24px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .label-sku { font-family: var(--mono); font-size: 13px; color: var(--muted); margin-bottom: 4px; }
         .label-qty { font-weight: 600; font-size: 17px; color: var(--muted); margin-bottom: 8px; }
-        .label svg { width: 90%; height: auto; max-width: 90%; display: block; }
+        .label-qr { width: 34mm; height: 34mm; display: block; margin: 0 auto; }
         .label-code { font-family: var(--mono); font-size: 14px; color: var(--muted); margin-top: 6px; letter-spacing: 0.02em; }
         @media print {
           .no-print { display: none !important; }

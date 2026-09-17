@@ -17,6 +17,8 @@ export default function ScanStockIn() {
   const [looking, setLooking] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
   const [recent, setRecent] = useState([]); // last few successful scans this session
   const inputRef = useRef(null);
   const videoRef = useRef(null);
@@ -73,13 +75,12 @@ export default function ScanStockIn() {
       import('@zxing/browser'),
       import('@zxing/library'),
     ]);
-    // Restricting to CODE128 (the only format we ever print) means every
+    // Restricting to QR_CODE (the only format we print now) means every
     // frame only has to be checked against one symbology instead of all of
-    // them (QR, PDF417, DataMatrix, every 1D format...) — this alone is a
-    // big chunk of the "takes forever to align" slowness, since the library
-    // was doing several times the necessary work on every single frame.
+    // them (barcodes, PDF417, DataMatrix...) — keeps the fast lock-on speed
+    // that mattered when this was CODE128, now pointed at the new format.
     const hints = new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]);
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
     // The other big chunk: the library's default is to wait 500ms after
     // EVERY failed attempt before trying again — so if the first frame
     // isn't perfectly sharp/aligned, that's already half a second gone
@@ -112,6 +113,12 @@ export default function ScanStockIn() {
         videoRef.current,
         onResult
       );
+      // Torch (flashlight) control only works on the actual camera hardware
+      // track — iPhone Safari doesn't expose this capability to web pages at
+      // all (an Apple platform restriction, not something fixable here), so
+      // this button only appears when the browser actually reports support.
+      const track = videoRef.current.srcObject?.getVideoTracks?.()[0];
+      setTorchSupported(!!track?.getCapabilities?.().torch);
     } catch (err) {
       showToast('Could not access camera — ' + err.message, 'err');
       setCameraOn(false);
@@ -127,6 +134,19 @@ export default function ScanStockIn() {
     controlsRef.current?.stop();
     controlsRef.current = null;
     setCameraOn(false);
+    setTorchOn(false);
+    setTorchSupported(false);
+  }
+
+  async function toggleTorch() {
+    const track = videoRef.current?.srcObject?.getVideoTracks?.()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
+      setTorchOn((t) => !t);
+    } catch (err) {
+      showToast('Flashlight not available on this device', 'err');
+    }
   }
 
   useEffect(() => () => controlsRef.current?.stop(), []); // stop the camera if we navigate away mid-scan
@@ -134,12 +154,12 @@ export default function ScanStockIn() {
   return (
     <div>
       <div className="ph"><div className="eyebrow">Warehouse</div><h2>Stock In — Scan Carton</h2>
-        <p>Scan a carton's barcode (scanner gun or phone camera) to add its pieces to stock.</p></div>
+        <p>Scan a carton's QR code (scanner gun or phone camera) to add its pieces to stock.</p></div>
 
       <div className="card" style={{ maxWidth: 480 }}>
         <form onSubmit={onSubmit}>
           <div className="fg">
-            <label>Scan or type barcode</label>
+            <label>Scan or type code</label>
             <input
               ref={inputRef}
               value={code}
@@ -165,25 +185,36 @@ export default function ScanStockIn() {
           // it fullscreen, and the decode loop never sees a usable frame.
           <div style={{ position: 'relative', marginTop: 12 }}>
             <video ref={videoRef} playsInline muted autoPlay style={{ width: '100%', display: 'block', borderRadius: 8 }} />
-            {/* Purely visual alignment guide — a box + centre line to line the
-                barcode up against. This doesn't affect decoding at all (the
-                library still scans the whole frame), it just makes it obvious
-                where to hold the carton for a clean, fast read. */}
+            {/* Purely visual guide — a box to frame the QR code in. QR doesn't
+                need careful axis alignment like the old barcode did (that's
+                the point of switching formats), so this is just a rough
+                square framing box now, not a precise alignment line. */}
             <div style={{
               position: 'absolute', inset: 0, pointerEvents: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
               <div style={{
-                width: '78%', height: '38%', position: 'relative',
+                width: '55%', aspectRatio: '1 / 1', position: 'relative',
                 border: '2px solid rgba(255,255,255,0.85)', borderRadius: 8,
                 boxShadow: '0 0 0 999px rgba(0,0,0,0.35)',
-              }}>
-                <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', height: 2, background: 'var(--red)', transform: 'translateY(-1px)' }} />
-              </div>
+              }} />
             </div>
             <div style={{ position: 'absolute', bottom: 8, left: 0, right: 0, textAlign: 'center', color: '#fff', fontSize: 11.5, fontWeight: 600, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-              Line the barcode up with the box
+              Point the camera at the QR code
             </div>
+            {torchSupported && (
+              <button
+                type="button"
+                onClick={toggleTorch}
+                style={{
+                  position: 'absolute', top: 10, right: 10, border: 'none', borderRadius: 20,
+                  padding: '6px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                  background: torchOn ? 'var(--red)' : 'rgba(0,0,0,0.55)', color: '#fff',
+                }}
+              >
+                {torchOn ? '🔦 Flash on' : '🔦 Flash off'}
+              </button>
+            )}
           </div>
         )}
       </div>
