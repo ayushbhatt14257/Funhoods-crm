@@ -34,7 +34,7 @@ export default function Dispatch() {
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [dealerCode, setDealerCode] = useState(dealerParam || '');
   const [pool, setPool] = useState(null); // null = loading/none picked yet
-  const [selection, setSelection] = useState({}); // rowKey -> checked (bool) — qty is fixed/read-only now, not stored per-row
+  const [selection, setSelection] = useState({}); // rowKey -> { outers, inners } (checked) | undefined (unchecked) — user-editable, capped at max in CustomerPoolView
 
   // --- manual-mode state (unchanged from before) ---
   const [manualDealer, setManualDealer] = useState('');
@@ -137,25 +137,15 @@ export default function Dispatch() {
   function removeManualLine(i) { setManualLines(manualLines.filter((_, idx) => idx !== i)); }
 
   // --- carton mapping (shared by both modes) ---
-  // Same whole-carton breakdown CustomerPoolView uses for display — quantity
-  // for a checked item is always this, never edited.
-  function maxCartonsFor(item) {
-    if (!item.cartonOuter) return { outers: 0, inners: 0 };
-    const outers = Math.floor(item.pendingPcs / item.cartonOuter);
-    const afterOuters = item.pendingPcs - outers * item.cartonOuter;
-    const inners = item.cartonInner ? Math.floor(afterOuters / item.cartonInner) : 0;
-    return { outers, inners };
-  }
   function poolActiveLines() {
     // One entry per unique product code (summed across any rate-variant
     // rows) — cartons are physical, they don't know about invoice rates.
     const byCode = {};
-    Object.entries(selection).forEach(([key, checked]) => {
-      if (!checked) return;
+    Object.entries(selection).forEach(([key, sel]) => {
+      if (!sel) return;
       const item = pool?.items.find((it) => `${it.code}|${it.rate}` === key);
       if (!item) return;
-      const { outers, inners } = maxCartonsFor(item);
-      const pcs = outers * item.cartonOuter + inners * item.cartonInner;
+      const pcs = sel.outers * item.cartonOuter + sel.inners * item.cartonInner;
       if (pcs <= 0) return;
       if (!byCode[item.code]) byCode[item.code] = { code: item.code, name: item.name, dispatchNow: 0 };
       byCode[item.code].dispatchNow += pcs;
@@ -212,11 +202,10 @@ export default function Dispatch() {
   async function submitPoolDispatch(force = false) {
     if (!transporter) return showToast('Mode of transport required', 'err');
     const lines = Object.entries(selection)
-      .filter(([, checked]) => checked)
-      .map(([key]) => {
+      .filter(([, sel]) => sel)
+      .map(([key, sel]) => {
         const item = pool.items.find((it) => `${it.code}|${it.rate}` === key);
-        const { outers, inners } = maxCartonsFor(item);
-        return { code: item.code, rate: item.rate, gstPct: item.gstPct, outers, inners };
+        return { code: item.code, rate: item.rate, gstPct: item.gstPct, outers: sel.outers, inners: sel.inners };
       })
       .filter((l) => l.outers > 0 || l.inners > 0);
     if (!lines.length) return showToast('Select at least one item with a whole-carton quantity', 'err');

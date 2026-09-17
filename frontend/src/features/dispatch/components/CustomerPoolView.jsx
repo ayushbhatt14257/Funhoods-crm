@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 
-// Quantity is always whole outer/inner cartons — never raw pieces, and never
-// editable here. Dispatch is a pure "confirm and ship exactly what's
-// confirmed" step now — no quantity adjustment, no price change, no partial
-// selection below the full available amount. Checking an item dispatches
-// everything currently pending for it (as whole cartons); whatever doesn't
-// divide evenly into a full carton just stays in the pool for next time.
+// Quantity is whole outer/inner cartons. Checking an item defaults to
+// dispatching everything currently confirmed and pending for it (the max
+// below) — but that default can be LOWERED per row (e.g. only 1 of 3 outer
+// cartons is actually packed and ready right now); it can never be raised
+// past what's actually confirmed. Whatever isn't dispatched just stays in
+// the pool for next time. Whatever doesn't divide evenly into a full carton
+// also just stays in the pool.
 function maxCartons(pendingPcs, cartonOuter, cartonInner) {
   if (!cartonOuter) return { outers: 0, inners: 0 };
   const outers = Math.floor(pendingPcs / cartonOuter);
@@ -26,13 +27,35 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange })
       .filter((it) => !q || it.name.toLowerCase().includes(q.toLowerCase()) || it.code.toLowerCase().includes(q.toLowerCase()))
       .map((it) => {
         const key = rowKey(it);
-        const { outers, inners } = maxCartons(it.pendingPcs, it.cartonOuter, it.cartonInner);
-        return { item: it, key, outers, inners, checked: !!selection[key] };
+        const max = maxCartons(it.pendingPcs, it.cartonOuter, it.cartonInner);
+        const override = selection[key];
+        const checked = !!override;
+        // Clamp defensively in case the pool refreshed and max shrank since
+        // this override was chosen (e.g. someone else dispatched some of it).
+        const outers = checked ? Math.min(override.outers, max.outers) : max.outers;
+        const inners = checked ? Math.min(override.inners, max.inners) : max.inners;
+        return { item: it, key, max, outers, inners, checked };
       });
   }, [pool, q, selection]);
 
   function toggle(row) {
-    onSelectionChange({ ...selection, [row.key]: !row.checked });
+    if (row.checked) {
+      const next = { ...selection };
+      delete next[row.key];
+      onSelectionChange(next);
+    } else {
+      // Defaults to the full max — same as before this row is ever touched.
+      onSelectionChange({ ...selection, [row.key]: { outers: row.max.outers, inners: row.max.inners } });
+    }
+  }
+
+  function setOuters(row, value) {
+    const outers = Math.max(0, Math.min(row.max.outers, Math.floor(+value) || 0));
+    onSelectionChange({ ...selection, [row.key]: { outers, inners: row.inners } });
+  }
+  function setInners(row, value) {
+    const inners = Math.max(0, Math.min(row.max.inners, Math.floor(+value) || 0));
+    onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
   const grandTotal = rows.reduce((sum, r) => {
@@ -74,12 +97,32 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange })
                     <td><b>{r.item.name}</b></td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
-                      <b>{r.outers}</b>
-                      {r.item.cartonOuter > 0 && <div className="muted" style={{ fontSize: 10 }}>× {r.item.cartonOuter} pcs</div>}
+                      {r.checked ? (
+                        <input
+                          type="number" min={0} max={r.max.outers} value={r.outers}
+                          onChange={(e) => setOuters(r, e.target.value)}
+                          style={{ width: 60 }}
+                        />
+                      ) : <b>{r.max.outers}</b>}
+                      {r.item.cartonOuter > 0 && (
+                        <div className="muted" style={{ fontSize: 10 }}>
+                          {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
+                        </div>
+                      )}
                     </td>
                     <td>
-                      <b>{r.inners}</b>
-                      {r.item.cartonInner > 0 && <div className="muted" style={{ fontSize: 10 }}>× {r.item.cartonInner} pcs</div>}
+                      {r.checked ? (
+                        <input
+                          type="number" min={0} max={r.max.inners} value={r.inners}
+                          onChange={(e) => setInners(r, e.target.value)}
+                          style={{ width: 60 }}
+                        />
+                      ) : <b>{r.max.inners}</b>}
+                      {r.item.cartonInner > 0 && (
+                        <div className="muted" style={{ fontSize: 10 }}>
+                          {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
+                        </div>
+                      )}
                     </td>
                     <td>{r.item.rate}</td>
                     <td>{r.item.gstPct}</td>
