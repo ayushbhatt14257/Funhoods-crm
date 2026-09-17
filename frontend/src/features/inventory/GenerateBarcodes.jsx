@@ -58,7 +58,18 @@ export default function GenerateBarcodes() {
         // it still scans) — the whole point of moving to QR was resilience
         // against exactly that, so this is intentionally the highest level
         // rather than the library's 'M' default.
-        if (canvas) QRCode.toCanvas(canvas, c.code, { errorCorrectionLevel: 'H', width: 400, margin: 1 });
+        if (canvas) {
+          QRCode.toCanvas(canvas, c.code, { errorCorrectionLevel: 'H', width: 400, margin: 1 });
+          // qrcode's canvas renderer sets canvas.style.width/height inline to
+          // match the "width" option above (400px) — inline styles always
+          // beat an external stylesheet rule no matter how specific, so this
+          // silently overrode .label-qr's 34mm and made the QR balloon to
+          // fill the whole label. Clearing it here lets .label-qr's CSS size
+          // take over for display, while the canvas keeps its sharp 400px
+          // internal resolution for print.
+          canvas.style.width = '';
+          canvas.style.height = '';
+        }
       });
     })();
   }, [batch]);
