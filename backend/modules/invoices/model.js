@@ -26,6 +26,18 @@ const packingCartonSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Free gifts riding along on a dispatch — deliberately a SEPARATE array from
+// `lines`, never touched by subtotal/total/GST math. `code`/`pcs`/`qtyLabel`
+// are set for a catalog-product gift (e.g. "1 carton" of a real SKU);
+// `custom: true` gifts (a tiffin, a bottle — nothing in the catalog) only
+// ever have `name` and `worth`, no code/pcs. `worth` is informational only —
+// what the item would have cost had it been billed — and never adds to the
+// invoice total.
+const giftSchema = new mongoose.Schema(
+  { code: String, name: String, photo: String, pcs: Number, qtyLabel: String, worth: { type: Number, default: 0 }, custom: { type: Boolean, default: false } },
+  { _id: false }
+);
+
 const invoiceSchema = new mongoose.Schema(
   {
     no: { type: String, required: true, unique: true },
@@ -57,6 +69,7 @@ const invoiceSchema = new mongoose.Schema(
     freightGst: { type: Number, default: 0 }, // 5% GST on transport/freight charges — only present on invoices created after this was added
     freightTerm: { type: String, enum: ['To Pay', 'Paid'], default: 'To Pay' },
     packing: [packingCartonSchema],
+    gifts: [giftSchema],
     dispatchDate: Date,
     deliveredDate: Date,
     builty: { url: { type: String, default: '' }, publicId: { type: String, default: '' } }, // LR/builty receipt for this dispatch

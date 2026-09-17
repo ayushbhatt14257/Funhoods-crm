@@ -6,6 +6,7 @@ import ConfirmPopup from '../../components/ConfirmPopup';
 import { dispatchApi } from './api';
 import DealerPickerModal from '../pi/components/DealerPickerModal';
 import CustomerPoolView from './components/CustomerPoolView';
+import GiftingStep from './components/GiftingStep';
 import PendingDispatchList from './components/PendingDispatchList';
 import TransportStep from './components/TransportStep';
 import CartonMappingStep from './components/CartonMappingStep';
@@ -51,6 +52,7 @@ export default function Dispatch() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [vehicle, setVehicle] = useState(''); const [lr, setLr] = useState(''); const [eway, setEway] = useState(''); const [driver, setDriver] = useState('');
   const [cartonMap, setCartonMap] = useState([]);
+  const [gifts, setGifts] = useState([]); // free items riding on this dispatch — see GiftingStep
   const [submitting, setSubmitting] = useState(false);
   const [shortageConfirm, setShortageConfirm] = useState(null);
 
@@ -89,7 +91,27 @@ export default function Dispatch() {
 
   function resetEntryFields() {
     setTransporter(''); setFreight(0); setFreightTerm('To Pay'); setShowAdvanced(false);
-    setVehicle(''); setLr(''); setEway(''); setDriver(''); setCartonMap([]);
+    setVehicle(''); setLr(''); setEway(''); setDriver(''); setCartonMap([]); setGifts([]);
+  }
+
+  // --- gifting (both modes) ---
+  function addCatalogGift(product, outers, inners, directPcs) {
+    const pcs = directPcs || outers * product.cartonOuter + inners * product.cartonInner;
+    if (pcs <= 0) return showToast('Enter outer/inner cartons, or exact pieces', 'err');
+    const qtyLabel = directPcs
+      ? `${pcs} pcs`
+      : [outers ? `${outers} outer` : '', inners ? `${inners} inner` : ''].filter(Boolean).join(' + ') || `${pcs} pcs`;
+    // Worth is computed here just for immediate display — the backend
+    // recomputes it independently from the product's rate at dispatch time,
+    // so this is never trusted as the authoritative value.
+    const worth = +(product.rate * pcs).toFixed(2);
+    setGifts((g) => [...g, { code: product.code, name: product.name, photo: product.photo || '', outers, inners, directPcs, pcs, qtyLabel, worth, custom: false }]);
+  }
+  function addCustomGift(name, worth) {
+    setGifts((g) => [...g, { name, worth, custom: true }]);
+  }
+  function removeGift(i) {
+    setGifts((g) => g.filter((_, idx) => idx !== i));
   }
 
   function openManual() {
@@ -215,6 +237,9 @@ export default function Dispatch() {
       const res = await dispatchApi.dispatchFromPool({
         dealerCode, lines, transporter, vehicle, lr, eway, driver, freight, freightTerm,
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
+        gifts: gifts.map((g) => (g.custom
+          ? { custom: true, name: g.name, worth: g.worth }
+          : { code: g.code, outers: g.outers, inners: g.inners, directPcs: g.directPcs })),
         force,
       });
       showToast('Dispatched · Delivery Challan raised', 'g');
@@ -350,6 +375,7 @@ export default function Dispatch() {
             </div>
           )}
           <CustomerPoolView pool={pool} selection={selection} onSelectionChange={setSelection} />
+          <GiftingStep products={products} gifts={gifts} onAddCatalogGift={addCatalogGift} onAddCustomGift={addCustomGift} onRemoveGift={removeGift} />
           <TransportStep {...transportState} />
           <CartonMappingStep
             activeLines={activeLines}

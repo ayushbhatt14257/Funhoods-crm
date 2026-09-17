@@ -1,6 +1,6 @@
 // Renders the same letterhead format used in PIPreview, but read-only —
 // for viewing an already-saved PI or Invoice. kind: 'PI' | 'INVOICE'
-export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons }) {
+export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons, gifts }) {
   if (!settings || !dealer) return null;
   const s = settings;
   const isInvoice = kind === 'INVOICE';
@@ -62,6 +62,23 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
           ))}
         </tbody>
       </table>
+
+      {gifts?.length > 0 && (
+        <table className="lines" style={{ marginTop: 10 }}>
+          <thead><tr><th></th><th style={{ width: 34 }}></th><th>Item</th><th className="r">Qty</th><th className="r">Worth ₹</th></tr></thead>
+          <tbody>
+            {gifts.map((g, i) => (
+              <tr key={i}>
+                <td style={{ color: 'var(--red)', fontWeight: 700 }}>FREE</td>
+                <td>{g.photo ? <img src={g.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 28, height: 28, background: 'var(--paper)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>🎁</div>}</td>
+                <td><b>{g.name}</b>{g.code && <><br /><span className="mono muted" style={{ fontSize: 10 }}>{g.code}</span></>}</td>
+                <td className="r">{g.qtyLabel || '—'}</td>
+                <td className="r">{(g.worth || 0).toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
       <div className="totals">
         <div className="line"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>

@@ -10,6 +10,42 @@ function todayISODate() {
   return new Date();
 }
 
+// Processes the `gifts` array from a dispatch request. Two shapes:
+//   { custom: true, name, worth }                 — not a tracked product,
+//                                                     no stock impact at all
+//   { code, outers, inners, directPcs }            — a real catalog product,
+//                                                     `worth` auto-computed as
+//                                                     rate × pcs (never user-typed)
+// Returns the gift records to store on the invoice PLUS a pcs-by-code map so
+// the caller can fold gifted quantities into the same physical-stock
+// shortage check and inventory decrement as paid lines — a gifted product
+// still physically leaves the warehouse, it just isn't billed.
+async function buildGiftLines(requestedGifts) {
+  const gifts = [];
+  const giftPcsByCode = {};
+  for (const g of requestedGifts || []) {
+    if (g.custom) {
+      const name = String(g.name || '').trim();
+      if (!name) throw new Error('Every custom gift needs a name');
+      gifts.push({ name, worth: +g.worth || 0, custom: true });
+      continue;
+    }
+    const product = await Product.findOne({ code: String(g.code || '').toUpperCase() });
+    if (!product) throw new Error(`Gift product ${g.code} not found`);
+    const outers = +g.outers || 0;
+    const inners = +g.inners || 0;
+    const directPcs = +g.directPcs || 0;
+    const pcs = directPcs || outers * (product.cartonOuter || 0) + inners * (product.cartonInner || 0);
+    if (pcs <= 0) continue;
+    const qtyLabel = directPcs
+      ? `${pcs} pcs`
+      : [outers ? `${outers} outer` : '', inners ? `${inners} inner` : ''].filter(Boolean).join(' + ') || `${pcs} pcs`;
+    gifts.push({ code: product.code, name: product.name, photo: product.photo || '', pcs, qtyLabel, worth: +(product.rate * pcs).toFixed(2), custom: false });
+    giftPcsByCode[product.code] = (giftPcsByCode[product.code] || 0) + pcs;
+  }
+  return { gifts, giftPcsByCode };
+}
+
 async function nextInvoiceNo() {
   const count = await Invoice.countDocuments();
   return 'DLV-' + new Date().toISOString().slice(2, 7).replace('-', '') + '-' + String(count + 1001);
@@ -240,7 +276,7 @@ function validateOptionalCartonMap(dispatchLines, cartonMap) {
 // "against" any one PI, it's against the dealer's whole confirmed pool.
 async function dispatchFromPool(req, res) {
   try {
-    const { dealerCode, lines: requestedLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap } = req.body;
+    const { dealerCode, lines: requestedLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap, gifts: requestedGifts } = req.body;
     const dealer = await Dealer.findOne({ code: dealerCode });
     if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
     if (dealer.dispatchHold?.active) {
@@ -293,14 +329,22 @@ async function dispatchFromPool(req, res) {
     }
     if (!dispatchLines.length) return res.status(400).json({ message: 'Select at least one item with a whole-carton quantity' });
 
+    const { gifts, giftPcsByCode } = await buildGiftLines(requestedGifts);
+
     const cartonError = validateOptionalCartonMap(dispatchLines, cartonMap);
     if (cartonError) return res.status(400).json({ message: cartonError });
 
     if (!req.body.force) {
       // Same product can appear as two lines here (two rates) — combine by
       // code first, since physical stock doesn't know about invoice rates.
+      // Gifted pcs of the same product are folded into this same check —
+      // a gift still has to physically exist on the shelf.
       const byCode = {};
       dispatchLines.forEach((l) => { byCode[l.code] = { code: l.code, name: l.name, pcs: (byCode[l.code]?.pcs || 0) + l.pcs }; });
+      Object.entries(giftPcsByCode).forEach(([code, pcs]) => {
+        const name = gifts.find((g) => g.code === code)?.name || code;
+        byCode[code] = { code, name, pcs: (byCode[code]?.pcs || 0) + pcs };
+      });
       const shortages = await checkPhysicalShortages(Object.values(byCode));
       if (shortages.length) {
         const detail = shortages.map((s) => `${s.name} — dispatching ${s.requested}, only ${s.physical} physically in stock`).join('; ');
@@ -333,6 +377,7 @@ async function dispatchFromPool(req, res) {
       freightGst: frtGst,
       freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       packing,
+      gifts,
       dispatchDate: todayISODate(),
     });
 
@@ -347,10 +392,18 @@ async function dispatchFromPool(req, res) {
     for (const [code, pcs] of Object.entries(invByCode)) {
       await Inventory.findOneAndUpdate({ code }, { $inc: { physical: -pcs, reserved: -pcs } });
     }
+    // Gift pcs only ever reduce physical stock, never `reserved` — reserved
+    // tracks PI-confirmed stock, and a gift was never reserved against any
+    // PI in the first place, so touching it here would incorrectly push it
+    // negative for products with little other reserved stock.
+    for (const [code, pcs] of Object.entries(giftPcsByCode)) {
+      await Inventory.findOneAndUpdate({ code }, { $inc: { physical: -pcs } });
+    }
 
     await Ledger.create({
       date: todayISODate(), dealer: dealer.code, type: 'Invoice', ref: invoice.no,
-      debit: grand, credit: 0, note: `Dispatched from confirmed order pool (cleared ${[...touchedPIs.keys()].join(', ')})`,
+      debit: grand, credit: 0,
+      note: `Dispatched from confirmed order pool (cleared ${[...touchedPIs.keys()].join(', ')})${gifts.length ? ` + ${gifts.length} free gift(s)` : ''}`,
     });
     await notifyDispatched(invoice);
 
