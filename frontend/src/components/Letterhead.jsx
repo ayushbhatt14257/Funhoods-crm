@@ -40,6 +40,7 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
           <div>Total items: <b>{lines.length}</b></div>
           <div>Total pieces: <b>{totalPieces}</b></div>
           {isInvoice && <div>Cartons: <b>{cartons}</b></div>}
+          {isInvoice && transporter && <div>Via: <b>{transporter}</b> {freightTerm ? `(${freightTerm})` : ''}</div>}
         </div>
       </div>
 
