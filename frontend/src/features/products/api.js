@@ -2,7 +2,11 @@ import { api } from '../../api/client';
 
 // Everything the Products feature does against /api/products.
 export const productsApi = {
-  list: (q = '') => api.get(`/products${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  // includeInactive always on — this is the management page, it needs to
+  // see disabled products too so they can be found and re-enabled. Every
+  // other picker in the app calls plain GET /products (no param), which
+  // excludes disabled ones automatically.
+  list: (q = '') => api.get(`/products?includeInactive=1${q ? `&q=${encodeURIComponent(q)}` : ''}`),
   getByCode: (code) => api.get(`/products/${code}`),
   create: (payload) => api.post('/products', payload),
   update: (code, payload) => api.put(`/products/${code}`, payload),

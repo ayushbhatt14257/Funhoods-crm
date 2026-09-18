@@ -87,6 +87,20 @@ export default function Products() {
     } catch (err) { showToast(err.message, 'err'); }
   }
 
+  // Disabling (rather than deleting) hides a product from every picker in
+  // the app — New Order, PI, Dispatch gifting, Generate Barcodes, SKU
+  // nicknames — since they all call the same plain GET /products, which
+  // excludes anything with active:false. It stays fully intact (history,
+  // stock, past invoices) and can be switched back on any time.
+  async function toggleActive() {
+    try {
+      const updated = await productsApi.update(editing.code, { active: !(editing.active !== false) });
+      showToast(updated.active === false ? 'Product disabled — hidden everywhere it\'s picked from' : 'Product re-enabled', 'g');
+      setEditing(updated);
+      load();
+    } catch (err) { showToast(err.message, 'err'); }
+  }
+
   async function setFeatured(publicId) {
     try {
       const updated = await productsApi.setFeaturedImage(editing.code, publicId);
@@ -112,13 +126,16 @@ export default function Products() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 14 }}>
           {products.map((p) => (
-          <div key={p.code} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div key={p.code} className="card" style={{ padding: 0, overflow: 'hidden', opacity: p.active === false ? 0.55 : 1 }}>
             <Link to={`/products/${p.code}`} style={{ display: 'block', position: 'relative' }}>
               <div style={{ aspectRatio: '1', background: p.photo ? `url(${p.photo}) center/cover` : 'var(--paper-d)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 44 }}>
                 {!p.photo && '📦'}
               </div>
+              {p.active === false && (
+                <span className="badge" style={{ position: 'absolute', top: 8, right: 8, background: 'var(--red)', color: '#fff', border: 'none' }}>DISABLED</span>
+              )}
               {p.images?.length > 1 && (
-                <span className="badge" style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}>🖼 {p.images.length}</span>
+                <span className="badge" style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}>🖼 {p.images.length}</span>
               )}
               {p.video?.url && (
                 <span className="badge" style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}>▶ video</span>
@@ -215,6 +232,11 @@ export default function Products() {
           <div className="btnrow">
             <button className="btn" onClick={save}>Save</button>
             <button className="btn o" onClick={() => setEditing(null)}>Cancel</button>
+            {!isNew && (
+              <button className="btn o" onClick={toggleActive}>
+                {editing.active === false ? '✅ Re-enable' : '🚫 Disable'}
+              </button>
+            )}
             {!isNew && <button className="btn rd" style={{ marginLeft: 'auto' }} onClick={() => remove(editing.code)}>Delete</button>}
           </div>
         </Modal>

@@ -5,7 +5,7 @@ const Invoice = require('../invoices/model');
 const { uploadBuffer, destroyAsset } = require('../../config/cloudinary');
 
 async function list(req, res) {
-  const { q } = req.query;
+  const { q, includeInactive } = req.query;
   const filter = {};
   if (q) {
     filter.$or = [
@@ -13,6 +13,11 @@ async function list(req, res) {
       { code: new RegExp(q, 'i') },
     ];
   }
+  // Disabled products stay out of every picker (New Order, PI, Dispatch
+  // gifting, Generate Barcodes, SKU nicknames...) by default, since they all
+  // just call this same endpoint — only the Products management page itself
+  // passes includeInactive so it can still find and re-enable one.
+  if (!includeInactive) filter.active = { $ne: false };
   const products = await Product.find(filter).sort({ createdAt: -1 });
   res.json(products);
 }
