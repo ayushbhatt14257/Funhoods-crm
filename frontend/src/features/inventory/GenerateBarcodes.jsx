@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../api/client';
+import Modal from '../../components/Modal';
 import ProductPickerModal from '../pi/components/ProductPickerModal';
 import { barcodeApi } from './barcodeApi';
 
@@ -22,6 +24,7 @@ import { barcodeApi } from './barcodeApi';
 // which a barcode (zero error correction) cannot do at all — worth having
 // given cartons will pick up wear over time in the warehouse.
 export default function GenerateBarcodes() {
+  const { user } = useAuth();
   const { showToast } = useToast();
   const [tab, setTab] = useState('generate'); // 'generate' | 'track'
 
@@ -43,8 +46,27 @@ export default function GenerateBarcodes() {
   const [openBatchDetail, setOpenBatchDetail] = useState(null); // full carton list for openBatch
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailFilter, setDetailFilter] = useState('all'); // 'all' | 'used' | 'unused'
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => { api.get('/products').then(setProducts); }, []);
+
+  // Wipes every generated code (used, unused, split) — a one-way reset for
+  // clearing out test/practice batches before switching to real production
+  // codes. Does NOT touch actual stock counts, only this tracking history —
+  // see the backend comment on clearAll for why that's a deliberate choice.
+  async function clearAllCodes() {
+    setClearing(true);
+    try {
+      const res = await barcodeApi.clearAll();
+      showToast(res.message, 'g');
+      setConfirmClearOpen(false);
+      setTrackData(null);
+      setOpenBatch(null);
+      setOpenBatchDetail(null);
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setClearing(false); }
+  }
 
   // Render each carton's QR code onto its label's <canvas> once the batch is
   // on screen. Re-runs whenever a new batch comes in.
@@ -195,6 +217,17 @@ export default function GenerateBarcodes() {
 
       {tab === 'track' && (
         <div className="no-print">
+          {user.role === 'masterAdmin' && (
+            <div className="card" style={{ maxWidth: 560, borderColor: 'var(--red)', marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <b>Clear all generated codes</b>
+                  <div className="muted" style={{ fontSize: 12 }}>Wipes every code ever generated (used, unused, split) — for clearing out test batches before real production codes. Doesn't touch actual stock counts.</div>
+                </div>
+                <button className="btn o sm rd" onClick={() => setConfirmClearOpen(true)}>🗑️ Clear all</button>
+              </div>
+            </div>
+          )}
           <div className="card" style={{ maxWidth: 560 }}>
             <div className="fg">
               <label>Product</label>
@@ -278,6 +311,17 @@ export default function GenerateBarcodes() {
 
           {showTrackPicker && (
             <ProductPickerModal products={products} onPick={loadTrack} onClose={() => setShowTrackPicker(false)} />
+          )}
+
+          {confirmClearOpen && (
+            <Modal title="Clear all generated codes?" onClose={() => setConfirmClearOpen(false)}>
+              <p>This permanently deletes every carton code ever generated — used, unused, and split alike. It cannot be undone.</p>
+              <p className="muted" style={{ fontSize: 12.5 }}>Actual stock counts are not affected — this only clears the code/label tracking history.</p>
+              <div className="btnrow" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
+                <button className="btn o sm" onClick={() => setConfirmClearOpen(false)} disabled={clearing}>Cancel</button>
+                <button className="btn rd sm" onClick={clearAllCodes} disabled={clearing}>{clearing ? 'Clearing…' : 'Yes, clear everything'}</button>
+              </div>
+            </Modal>
           )}
         </div>
       )}

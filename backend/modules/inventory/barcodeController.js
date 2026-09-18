@@ -132,4 +132,16 @@ async function confirmCarton(req, res) {
   res.json({ message: `${carton.qty} pcs of ${carton.productName} added to stock.`, qty: carton.qty, productName: carton.productName });
 }
 
-module.exports = { generateBatch, getBatch, getByProduct, lookupCarton, confirmCarton };
+// DELETE /api/inventory/carton/all — admin/masterAdmin only. Wipes every
+// generated carton QR/barcode record (used, unused, and split alike) so a
+// batch of test/practice codes can be cleared out before switching to real
+// production codes. Deliberately does NOT touch Inventory.physical stock —
+// whatever pieces were actually scanned in during testing already added to
+// stock separately, and this is purely clearing the label/tracking history,
+// not reversing real stock counts (that's a different, separate decision).
+async function clearAll(req, res) {
+  const result = await CartonBarcode.deleteMany({});
+  res.json({ message: `Cleared ${result.deletedCount} generated code(s).`, deletedCount: result.deletedCount });
+}
+
+module.exports = { generateBatch, getBatch, getByProduct, lookupCarton, confirmCarton, clearAll };
