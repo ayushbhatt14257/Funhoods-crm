@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../api/client';
-import Modal from '../../components/Modal';
 import ProductPickerModal from '../pi/components/ProductPickerModal';
 import { barcodeApi } from './barcodeApi';
 
@@ -34,7 +33,6 @@ export default function GenerateBarcodes() {
   const [qtyOverride, setQtyOverride] = useState('');
   const [batch, setBatch] = useState(null); // { batchId, product, qty, cartons }
   const [generating, setGenerating] = useState(false);
-  const [showBatchPopup, setShowBatchPopup] = useState(false);
   const [recentBatches, setRecentBatches] = useState(null); // null = loading
 
   // --- Track tab ---
@@ -89,53 +87,20 @@ export default function GenerateBarcodes() {
     try {
       const res = await barcodeApi.generateBatch(product.code, +cartonCount, qtyOverride ? +qtyOverride : undefined);
       setBatch(res);
-      setShowBatchPopup(true);
       showToast(`Generated ${res.cartons.length} barcodes`, 'g');
       loadRecentBatches(); // so the new batch shows up in the history right away
     } catch (err) { showToast(err.message, 'err'); }
     finally { setGenerating(false); }
   }
 
-  // Two rounds of @media print CSS overrides (.modal/.mbox/.mbody, then
-  // body's inline style) still printed a blank page — Chrome appears to
-  // snapshot position:fixed ancestors for print layout before print-only
-  // CSS gets a chance to apply, so overriding them THROUGH a stylesheet
-  // rule isn't reliable here. Flipping them directly via JS right before
-  // calling print(), and restoring them right after, sidesteps that timing
-  // issue entirely instead of continuing to fight it through CSS.
-  function printLabels() {
-    const modalEl = document.querySelector('.modal');
-    const mboxEl = document.querySelector('.mbox');
-    const prevBodyPosition = document.body.style.position;
-    const prevBodyTop = document.body.style.top;
-    const prevModalPosition = modalEl?.style.position;
-    const prevMboxStyle = mboxEl ? { position: mboxEl.style.position, overflow: mboxEl.style.overflow, maxHeight: mboxEl.style.maxHeight } : null;
-
-    if (modalEl) modalEl.style.position = 'static';
-    if (mboxEl) { mboxEl.style.position = 'static'; mboxEl.style.overflow = 'visible'; mboxEl.style.maxHeight = 'none'; }
-    document.body.style.position = 'static';
-    document.body.style.top = '0';
-
-    window.print();
-
-    // Restore once the print dialog has closed. There's no reliable
-    // cross-browser "print dialog closed" event, but `afterprint` fires in
-    // Chrome right when it closes — falling back to a timeout too, in case
-    // it doesn't fire (some print-to-PDF flows are inconsistent about it).
-    const restore = () => {
-      if (modalEl) modalEl.style.position = prevModalPosition || '';
-      if (mboxEl && prevMboxStyle) {
-        mboxEl.style.position = prevMboxStyle.position;
-        mboxEl.style.overflow = prevMboxStyle.overflow;
-        mboxEl.style.maxHeight = prevMboxStyle.maxHeight;
-      }
-      document.body.style.position = prevBodyPosition;
-      document.body.style.top = prevBodyTop;
-      window.removeEventListener('afterprint', restore);
-    };
-    window.addEventListener('afterprint', restore);
-    setTimeout(restore, 1000);
-  }
+  // Popup version of this (rendering the labels inside the shared Modal
+  // component) reliably printed a blank page — the Modal's position:fixed
+  // overlay and max-height/overflow-hidden box fight the print layout in a
+  // way that neither CSS overrides nor flipping styles via JS right before
+  // printing could reliably fix. Plain inline rendering (this version) is
+  // what worked correctly before that popup was added, so that's what this
+  // reverts to — no more fighting the Modal's positioning for print.
+  function printLabels() { window.print(); }
 
   // --- Track tab logic ---
   async function loadTrack(p) {
@@ -166,23 +131,19 @@ export default function GenerateBarcodes() {
   }
 
   // Reprint an already-generated batch — jumps back to the Generate tab
-  // with that batch's labels loaded in the popup, same print flow as a
-  // fresh batch. Was missing the popup-open call, which is why this looked
-  // like it did nothing before — batch was set, but nothing was shown.
+  // with that batch's labels loaded inline, same print flow as a fresh batch.
   function reprintBatch() {
     if (!openBatchDetail) return;
     setBatch(openBatchDetail);
-    setShowBatchPopup(true);
     setTab('generate');
   }
 
-  // Reprint just ONE carton's label — same popup, same print flow, just a
-  // single-item batch built on the fly from whatever product/batch context
-  // is already on screen.
+  // Reprint just ONE carton's label — same inline flow, just a single-item
+  // batch built on the fly from whatever product/batch context is already
+  // on screen.
   function reprintSingleCarton(carton) {
     if (!openBatchDetail) return;
     setBatch({ ...openBatchDetail, cartons: [carton] });
-    setShowBatchPopup(true);
     setTab('generate');
   }
 
@@ -224,16 +185,15 @@ export default function GenerateBarcodes() {
             <button className="btn" disabled={generating} onClick={generate}>{generating ? 'Generating…' : 'Generate batch'}</button>
           </div>
 
-          {batch && showBatchPopup && (
-            <Modal title={`Generated ${batch.cartons.length} label${batch.cartons.length === 1 ? '' : 's'} — ${batch.product.name}`} onClose={() => setShowBatchPopup(false)}>
-              <div className="btnrow no-print" style={{ marginBottom: 14 }}>
+          {batch && (
+            <>
+              <div className="btnrow no-print" style={{ marginTop: 16 }}>
                 <button className="btn g" onClick={printLabels}>🖨️ Print {batch.cartons.length} labels</button>
               </div>
               {/* #print-area is the app-wide convention (see theme.css / Letterhead.jsx) —
                   the global print stylesheet hides everything on the page EXCEPT this,
                   so without this wrapper the printed sheet comes out completely blank
-                  regardless of what's inside .label-sheet. Works fine nested inside a
-                  modal too — the print CSS override is global, not scoped by DOM depth. */}
+                  regardless of what's inside .label-sheet. */}
               <div id="print-area">
                 <div className="label-sheet">
                   {batch.cartons.map((c) => (
@@ -247,7 +207,7 @@ export default function GenerateBarcodes() {
                   ))}
                 </div>
               </div>
-            </Modal>
+            </>
           )}
 
           {recentBatches !== null && (
@@ -403,28 +363,6 @@ export default function GenerateBarcodes() {
         .label-code { font-family: var(--mono); font-size: 14px; color: var(--muted); margin-top: 6px; letter-spacing: 0.02em; }
         @media print {
           .no-print { display: none !important; }
-          /* Since v20, the labels render inside a Modal popup rather than
-             directly on the page. The Modal's own on-screen box (.mbox) has
-             max-height:90vh + overflow:hidden, and .modal itself is
-             position:fixed — both make sense for a screen popup but clip/
-             break #print-area once it's nested inside them, since #print-area
-             relies on breaking out to cover the full print page unconstrained
-             (that's the exact cause of the "Print" button producing a blank
-             page). Neutralizing these three specifically for print restores
-             #print-area's old, unconstrained behavior. */
-          .modal { position: static !important; }
-          .mbox { max-height: none !important; overflow: visible !important; position: static !important; }
-          .mbody { overflow: visible !important; }
-          /* Modal.jsx's scroll-lock sets position:fixed + a negative top
-             directly on <body> as an inline style while any modal is open —
-             including this one, at the moment Print is clicked. An inline
-             style beats an external stylesheet rule UNLESS that rule is
-             !important, which is exactly why this needs !important here:
-             without it, body stays fixed/shifted, which throws off where
-             #print-area's own position:absolute actually lands on the
-             printed page, and is what was still producing a blank page even
-             after resetting .modal/.mbox/.mbody above. */
-          body { position: static !important; top: 0 !important; left: 0 !important; right: 0 !important; width: auto !important; }
           /* Literal values only — Chrome does not reliably apply CSS custom
              properties (var(...)) inside @page, so this must stay hardcoded.
              100mm x 70mm, landscape, one slip per page. If the roll size
