@@ -96,7 +96,46 @@ export default function GenerateBarcodes() {
     finally { setGenerating(false); }
   }
 
-  function printLabels() { window.print(); }
+  // Two rounds of @media print CSS overrides (.modal/.mbox/.mbody, then
+  // body's inline style) still printed a blank page — Chrome appears to
+  // snapshot position:fixed ancestors for print layout before print-only
+  // CSS gets a chance to apply, so overriding them THROUGH a stylesheet
+  // rule isn't reliable here. Flipping them directly via JS right before
+  // calling print(), and restoring them right after, sidesteps that timing
+  // issue entirely instead of continuing to fight it through CSS.
+  function printLabels() {
+    const modalEl = document.querySelector('.modal');
+    const mboxEl = document.querySelector('.mbox');
+    const prevBodyPosition = document.body.style.position;
+    const prevBodyTop = document.body.style.top;
+    const prevModalPosition = modalEl?.style.position;
+    const prevMboxStyle = mboxEl ? { position: mboxEl.style.position, overflow: mboxEl.style.overflow, maxHeight: mboxEl.style.maxHeight } : null;
+
+    if (modalEl) modalEl.style.position = 'static';
+    if (mboxEl) { mboxEl.style.position = 'static'; mboxEl.style.overflow = 'visible'; mboxEl.style.maxHeight = 'none'; }
+    document.body.style.position = 'static';
+    document.body.style.top = '0';
+
+    window.print();
+
+    // Restore once the print dialog has closed. There's no reliable
+    // cross-browser "print dialog closed" event, but `afterprint` fires in
+    // Chrome right when it closes — falling back to a timeout too, in case
+    // it doesn't fire (some print-to-PDF flows are inconsistent about it).
+    const restore = () => {
+      if (modalEl) modalEl.style.position = prevModalPosition || '';
+      if (mboxEl && prevMboxStyle) {
+        mboxEl.style.position = prevMboxStyle.position;
+        mboxEl.style.overflow = prevMboxStyle.overflow;
+        mboxEl.style.maxHeight = prevMboxStyle.maxHeight;
+      }
+      document.body.style.position = prevBodyPosition;
+      document.body.style.top = prevBodyTop;
+      window.removeEventListener('afterprint', restore);
+    };
+    window.addEventListener('afterprint', restore);
+    setTimeout(restore, 1000);
+  }
 
   // --- Track tab logic ---
   async function loadTrack(p) {
