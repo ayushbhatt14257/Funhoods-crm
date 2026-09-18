@@ -127,10 +127,23 @@ export default function GenerateBarcodes() {
   }
 
   // Reprint an already-generated batch — jumps back to the Generate tab
-  // with that batch's labels loaded, same print flow as a fresh batch.
+  // with that batch's labels loaded in the popup, same print flow as a
+  // fresh batch. Was missing the popup-open call, which is why this looked
+  // like it did nothing before — batch was set, but nothing was shown.
   function reprintBatch() {
     if (!openBatchDetail) return;
     setBatch(openBatchDetail);
+    setShowBatchPopup(true);
+    setTab('generate');
+  }
+
+  // Reprint just ONE carton's label — same popup, same print flow, just a
+  // single-item batch built on the fly from whatever product/batch context
+  // is already on screen.
+  function reprintSingleCarton(carton) {
+    if (!openBatchDetail) return;
+    setBatch({ ...openBatchDetail, cartons: [carton] });
+    setShowBatchPopup(true);
     setTab('generate');
   }
 
@@ -287,7 +300,7 @@ export default function GenerateBarcodes() {
                                     <button className="btn o sm" style={{ marginLeft: 'auto' }} onClick={reprintBatch}>🖨️ Reprint this batch</button>
                                   </div>
                                   <table className="dt">
-                                    <thead><tr><th>Carton code</th><th>Status</th><th>Scanned by</th><th>Scanned at</th></tr></thead>
+                                    <thead><tr><th>Carton code</th><th>Status</th><th>Scanned by</th><th>Scanned at</th><th></th></tr></thead>
                                     <tbody>
                                       {filteredCartons.map((c) => (
                                         <tr key={c.code}>
@@ -295,9 +308,10 @@ export default function GenerateBarcodes() {
                                           <td><span className={`badge ${c.status === 'used' ? 'g' : 'y'}`}>{c.status === 'used' ? 'Scanned' : 'Unscanned'}</span></td>
                                           <td>{c.usedBy || '—'}</td>
                                           <td>{c.usedAt ? new Date(c.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                                          <td><button className="btn o sm" onClick={() => reprintSingleCarton(c)}>🖨️ Reprint</button></td>
                                         </tr>
                                       ))}
-                                      {!filteredCartons.length && <tr><td colSpan={4}><div className="empty">No cartons in this filter</div></td></tr>}
+                                      {!filteredCartons.length && <tr><td colSpan={5}><div className="empty">No cartons in this filter</div></td></tr>}
                                     </tbody>
                                   </table>
                                 </div>
