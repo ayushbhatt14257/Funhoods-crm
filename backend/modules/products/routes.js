@@ -16,6 +16,7 @@ router.get('/:code', ctrl.getOne);
 router.get('/:code/dispatch-breakdown', allow('masterAdmin'), ctrl.dispatchBreakdown);
 router.post('/', canEdit, ctrl.create);
 router.put('/:code', canEdit, ctrl.update);
+router.post('/:code/rename-code', allow('masterAdmin'), ctrl.renameCode);
 router.put('/:code/photo', canEdit, upload.single('photo'), ctrl.uploadPhoto); // legacy, kept for back-compat
 router.post('/:code/images', canEdit, uploadMemory.array('images', 10), ctrl.uploadImages);
 router.delete('/:code/images', canEdit, ctrl.removeImage);

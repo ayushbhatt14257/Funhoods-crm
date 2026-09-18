@@ -10,6 +10,11 @@ export const productsApi = {
   getByCode: (code) => api.get(`/products/${code}`),
   create: (payload) => api.post('/products', payload),
   update: (code, payload) => api.put(`/products/${code}`, payload),
+  // masterAdmin-only — cascades the code change across Inventory, PI/Invoice
+  // lines, carton QR records, and SKU aliases in one transaction. See the
+  // backend controller for exactly what this does and doesn't cover (it
+  // can't fix an already-printed physical label).
+  renameCode: (code, newCode) => api.post(`/products/${code}/rename-code`, { newCode }),
   remove: (code) => api.del(`/products/${code}`),
   uploadPhoto: (code, formData) => api.putForm(`/products/${code}/photo`, formData), // legacy single-photo endpoint
   uploadImages: (code, formData) => api.postForm(`/products/${code}/images`, formData),

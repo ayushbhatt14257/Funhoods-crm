@@ -1,5 +1,8 @@
+const mongoose = require('mongoose');
 const Product = require('./model');
 const Inventory = require('../inventory/model');
+const CartonBarcode = require('../inventory/cartonBarcodeModel');
+const Alias = require('../aliases/model');
 const PI = require('../pi/model');
 const Invoice = require('../invoices/model');
 const { uploadBuffer, destroyAsset } = require('../../config/cloudinary');
@@ -50,7 +53,7 @@ async function update(req, res) {
   try {
     const code = req.params.code.toUpperCase();
     const updates = { ...req.body };
-    delete updates.code; // code is immutable once created
+    delete updates.code; // code changes only ever go through renameCode below — never a plain field update
     if (updates.cartonOuter && !updates.cartonInner) {
       updates.cartonInner = Math.round(updates.cartonOuter / 2);
     }
@@ -60,6 +63,87 @@ async function update(req, res) {
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
+}
+
+// Applies a single old-code -> new-code replacement across every collection
+// that denormalizes a product code, inside the given transaction session.
+// Used both for a plain rename (newCode is unused) and as one leg of the
+// three-step shuffle a swap needs (see renameCode below).
+async function applyCodeChange(from, to, session) {
+  await Product.updateOne({ code: from }, { code: to }, { session });
+  await Inventory.updateOne({ code: from }, { code: to }, { session });
+  await CartonBarcode.updateMany({ product: from }, { product: to }, { session });
+  await Alias.updateMany({ code: from }, { code: to }, { session });
+  await PI.updateMany(
+    { 'lines.code': from },
+    { $set: { 'lines.$[el].code': to } },
+    { arrayFilters: [{ 'el.code': from }], session }
+  );
+  await Invoice.updateMany(
+    { 'lines.code': from },
+    { $set: { 'lines.$[el].code': to } },
+    { arrayFilters: [{ 'el.code': from }], session }
+  );
+  await Invoice.updateMany(
+    { 'gifts.code': from },
+    { $set: { 'gifts.$[el].code': to } },
+    { arrayFilters: [{ 'el.code': from }], session }
+  );
+}
+
+// POST /api/products/:code/rename-code — masterAdmin only. This is the ONLY
+// way a product's code can change; the plain update() above always strips
+// it. Renaming a code isn't a single-field edit — the code is denormalized
+// into Inventory, every PI/Invoice line that's ever referenced this product,
+// carton QR records, and SKU aliases (see applyCodeChange above), so all of
+// those have to move together or history quietly breaks.
+//
+// If newCode is free, this is a plain rename. If newCode already belongs to
+// a DIFFERENT existing product, this is treated as a SWAP — both products
+// trade codes — done as a three-step shuffle through a throwaway temp code
+// so neither update ever collides with the other's current code. Either way
+// this runs inside one transaction: if anything fails partway, everything
+// rolls back rather than leaving codes half-migrated.
+//
+// This does NOT and cannot fix a barcode/QR label that's already been
+// physically printed — the old code is permanently baked into that paper.
+async function renameCode(req, res) {
+  const oldCode = req.params.code.toUpperCase();
+  const newCode = String(req.body.newCode || '').trim().toUpperCase();
+  if (!newCode) return res.status(400).json({ message: 'New code is required' });
+  if (newCode === oldCode) return res.status(400).json({ message: 'New code is the same as the current one' });
+
+  const product = await Product.findOne({ code: oldCode });
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+  const other = await Product.findOne({ code: newCode });
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      if (!other) {
+        await applyCodeChange(oldCode, newCode, session);
+      } else {
+        const temp = `__TMP_${Date.now()}__`;
+        await applyCodeChange(oldCode, temp, session);
+        await applyCodeChange(newCode, oldCode, session);
+        await applyCodeChange(temp, newCode, session);
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ message: `Rename failed, nothing was changed: ${err.message}` });
+  } finally {
+    session.endSession();
+  }
+
+  const updated = await Product.findOne({ code: newCode });
+  res.json({
+    message: other
+      ? `Swapped codes: this product is now ${newCode}, and ${other.name} is now ${oldCode}.`
+      : `Renamed ${oldCode} to ${newCode}.`,
+    swapped: !!other,
+    otherProductName: other?.name || null,
+    product: updated,
+  });
 }
 
 // PUT /api/products/:code/photo  (multipart form, field name "photo")
@@ -276,7 +360,7 @@ async function exportProducts(req, res) {
 }
 
 module.exports = {
-  list, getOne, create, update, uploadPhoto, remove,
+  list, getOne, create, update, renameCode, uploadPhoto, remove,
   uploadImages, removeImage, setFeaturedImage, uploadVideo, removeVideo,
   dispatchedTotals, dispatchBreakdown, exportProducts,
 };
