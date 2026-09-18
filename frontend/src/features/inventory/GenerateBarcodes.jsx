@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../api/client';
+import Modal from '../../components/Modal';
 import ProductPickerModal from '../pi/components/ProductPickerModal';
 import { barcodeApi } from './barcodeApi';
 
@@ -33,6 +34,8 @@ export default function GenerateBarcodes() {
   const [qtyOverride, setQtyOverride] = useState('');
   const [batch, setBatch] = useState(null); // { batchId, product, qty, cartons }
   const [generating, setGenerating] = useState(false);
+  const [showBatchPopup, setShowBatchPopup] = useState(false);
+  const [recentBatches, setRecentBatches] = useState(null); // null = loading
 
   // --- Track tab ---
   const [showTrackPicker, setShowTrackPicker] = useState(false);
@@ -45,6 +48,11 @@ export default function GenerateBarcodes() {
   const [detailFilter, setDetailFilter] = useState('all'); // 'all' | 'used' | 'unused'
 
   useEffect(() => { api.get('/products').then(setProducts); }, []);
+  useEffect(() => { loadRecentBatches(); }, []);
+
+  function loadRecentBatches() {
+    barcodeApi.getRecentBatches(10).then(setRecentBatches).catch(() => setRecentBatches([]));
+  }
 
   // Render each carton's QR code onto its label's <canvas> once the batch is
   // on screen. Re-runs whenever a new batch comes in.
@@ -81,7 +89,9 @@ export default function GenerateBarcodes() {
     try {
       const res = await barcodeApi.generateBatch(product.code, +cartonCount, qtyOverride ? +qtyOverride : undefined);
       setBatch(res);
+      setShowBatchPopup(true);
       showToast(`Generated ${res.cartons.length} barcodes`, 'g');
+      loadRecentBatches(); // so the new batch shows up in the history right away
     } catch (err) { showToast(err.message, 'err'); }
     finally { setGenerating(false); }
   }
@@ -162,15 +172,16 @@ export default function GenerateBarcodes() {
             <button className="btn" disabled={generating} onClick={generate}>{generating ? 'Generating…' : 'Generate batch'}</button>
           </div>
 
-          {batch && (
-            <>
-              <div className="btnrow no-print" style={{ marginTop: 16 }}>
+          {batch && showBatchPopup && (
+            <Modal title={`Generated ${batch.cartons.length} label${batch.cartons.length === 1 ? '' : 's'} — ${batch.product.name}`} onClose={() => setShowBatchPopup(false)}>
+              <div className="btnrow no-print" style={{ marginBottom: 14 }}>
                 <button className="btn g" onClick={printLabels}>🖨️ Print {batch.cartons.length} labels</button>
               </div>
               {/* #print-area is the app-wide convention (see theme.css / Letterhead.jsx) —
                   the global print stylesheet hides everything on the page EXCEPT this,
                   so without this wrapper the printed sheet comes out completely blank
-                  regardless of what's inside .label-sheet. */}
+                  regardless of what's inside .label-sheet. Works fine nested inside a
+                  modal too — the print CSS override is global, not scoped by DOM depth. */}
               <div id="print-area">
                 <div className="label-sheet">
                   {batch.cartons.map((c) => (
@@ -184,7 +195,34 @@ export default function GenerateBarcodes() {
                   ))}
                 </div>
               </div>
-            </>
+            </Modal>
+          )}
+
+          {recentBatches !== null && (
+            <div className="card no-print" style={{ marginTop: 16, maxWidth: 760 }}>
+              <h3 style={{ marginTop: 0 }}>Recent batches</h3>
+              {!recentBatches.length ? (
+                <div className="empty">No batches generated yet.</div>
+              ) : (
+                <div className="tblwrap">
+                  <table className="dt">
+                    <thead><tr><th></th><th>Product</th><th>Cartons</th><th>Pcs/carton</th><th>Generated</th><th>By</th></tr></thead>
+                    <tbody>
+                      {recentBatches.map((b) => (
+                        <tr key={b.batchId}>
+                          <td>{b.photo ? <img src={b.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
+                          <td><b>{b.productName}</b> <span className="mono muted" style={{ fontSize: 10 }}>{b.product}</span></td>
+                          <td>{b.cartons}</td>
+                          <td>{b.qty}</td>
+                          <td>{new Date(b.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                          <td>{b.createdBy || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           )}
 
           {showPicker && (

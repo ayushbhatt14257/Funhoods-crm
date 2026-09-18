@@ -93,6 +93,41 @@ async function getByProduct(req, res) {
   });
 }
 
+// GET /api/inventory/carton/recent-batches?limit=10 — admin/masterAdmin only.
+// Every batch ever generated, across ALL products (not filtered to one, like
+// getByProduct above), newest first, capped at `limit`. Powers a quick
+// "what did we just generate" glance on the Generate tab, separate from the
+// Track tab's per-product deep-dive.
+async function getRecentBatches(req, res) {
+  const limit = Math.min(50, Math.max(1, +req.query.limit || 10));
+  const rows = await CartonBarcode.aggregate([
+    {
+      $group: {
+        _id: '$batchId',
+        product: { $first: '$product' },
+        productName: { $first: '$productName' },
+        qty: { $first: '$qty' },
+        createdAt: { $min: '$createdAt' },
+        createdBy: { $first: '$createdBy' },
+        total: { $sum: 1 },
+      },
+    },
+    { $sort: { createdAt: -1 } },
+    { $limit: limit },
+  ]);
+
+  const codes = [...new Set(rows.map((r) => r.product))];
+  const products = await Product.find({ code: { $in: codes } });
+  const photoByCode = Object.fromEntries(products.map((p) => [p.code, p.photo || '']));
+
+  res.json(
+    rows.map((r) => ({
+      batchId: r._id, product: r.product, productName: r.productName, photo: photoByCode[r.product] || '',
+      qty: r.qty, cartons: r.total, createdBy: r.createdBy || '', createdAt: r.createdAt,
+    }))
+  );
+}
+
 // GET /api/inventory/carton/:code — look up a scanned barcode. Read-only —
 // scanning to preview doesn't consume the carton; only /confirm does.
 async function lookupCarton(req, res) {
@@ -144,4 +179,4 @@ async function clearAll(req, res) {
   res.json({ message: `Cleared ${result.deletedCount} generated code(s).`, deletedCount: result.deletedCount });
 }
 
-module.exports = { generateBatch, getBatch, getByProduct, lookupCarton, confirmCarton, clearAll };
+module.exports = { generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, confirmCarton, clearAll };
