@@ -6,7 +6,11 @@ import Modal from '../../components/Modal';
 import Loading from '../../components/Loading';
 import { piApi } from '../pi/api';
 
-const OPEN_STATUSES = 'Sent,Confirmed,Partial Dispatched';
+// Only Confirmed (and Partial Dispatched, which is a Confirmed PI that's
+// been part-shipped) actually reserve stock — see pi/controller.js's
+// confirm() — a Sent PI hasn't been accepted yet and could still be
+// rejected or changed, so it must never count as committed demand here.
+const OPEN_STATUSES = 'Confirmed,Partial Dispatched';
 
 export default function Inventory() {
   const { user } = useAuth();
