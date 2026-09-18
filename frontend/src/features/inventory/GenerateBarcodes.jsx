@@ -376,6 +376,16 @@ export default function GenerateBarcodes() {
           .modal { position: static !important; }
           .mbox { max-height: none !important; overflow: visible !important; position: static !important; }
           .mbody { overflow: visible !important; }
+          /* Modal.jsx's scroll-lock sets position:fixed + a negative top
+             directly on <body> as an inline style while any modal is open —
+             including this one, at the moment Print is clicked. An inline
+             style beats an external stylesheet rule UNLESS that rule is
+             !important, which is exactly why this needs !important here:
+             without it, body stays fixed/shifted, which throws off where
+             #print-area's own position:absolute actually lands on the
+             printed page, and is what was still producing a blank page even
+             after resetting .modal/.mbox/.mbody above. */
+          body { position: static !important; top: 0 !important; left: 0 !important; right: 0 !important; width: auto !important; }
           /* Literal values only — Chrome does not reliably apply CSS custom
              properties (var(...)) inside @page, so this must stay hardcoded.
              100mm x 70mm, landscape, one slip per page. If the roll size
