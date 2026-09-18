@@ -364,6 +364,18 @@ export default function GenerateBarcodes() {
         .label-code { font-family: var(--mono); font-size: 14px; color: var(--muted); margin-top: 6px; letter-spacing: 0.02em; }
         @media print {
           .no-print { display: none !important; }
+          /* Since v20, the labels render inside a Modal popup rather than
+             directly on the page. The Modal's own on-screen box (.mbox) has
+             max-height:90vh + overflow:hidden, and .modal itself is
+             position:fixed — both make sense for a screen popup but clip/
+             break #print-area once it's nested inside them, since #print-area
+             relies on breaking out to cover the full print page unconstrained
+             (that's the exact cause of the "Print" button producing a blank
+             page). Neutralizing these three specifically for print restores
+             #print-area's old, unconstrained behavior. */
+          .modal { position: static !important; }
+          .mbox { max-height: none !important; overflow: visible !important; position: static !important; }
+          .mbody { overflow: visible !important; }
           /* Literal values only — Chrome does not reliably apply CSS custom
              properties (var(...)) inside @page, so this must stay hardcoded.
              100mm x 70mm, landscape, one slip per page. If the roll size
