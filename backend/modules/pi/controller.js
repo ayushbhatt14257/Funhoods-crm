@@ -51,14 +51,12 @@ async function buildLines(inputLines, role) {
 
     // Edited rates can carry paise (e.g. 25.01) — same precision as the product's own list rate.
     const rate = il.rate != null ? +il.rate : product.rate;
-    // Admin and Master Admin can price below the base rate (a real
-    // negotiated discount call); everyone else can only match or raise it.
-    // A admin's decrease additionally needs Master Admin sign-off — see
-    // requiresPriceApproval() below — Master Admin's own decreases don't
-    // (they're the approver, nothing to approve against).
-    if (rate < product.rate && !['admin', 'masterAdmin'].includes(role)) {
-      throw new Error(`Rate for ${product.name} (₹${rate}) cannot be below the base price ₹${product.rate}`);
-    }
+    // Field/mhead/accounts/dispatch used to be hard-blocked from submitting
+    // any rate below base price at all — see requiresPriceApproval below,
+    // which now sends any non-masterAdmin discount to the same pending-
+    // approval queue admin discounts already used, rather than refusing it
+    // outright. Master Admin's own decreases still need nothing (they're
+    // the approver, nothing to approve against).
     const gstPct = product.gst_pct || 5;
     const tax = +((rate * gstPct) / 100).toFixed(2);
     const gross = +(rate + tax).toFixed(2);
@@ -102,21 +100,24 @@ async function notifyRateEdits(lines, pi, editorName) {
   }
 }
 
-// A admin's discount (any line priced below its base rate) needs Master
-// Admin sign-off. Master Admin's own discounts don't — they're the approver.
+// Any role's discount (any line priced below its base rate) needs Master
+// Admin sign-off — this used to be admin-only (everyone else was hard-
+// blocked from discounting at all), but now any non-masterAdmin role can
+// submit one, it just always goes to the same pending queue. Master Admin's
+// own discounts don't need approval — they're the approver.
 function requiresPriceApproval(lines, role) {
-  return role === 'admin' && lines.some((l) => l.rate < l.listRate);
+  return role !== 'masterAdmin' && lines.some((l) => l.rate < l.listRate);
 }
 
 // Stays pending until Master Admin explicitly approves it — no timeout,
 // manual only. The PI can't be dispatched while pending (see dispatch/controller.js).
-async function flagForPriceApproval(pi, lines) {
+async function flagForPriceApproval(pi, lines, submittedBy) {
   pi.priceApproval = { status: 'pending', decidedBy: '', decidedAt: null };
   await pi.save();
   const discounted = lines.filter((l) => l.rate < l.listRate);
   await Notification.create({
     type: 'price_approval',
-    message: `${pi.no} (${pi.dealerName}) has a admin-approved discount awaiting Master Admin sign-off — ${discounted.map((l) => `${l.name} ₹${l.listRate}→₹${l.rate}`).join(', ')}.`,
+    message: `${pi.no} (${pi.dealerName}) has a discount from ${submittedBy} awaiting Master Admin sign-off — ${discounted.map((l) => `${l.name} ₹${l.listRate}→₹${l.rate}`).join(', ')}.`,
     relatedNo: pi.no,
     relatedKind: 'pi',
     forRole: 'masterAdmin',
@@ -152,7 +153,7 @@ async function create(req, res) {
       remark: remark || '',
     });
 
-    if (requiresPriceApproval(lines, req.user.role)) await flagForPriceApproval(pi, lines);
+    if (requiresPriceApproval(lines, req.user.role)) await flagForPriceApproval(pi, lines, req.user.name);
     await notifyRateEdits(lines, pi, req.user.name);
 
     res.status(201).json(pi);
@@ -264,7 +265,7 @@ async function update(req, res) {
       const lines = await buildLines(inputLines, req.user.role);
       pi.lines = lines;
       pi.subtotal = lines.reduce((s, l) => s + l.total, 0);
-      if (requiresPriceApproval(lines, req.user.role)) await flagForPriceApproval(pi, lines);
+      if (requiresPriceApproval(lines, req.user.role)) await flagForPriceApproval(pi, lines, req.user.name);
       await notifyRateEdits(lines, pi, req.user.name);
     }
     if (transport != null) pi.transport = +transport || 0;

@@ -10,7 +10,11 @@ import { piApi } from '../api';
 export default function PIPreview({ dealer, initialLines, onBack }) {
   const { showToast } = useToast();
   const { user } = useAuth();
-  const canPriceBelowBase = ['admin', 'masterAdmin'].includes(user?.role);
+  // Anyone can price below base now — it just needs Master Admin sign-off
+  // unless they ARE Master Admin (see backend requiresPriceApproval). This
+  // used to hard-block everyone except admin/masterAdmin from even typing a
+  // lower number; now it's purely an informational "will need approval" hint.
+  const needsApproval = user?.role !== 'masterAdmin';
   const nav = useNavigate();
   const [settings, setSettings] = useState(null);
   const [lines, setLines] = useState([]);
@@ -41,7 +45,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
     const tax = +((rate * l.gstPct) / 100).toFixed(2);
     const gross = +(rate + tax).toFixed(2);
     const total = +(gross * l.pcs).toFixed(2);
-    return { ...l, rate, tax, gross, total, rateEdited: rate !== l.listRate, belowFloor: !canPriceBelowBase && rate < l.listRate };
+    return { ...l, rate, tax, gross, total, rateEdited: rate !== l.listRate, belowFloor: needsApproval && rate < l.listRate };
   });
   const subtotal = computed.reduce((s, l) => s + l.total, 0);
   const grandTotal = subtotal;
@@ -50,9 +54,6 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
   const totalPieces = lines.reduce((s, l) => s + l.pcs, 0);
 
   async function save(status) {
-    if (belowFloorLines.length) {
-      return showToast(`Rate can't be below base price for: ${belowFloorLines.map((l) => l.name).join(', ')}`, 'err');
-    }
     if (hasNonStandardGst && !gstConfirmed) return showToast('Confirm GST rates before saving', 'err');
     setSaving(true);
     try {
@@ -62,7 +63,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
         remark,
       });
       if (status === 'Sent') await piApi.setStatus(pi.no, 'Sent');
-      showToast(`PI ${pi.no} saved`, 'g');
+      showToast(belowFloorLines.length ? `PI ${pi.no} saved — sent for Master Admin price approval` : `PI ${pi.no} saved`, 'g');
       nav(`/pis/${pi.no}`);
     } catch (err) { showToast(err.message, 'err'); }
     finally { setSaving(false); }
@@ -120,12 +121,12 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
                 <td className="r">{l.pcs}</td>
                 <td className="r">
                   <input
-                    type="number" step="0.01" min={canPriceBelowBase ? undefined : l.listRate} value={l.rate}
-                    style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12, borderColor: l.belowFloor ? 'var(--red)' : undefined }}
+                    type="number" step="0.01" value={l.rate}
+                    style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12, borderColor: l.belowFloor ? 'var(--orange)' : undefined }}
                     onChange={(e) => editRate(i, e.target.value)}
                   />
                   {l.belowFloor ? (
-                    <div style={{ fontSize: 9, color: 'var(--red)', fontWeight: 600, marginTop: 2 }}>⚠ below base ₹{l.listRate}</div>
+                    <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600, marginTop: 2 }}>⚠ below ₹{l.listRate} — needs Master Admin approval</div>
                   ) : l.rateEdited && (
                     <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600, marginTop: 2 }}>✎ edited (list ₹{l.listRate})</div>
                   )}

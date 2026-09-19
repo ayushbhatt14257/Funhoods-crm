@@ -17,7 +17,10 @@ export default function PIDetail() {
   const [searchParams] = useSearchParams();
   const { showToast } = useToast();
   const { user } = useAuth();
-  const canPriceBelowBase = ['admin', 'masterAdmin'].includes(user?.role);
+  // Anyone can price below base now — see PIPreview.jsx and the backend's
+  // requiresPriceApproval for the full explanation; only Master Admin's own
+  // edits skip the approval queue.
+  const needsApproval = user?.role !== 'masterAdmin';
   const nav = useNavigate();
   const [pi, setPi] = useState(null);
   const [dealer, setDealer] = useState(null);
@@ -143,13 +146,10 @@ export default function PIDetail() {
   }
 
   const editTotal = editLines.reduce((s, l) => s + l.pcs * l.rate * (1 + (l.gstPct || 5) / 100), 0);
-  const belowFloorEditLines = canPriceBelowBase ? [] : editLines.filter((l) => l.rate < l.listRate);
+  const belowFloorEditLines = needsApproval ? editLines.filter((l) => l.rate < l.listRate) : [];
 
   async function saveEdit() {
     if (!editLines.length) return showToast('PI needs at least one item', 'err');
-    if (belowFloorEditLines.length) {
-      return showToast(`Rate can't be below base price for: ${belowFloorEditLines.map((l) => l.name).join(', ')}`, 'err');
-    }
     setSaving(true);
     try {
       const updated = await piApi.update(no, {
@@ -158,7 +158,7 @@ export default function PIDetail() {
       });
       setPi(updated);
       setEditing(false);
-      showToast('PI updated', 'g');
+      showToast(belowFloorEditLines.length ? 'PI updated — sent for Master Admin price approval' : 'PI updated', 'g');
     } catch (err) { showToast(err.message, 'err'); }
     finally { setSaving(false); }
   }
@@ -187,11 +187,11 @@ export default function PIDetail() {
                   <td><input type="number" style={{ width: 90 }} value={l.pcs} onChange={(e) => editField(i, 'pcs', e.target.value)} /></td>
                   <td>
                     <input
-                      type="number" step="0.01" min={canPriceBelowBase ? undefined : l.listRate} style={{ width: 90, borderColor: !canPriceBelowBase && l.rate < l.listRate ? 'var(--red)' : undefined }}
+                      type="number" step="0.01" style={{ width: 90, borderColor: needsApproval && l.rate < l.listRate ? 'var(--orange)' : undefined }}
                       value={l.rate} onChange={(e) => editField(i, 'rate', e.target.value)}
                     />
-                    {!canPriceBelowBase && l.rate < l.listRate ? (
-                      <div style={{ fontSize: 9, color: 'var(--red)', fontWeight: 600 }}>⚠ below base ₹{l.listRate}</div>
+                    {needsApproval && l.rate < l.listRate ? (
+                      <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600 }}>⚠ below ₹{l.listRate} — needs Master Admin approval</div>
                     ) : l.rate !== l.listRate && (
                       <div style={{ fontSize: 9, color: 'var(--orange)' }}>edited (list ₹{l.listRate})</div>
                     )}
