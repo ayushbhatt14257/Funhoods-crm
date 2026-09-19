@@ -59,7 +59,7 @@ export default function Login() {
       const cred = await confirmation.confirm(otp.trim());
       const idToken = await cred.user.getIdToken();
       await otpLogin(idToken);
-      nav('/');
+      nav('/'); // Home() handles routing roles like delivery/inward to their actual landing page
     } catch (err) {
       showToast(err.code === 'auth/invalid-verification-code' ? 'Wrong OTP — try again' : err.message, 'err');
     } finally { setBusy(false); }

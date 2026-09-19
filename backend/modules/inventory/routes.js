@@ -13,18 +13,19 @@ router.get('/production-planning/export', allow('admin', 'masterAdmin'), ctrl.ex
 router.patch('/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), ctrl.adjust);
 router.post('/bulk-set', allow('mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.bulkSet);
 
-// Barcode stock-in — generating batches is an admin/masterAdmin call
-// (that's the "master sets the carton size and prints labels" part); the
+// Barcode stock-in — generating batches is an admin/masterAdmin/inward call
+// (that's the "master sets the carton size and prints labels" part, plus
+// the new inward role that ONLY does this and the scan-in below); the
 // actual warehouse scan-and-confirm is open to whoever handles physical
-// stock day to day, same role set as manually adjusting inventory.
-router.post('/stock-in-batches', allow('admin', 'masterAdmin'), barcodeCtrl.generateBatch);
-router.get('/stock-in-batches/:batchId', allow('admin', 'masterAdmin'), barcodeCtrl.getBatch);
+// stock day to day, same role set as manually adjusting inventory, plus inward.
+router.post('/stock-in-batches', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.generateBatch);
+router.get('/stock-in-batches/:batchId', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getBatch);
 // Must come before '/carton/:code' below — otherwise Express matches
 // "by-product"/"all"/"recent-batches" as the :code param and these routes never fire.
-router.get('/carton/by-product/:code', allow('admin', 'masterAdmin'), barcodeCtrl.getByProduct);
-router.get('/carton/recent-batches', allow('admin', 'masterAdmin'), barcodeCtrl.getRecentBatches);
+router.get('/carton/by-product/:code', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getByProduct);
+router.get('/carton/recent-batches', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getRecentBatches);
 router.delete('/carton/all', allow('masterAdmin'), barcodeCtrl.clearAll);
-router.get('/carton/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.lookupCarton);
-router.post('/carton/:code/confirm', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.confirmCarton);
+router.get('/carton/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.lookupCarton);
+router.post('/carton/:code/confirm', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.confirmCarton);
 
 module.exports = router;

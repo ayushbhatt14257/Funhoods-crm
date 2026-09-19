@@ -3,7 +3,7 @@ import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
 
-const ROLES = ['field', 'mhead', 'accounts', 'dispatch', 'delivery', 'admin', 'masterAdmin'];
+const ROLES = ['field', 'mhead', 'accounts', 'dispatch', 'delivery', 'inward', 'admin', 'masterAdmin'];
 
 // masterAdmin-only team management — creating users, changing roles, and
 // activating/deactivating. Login is OTP-only, so there's no password to

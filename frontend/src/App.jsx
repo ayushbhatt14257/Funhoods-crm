@@ -36,9 +36,11 @@ function PrivateRoute({ children }) {
 
 // Delivery role only deals with dispatched orders — send them straight to
 // Tax Invoices instead of the full dashboard, which they have no nav link to anyway.
+// Same idea for inward: it only has Stock In (Scan) and Generate Barcodes.
 function Home() {
   const { user } = useAuth();
   if (user?.role === 'delivery') return <Navigate to="/invoices" replace />;
+  if (user?.role === 'inward') return <Navigate to="/stock-in" replace />;
   return <Dashboard />;
 }
 

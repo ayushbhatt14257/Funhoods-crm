@@ -20,13 +20,13 @@ const NAV = [
   { to: '/products', label: 'Products', icon: '📦', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/aliases', label: 'SKU nicknames', icon: '🏷️', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/inventory', label: 'Inventory', icon: '📊', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
-  { to: '/stock-in', label: 'Stock In (Scan)', icon: '📷', roles: ['mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
-  { to: '/generate-barcodes', label: 'Generate Barcodes', icon: '🏷️', roles: ['admin', 'masterAdmin'] },
+  { to: '/stock-in', label: 'Stock In (Scan)', icon: '📷', roles: ['mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'] },
+  { to: '/generate-barcodes', label: 'Generate Barcodes', icon: '🏷️', roles: ['admin', 'masterAdmin', 'inward'] },
   { group: 'Setup' },
   { to: '/import', label: 'Bulk Import', icon: '⬆️', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/settings', label: 'Company Settings', icon: '⚙️', roles: ['admin', 'masterAdmin'] },
   { to: '/users', label: 'Users', icon: '👤', roles: ['masterAdmin'] },
-  { to: '/profile', label: 'Profile', icon: '🙍', roles: ['field', 'mhead', 'accounts', 'dispatch', 'delivery', 'admin', 'masterAdmin'] },
+  { to: '/profile', label: 'Profile', icon: '🙍', roles: ['field', 'mhead', 'accounts', 'dispatch', 'delivery', 'inward', 'admin', 'masterAdmin'] },
   { to: '/notifications', label: 'Notifications', icon: '🔔', roles: ['admin', 'masterAdmin'] },
 ];
 
