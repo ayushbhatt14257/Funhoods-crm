@@ -33,6 +33,7 @@ export default function GenerateBarcodes() {
   const [qtyOverride, setQtyOverride] = useState('');
   const [batch, setBatch] = useState(null); // { batchId, product, qty, cartons }
   const [generating, setGenerating] = useState(false);
+  const [silentPrint, setSilentPrint] = useState(false); // true for a reprint — skip the on-screen preview, go straight to the print dialog
   const [recentBatches, setRecentBatches] = useState(null); // null = loading
   const [recentLimit, setRecentLimit] = useState(10);
   const [recentHasMore, setRecentHasMore] = useState(true);
@@ -69,7 +70,9 @@ export default function GenerateBarcodes() {
   }
 
   // Render each carton's QR code onto its label's <canvas> once the batch is
-  // on screen. Re-runs whenever a new batch comes in.
+  // on screen. Re-runs whenever a new batch comes in. For a silent reprint,
+  // the print dialog only fires from HERE, after the QR codes are actually
+  // drawn — printing any earlier would print blank/undrawn canvases.
   useEffect(() => {
     if (!batch) return;
     (async () => {
@@ -93,7 +96,15 @@ export default function GenerateBarcodes() {
           canvas.style.height = '';
         }
       });
+      if (silentPrint) {
+        printLabels();
+        setSilentPrint(false); // one-shot — a later fresh "Generate" should show its preview normally
+      }
     })();
+    // silentPrint is intentionally excluded here — this should only run when
+    // the batch itself changes, not again when silentPrint flips back to
+    // false right above (that would print a second time).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batch]);
 
   async function generate() {
@@ -102,6 +113,7 @@ export default function GenerateBarcodes() {
     setGenerating(true);
     try {
       const res = await barcodeApi.generateBatch(product.code, +cartonCount, qtyOverride ? +qtyOverride : undefined);
+      setSilentPrint(false); // fresh batch always shows its preview, never silent
       setBatch(res);
       showToast(`Generated ${res.cartons.length} barcodes`, 'g');
       loadRecentBatches(recentLimit); // so the new batch shows up in the history right away, keeping however many rows were already loaded
@@ -146,21 +158,24 @@ export default function GenerateBarcodes() {
     finally { setDetailLoading(false); }
   }
 
-  // Reprint an already-generated batch — jumps back to the Generate tab
-  // with that batch's labels loaded inline, same print flow as a fresh batch.
+  // Reprint an already-generated batch — no preview, no tab switch: sets the
+  // batch silently and the print dialog fires on its own once the QR codes
+  // are drawn (see the effect above). Whatever tab you're on (Track, most
+  // likely) stays exactly as it is — the only visible thing that happens is
+  // the browser's print dialog opening.
   function reprintBatch() {
     if (!openBatchDetail) return;
+    setSilentPrint(true);
     setBatch(openBatchDetail);
-    setTab('generate');
   }
 
-  // Reprint just ONE carton's label — same inline flow, just a single-item
+  // Reprint just ONE carton's label — same silent flow, just a single-item
   // batch built on the fly from whatever product/batch context is already
   // on screen.
   function reprintSingleCarton(carton) {
     if (!openBatchDetail) return;
+    setSilentPrint(true);
     setBatch({ ...openBatchDetail, cartons: [carton] });
-    setTab('generate');
   }
 
   const filteredCartons = openBatchDetail
@@ -217,6 +232,38 @@ export default function GenerateBarcodes() {
         <button className={tab === 'track' ? 'btn sm' : 'btn o sm'} onClick={() => setTab('track')}>📊 Track</button>
       </div>
 
+      {batch && (
+        <>
+          {!silentPrint && (
+            <div className="btnrow no-print" style={{ marginTop: 16 }}>
+              <button className="btn g" onClick={printLabels}>🖨️ Print {batch.cartons.length} labels</button>
+            </div>
+          )}
+          {/* #print-area is the app-wide convention (see theme.css / Letterhead.jsx) —
+              the global print stylesheet hides everything on the page EXCEPT this,
+              so without this wrapper the printed sheet comes out completely blank
+              regardless of what's inside .label-sheet.
+              For a silent reprint, "silent-print" additionally moves this
+              off-screen (but still rendered, so it still prints) — that's what
+              stops a reprint from ever visibly appearing on the page at all,
+              regardless of which tab is currently active. */}
+          <div id="print-area" className={silentPrint ? 'silent-print' : ''}>
+            <div className="label-sheet">
+              {batch.cartons.map((c) => (
+                <div className="label" key={c.code}>
+                  <div className="label-name">{batch.product.name}</div>
+                  <div className="label-sku">{batch.product.code}</div>
+                  <div className="label-qty">{batch.qty} pcs</div>
+                  <canvas id={`qr-${c.code}`} className="label-qr"></canvas>
+                  <div className="label-code">{c.code}</div>
+                  <div className="label-date">{new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
       {tab === 'generate' && (
         <>
           <div className="card no-print" style={{ maxWidth: 480 }}>
@@ -241,31 +288,6 @@ export default function GenerateBarcodes() {
             <button className="btn" disabled={generating} onClick={generate}>{generating ? 'Generating…' : 'Generate batch'}</button>
           </div>
 
-          {batch && (
-            <>
-              <div className="btnrow no-print" style={{ marginTop: 16 }}>
-                <button className="btn g" onClick={printLabels}>🖨️ Print {batch.cartons.length} labels</button>
-              </div>
-              {/* #print-area is the app-wide convention (see theme.css / Letterhead.jsx) —
-                  the global print stylesheet hides everything on the page EXCEPT this,
-                  so without this wrapper the printed sheet comes out completely blank
-                  regardless of what's inside .label-sheet. */}
-              <div id="print-area">
-                <div className="label-sheet">
-                  {batch.cartons.map((c) => (
-                    <div className="label" key={c.code}>
-                      <div className="label-name">{batch.product.name}</div>
-                      <div className="label-sku">{batch.product.code}</div>
-                      <div className="label-qty">{batch.qty} pcs</div>
-                      <canvas id={`qr-${c.code}`} className="label-qr"></canvas>
-                      <div className="label-code">{c.code}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-
           {recentBatches !== null && (
             <div className="card no-print" style={{ marginTop: 16 }}>
               <h3 style={{ marginTop: 0 }}>Recent batches</h3>
@@ -280,7 +302,16 @@ export default function GenerateBarcodes() {
                         <Fragment key={b.batchId}>
                           <tr>
                             <td>{b.photo ? <img src={b.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
-                            <td><b>{b.productName}</b> <span className="mono muted" style={{ fontSize: 10 }}>{b.product}</span></td>
+                            <td>
+                              <b
+                                style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--spruce)' }}
+                                onClick={() => { setTab('track'); loadTrack({ code: b.product, name: b.productName, photo: b.photo }); }}
+                                title="View this product's batch history"
+                              >
+                                {b.productName}
+                              </b>{' '}
+                              <span className="mono muted" style={{ fontSize: 10 }}>{b.product}</span>
+                            </td>
                             <td>{b.cartons}</td>
                             <td>{b.qty}</td>
                             <td style={{ color: 'var(--green)', fontWeight: 600 }}>{b.used}</td>
@@ -396,7 +427,15 @@ export default function GenerateBarcodes() {
         .label-qty { font-weight: 600; font-size: 17px; color: var(--muted); margin-bottom: 8px; }
         .label-qr { width: 34mm; height: 34mm; display: block; margin: 0 auto; }
         .label-code { font-family: var(--mono); font-size: 14px; color: var(--muted); margin-top: 6px; letter-spacing: 0.02em; }
+        .label-date { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 2px; }
+        /* Reprints render off-screen (never display:none — that would stop
+           it from printing too) rather than in the normal page flow, so a
+           reprint never visibly appears or shifts anything on the page —
+           the only thing that happens is the print dialog opening. Reset
+           back to normal flow under print so it actually lands on the page. */
+        .silent-print { position: fixed; left: -9999px; top: 0; }
         @media print {
+          .silent-print { position: static; left: auto; top: auto; }
           .no-print { display: none !important; }
           /* Literal values only — Chrome does not reliably apply CSS custom
              properties (var(...)) inside @page, so this must stay hardcoded.
