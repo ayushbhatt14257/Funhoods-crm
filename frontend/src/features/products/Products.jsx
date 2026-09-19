@@ -64,33 +64,14 @@ export default function Products() {
 
   async function save() {
     try {
+      const body = { ...form, cartonOuter: +form.cartonOuter, cartonInner: +form.cartonInner || undefined, rate: +form.rate, gst_pct: +form.gst_pct };
       if (isNew) {
-        const body = { ...form, cartonOuter: +form.cartonOuter, cartonInner: +form.cartonInner || undefined, rate: +form.rate, gst_pct: +form.gst_pct };
         await productsApi.create(body);
         showToast('Product created — add photos/video from its page', 'g');
-        setEditing(null);
-        load();
-        return;
+      } else {
+        await productsApi.update(editing.code, body);
+        showToast('Product updated', 'g');
       }
-
-      let targetCode = editing.code;
-      const newCode = form.code.trim().toUpperCase();
-      if (user.role === 'masterAdmin' && newCode !== editing.code) {
-        const ok = confirm(
-          `Change this product's code from ${editing.code} to ${newCode}?\n\n` +
-          `If ${newCode} already belongs to another product, both products will SWAP codes — every existing PI, invoice, and stock record for both will update to match. ` +
-          `This cannot be undone automatically, and it will NOT change any barcode label already printed with the old code.`
-        );
-        if (!ok) return;
-        const res = await productsApi.renameCode(editing.code, newCode);
-        showToast(res.message, 'g');
-        targetCode = newCode;
-      }
-
-      const body = { ...form, cartonOuter: +form.cartonOuter, cartonInner: +form.cartonInner || undefined, rate: +form.rate, gst_pct: +form.gst_pct };
-      delete body.code; // code changes only ever go through renameCode above
-      await productsApi.update(targetCode, body);
-      showToast('Product updated', 'g');
       setEditing(null);
       load();
     } catch (err) { showToast(err.message, 'err'); }
@@ -191,11 +172,8 @@ export default function Products() {
       {editing && (
         <Modal title={isNew ? 'New product' : `Quick edit — ${editing.name}`} onClose={() => setEditing(null)}>
           <div className="row2">
-            <div className="fg"><label>Code {isNew ? '*' : user.role === 'masterAdmin' ? '(masterAdmin only)' : '(locked)'}</label>
-              <input value={form.code} disabled={!isNew && user.role !== 'masterAdmin'} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} />
-              {!isNew && user.role === 'masterAdmin' && (
-                <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Changing this updates every PI, invoice, and stock record for this product. If the new code already belongs to another product, both will swap codes.</div>
-              )}
+            <div className="fg"><label>Code {isNew ? '*' : '(locked)'}</label>
+              <input value={form.code} disabled={!isNew} onChange={(e) => setForm({ ...form, code: e.target.value })} />
             </div>
             <div className="fg"><label>Name *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           </div>
