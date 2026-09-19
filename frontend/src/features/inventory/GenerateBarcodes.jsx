@@ -34,6 +34,9 @@ export default function GenerateBarcodes() {
   const [batch, setBatch] = useState(null); // { batchId, product, qty, cartons }
   const [generating, setGenerating] = useState(false);
   const [recentBatches, setRecentBatches] = useState(null); // null = loading
+  const [recentLimit, setRecentLimit] = useState(10);
+  const [recentHasMore, setRecentHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // --- Track tab ---
   const [showTrackPicker, setShowTrackPicker] = useState(false);
@@ -48,8 +51,21 @@ export default function GenerateBarcodes() {
   useEffect(() => { api.get('/products').then(setProducts); }, []);
   useEffect(() => { loadRecentBatches(); }, []);
 
-  function loadRecentBatches() {
-    barcodeApi.getRecentBatches(10).then(setRecentBatches).catch(() => setRecentBatches([]));
+  function loadRecentBatches(limit = 10) {
+    barcodeApi.getRecentBatches(limit).then((rows) => {
+      setRecentBatches(rows);
+      setRecentLimit(limit);
+      setRecentHasMore(rows.length >= limit); // heuristic: got a full page, there's likely more
+    }).catch(() => setRecentBatches([]));
+  }
+
+  function loadMoreBatches() {
+    const next = recentLimit + 10;
+    setLoadingMore(true);
+    barcodeApi.getRecentBatches(next)
+      .then((rows) => { setRecentBatches(rows); setRecentLimit(next); setRecentHasMore(rows.length >= next); })
+      .catch((err) => showToast(err.message, 'err'))
+      .finally(() => setLoadingMore(false));
   }
 
   // Render each carton's QR code onto its label's <canvas> once the batch is
@@ -88,7 +104,7 @@ export default function GenerateBarcodes() {
       const res = await barcodeApi.generateBatch(product.code, +cartonCount, qtyOverride ? +qtyOverride : undefined);
       setBatch(res);
       showToast(`Generated ${res.cartons.length} barcodes`, 'g');
-      loadRecentBatches(); // so the new batch shows up in the history right away
+      loadRecentBatches(recentLimit); // so the new batch shows up in the history right away, keeping however many rows were already loaded
     } catch (err) { showToast(err.message, 'err'); }
     finally { setGenerating(false); }
   }
@@ -151,6 +167,46 @@ export default function GenerateBarcodes() {
     ? openBatchDetail.cartons.filter((c) => detailFilter === 'all' || c.status === (detailFilter === 'used' ? 'used' : 'unused'))
     : [];
 
+  // Shared between Recent Batches (Generate tab) and Track tab's per-product
+  // batch list — same expand-in-place row, same reprint actions, so a batch
+  // can be reprinted right from Recent Batches without going to Track first.
+  function renderBatchDetailRow(batchId, colSpan) {
+    if (openBatch !== batchId) return null;
+    return (
+      <tr>
+        <td colSpan={colSpan} style={{ background: 'var(--paper-d)' }}>
+          {detailLoading ? (
+            <div className="empty">Loading cartons…</div>
+          ) : openBatchDetail && (
+            <div style={{ padding: '10px 4px' }}>
+              <div className="btnrow" style={{ marginBottom: 10 }}>
+                <button className={detailFilter === 'all' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('all')}>All ({openBatchDetail.cartons.length})</button>
+                <button className={detailFilter === 'unused' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('unused')}>Unscanned ({openBatchDetail.cartons.filter((c) => c.status === 'unused').length})</button>
+                <button className={detailFilter === 'used' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('used')}>Scanned ({openBatchDetail.cartons.filter((c) => c.status === 'used').length})</button>
+                <button className="btn o sm" style={{ marginLeft: 'auto' }} onClick={reprintBatch}>🖨️ Reprint this batch</button>
+              </div>
+              <table className="dt">
+                <thead><tr><th>Carton code</th><th>Status</th><th>Scanned by</th><th>Scanned at</th><th></th></tr></thead>
+                <tbody>
+                  {filteredCartons.map((c) => (
+                    <tr key={c.code}>
+                      <td className="mono" style={{ fontSize: 11 }}>{c.code}</td>
+                      <td><span className={`badge ${c.status === 'used' ? 'g' : 'y'}`}>{c.status === 'used' ? 'Scanned' : 'Unscanned'}</span></td>
+                      <td>{c.usedBy || '—'}</td>
+                      <td>{c.usedAt ? new Date(c.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                      <td><button className="btn o sm" onClick={() => reprintSingleCarton(c)}>🖨️ Reprint</button></td>
+                    </tr>
+                  ))}
+                  {!filteredCartons.length && <tr><td colSpan={5}><div className="empty">No cartons in this filter</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div>
       <div className="ph"><div className="eyebrow">Stock-in setup</div><h2>Generate Barcodes</h2>
@@ -211,27 +267,38 @@ export default function GenerateBarcodes() {
           )}
 
           {recentBatches !== null && (
-            <div className="card no-print" style={{ marginTop: 16, maxWidth: 760 }}>
+            <div className="card no-print" style={{ marginTop: 16 }}>
               <h3 style={{ marginTop: 0 }}>Recent batches</h3>
               {!recentBatches.length ? (
                 <div className="empty">No batches generated yet.</div>
               ) : (
                 <div className="tblwrap">
                   <table className="dt">
-                    <thead><tr><th></th><th>Product</th><th>Cartons</th><th>Pcs/carton</th><th>Generated</th><th>By</th></tr></thead>
+                    <thead><tr><th></th><th>Product</th><th>Cartons</th><th>Pcs/carton</th><th>Scanned</th><th>Unscanned</th><th>Generated</th><th>By</th><th></th></tr></thead>
                     <tbody>
                       {recentBatches.map((b) => (
-                        <tr key={b.batchId}>
-                          <td>{b.photo ? <img src={b.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
-                          <td><b>{b.productName}</b> <span className="mono muted" style={{ fontSize: 10 }}>{b.product}</span></td>
-                          <td>{b.cartons}</td>
-                          <td>{b.qty}</td>
-                          <td>{new Date(b.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                          <td>{b.createdBy || '—'}</td>
-                        </tr>
+                        <Fragment key={b.batchId}>
+                          <tr>
+                            <td>{b.photo ? <img src={b.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
+                            <td><b>{b.productName}</b> <span className="mono muted" style={{ fontSize: 10 }}>{b.product}</span></td>
+                            <td>{b.cartons}</td>
+                            <td>{b.qty}</td>
+                            <td style={{ color: 'var(--green)', fontWeight: 600 }}>{b.used}</td>
+                            <td style={{ color: b.unused ? 'var(--red)' : 'inherit', fontWeight: b.unused ? 600 : 400 }}>{b.unused}</td>
+                            <td>{new Date(b.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                            <td>{b.createdBy || '—'}</td>
+                            <td><button className="btn o sm" onClick={() => toggleBatch(b.batchId)}>{openBatch === b.batchId ? 'Hide' : 'View'}</button></td>
+                          </tr>
+                          {renderBatchDetailRow(b.batchId, 9)}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
+                  {recentHasMore && (
+                    <div className="btnrow" style={{ marginTop: 10, justifyContent: 'center' }}>
+                      <button className="btn o sm" disabled={loadingMore} onClick={loadMoreBatches}>{loadingMore ? 'Loading…' : 'Load 10 more'}</button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -285,39 +352,7 @@ export default function GenerateBarcodes() {
                           <td style={{ color: b.unused ? 'var(--red)' : 'inherit', fontWeight: b.unused ? 600 : 400 }}>{b.unused}</td>
                           <td><button className="btn o sm" onClick={() => toggleBatch(b.batchId)}>{openBatch === b.batchId ? 'Hide' : 'View cartons'}</button></td>
                         </tr>
-                        {openBatch === b.batchId && (
-                          <tr>
-                            <td colSpan={8} style={{ background: 'var(--paper-d)' }}>
-                              {detailLoading ? (
-                                <div className="empty">Loading cartons…</div>
-                              ) : openBatchDetail && (
-                                <div style={{ padding: '10px 4px' }}>
-                                  <div className="btnrow" style={{ marginBottom: 10 }}>
-                                    <button className={detailFilter === 'all' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('all')}>All ({openBatchDetail.cartons.length})</button>
-                                    <button className={detailFilter === 'unused' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('unused')}>Unscanned ({openBatchDetail.cartons.filter((c) => c.status === 'unused').length})</button>
-                                    <button className={detailFilter === 'used' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('used')}>Scanned ({openBatchDetail.cartons.filter((c) => c.status === 'used').length})</button>
-                                    <button className="btn o sm" style={{ marginLeft: 'auto' }} onClick={reprintBatch}>🖨️ Reprint this batch</button>
-                                  </div>
-                                  <table className="dt">
-                                    <thead><tr><th>Carton code</th><th>Status</th><th>Scanned by</th><th>Scanned at</th><th></th></tr></thead>
-                                    <tbody>
-                                      {filteredCartons.map((c) => (
-                                        <tr key={c.code}>
-                                          <td className="mono" style={{ fontSize: 11 }}>{c.code}</td>
-                                          <td><span className={`badge ${c.status === 'used' ? 'g' : 'y'}`}>{c.status === 'used' ? 'Scanned' : 'Unscanned'}</span></td>
-                                          <td>{c.usedBy || '—'}</td>
-                                          <td>{c.usedAt ? new Date(c.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                                          <td><button className="btn o sm" onClick={() => reprintSingleCarton(c)}>🖨️ Reprint</button></td>
-                                        </tr>
-                                      ))}
-                                      {!filteredCartons.length && <tr><td colSpan={5}><div className="empty">No cartons in this filter</div></td></tr>}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        )}
+                        {renderBatchDetailRow(b.batchId, 8)}
                       </Fragment>
                     ))}
                     {!trackData.batches.length && <tr><td colSpan={8}><div className="empty">No batches generated for this product yet</div></td></tr>}

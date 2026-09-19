@@ -99,7 +99,7 @@ async function getByProduct(req, res) {
 // "what did we just generate" glance on the Generate tab, separate from the
 // Track tab's per-product deep-dive.
 async function getRecentBatches(req, res) {
-  const limit = Math.min(50, Math.max(1, +req.query.limit || 10));
+  const limit = Math.min(200, Math.max(1, +req.query.limit || 10));
   const rows = await CartonBarcode.aggregate([
     {
       $group: {
@@ -110,6 +110,7 @@ async function getRecentBatches(req, res) {
         createdAt: { $min: '$createdAt' },
         createdBy: { $first: '$createdBy' },
         total: { $sum: 1 },
+        used: { $sum: { $cond: [{ $eq: ['$status', 'used'] }, 1, 0] } },
       },
     },
     { $sort: { createdAt: -1 } },
@@ -123,7 +124,8 @@ async function getRecentBatches(req, res) {
   res.json(
     rows.map((r) => ({
       batchId: r._id, product: r.product, productName: r.productName, photo: photoByCode[r.product] || '',
-      qty: r.qty, cartons: r.total, createdBy: r.createdBy || '', createdAt: r.createdAt,
+      qty: r.qty, cartons: r.total, used: r.used, unused: r.total - r.used,
+      createdBy: r.createdBy || '', createdAt: r.createdAt,
     }))
   );
 }
