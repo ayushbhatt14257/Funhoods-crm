@@ -252,11 +252,9 @@ export default function GenerateBarcodes() {
               {batch.cartons.map((c) => (
                 <div className="label" key={c.code}>
                   <div className="label-name">{batch.product.name}</div>
-                  <div className="label-sku">{batch.product.code}</div>
-                  <div className="label-qty">{batch.qty} pcs</div>
+                  <div className="label-meta"><b>{batch.product.code}</b> · {batch.qty} pcs</div>
                   <canvas id={`qr-${c.code}`} className="label-qr"></canvas>
-                  <div className="label-code">{c.code}</div>
-                  <div className="label-date">{new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="label-footer">{c.code} · {new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
                 </div>
               ))}
             </div>
@@ -422,12 +420,11 @@ export default function GenerateBarcodes() {
           align-items: center;
           overflow: hidden;
         }
-        .label-name { font-weight: 700; font-size: 24px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-        .label-sku { font-family: var(--mono); font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-        .label-qty { font-weight: 600; font-size: 17px; color: var(--muted); margin-bottom: 8px; }
-        .label-qr { width: 34mm; height: 34mm; display: block; margin: 0 auto; }
-        .label-code { font-family: var(--mono); font-size: 14px; color: var(--muted); margin-top: 6px; letter-spacing: 0.02em; }
-        .label-date { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 2px; }
+        .label-name { font-weight: 700; font-size: 22px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .label-meta { font-size: 14px; color: var(--muted); margin: 3px 0 8px; }
+        .label-meta b { font-family: var(--mono); }
+        .label-qr { width: 32mm; height: 32mm; display: block; margin: 0 auto; }
+        .label-footer { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; letter-spacing: 0.01em; }
         /* Reprints render off-screen (never display:none — that would stop
            it from printing too) rather than in the normal page flow, so a
            reprint never visibly appears or shifts anything on the page —
