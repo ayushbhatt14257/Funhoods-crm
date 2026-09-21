@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '../../../context/ToastContext';
 import { barcodeApi } from '../../inventory/barcodeApi';
 import CameraScanner from '../../../components/CameraScanner';
@@ -161,6 +161,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     return sum + gross * pcs;
   }, 0);
   const anySelected = rows.some((r) => r.checked);
+  const activeScanRow = rows.find((r) => r.key === scanRow) || null; // the one row (of many) currently showing the fixed scan sheet — see below
 
   return (
     <div className="card">
@@ -188,92 +189,54 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 const avail = available[r.item.code] || { outer: 0, inner: 0 };
                 const canScan = avail.outer > 0 || avail.inner > 0;
                 return (
-                  <Fragment key={r.key}>
-                    <tr>
-                      <td><input type="checkbox" checked={r.checked} onChange={() => toggle(r)} /></td>
-                      <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
-                      <td className="mono muted" style={{ fontSize: 11 }}>{r.item.code}</td>
-                      <td><b>{r.item.name}</b></td>
-                      <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                      <td>
-                        {r.checked ? (
-                          <input
-                            type="number" min={0} max={r.max.outers} value={r.outers}
-                            onChange={(e) => setOuters(r, e.target.value)}
-                            style={{ width: 60 }}
-                          />
-                        ) : <b>{r.max.outers}</b>}
-                        {r.item.cartonOuter > 0 && (
-                          <div className="muted" style={{ fontSize: 10 }}>
-                            {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        {r.checked ? (
-                          <input
-                            type="number" min={0} max={r.max.inners} value={r.inners}
-                            onChange={(e) => setInners(r, e.target.value)}
-                            style={{ width: 60 }}
-                          />
-                        ) : <b>{r.max.inners}</b>}
-                        {r.item.cartonInner > 0 && (
-                          <div className="muted" style={{ fontSize: 10 }}>
-                            {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
-                          </div>
-                        )}
-                      </td>
-                      <td>{r.item.rate}</td>
-                      <td>{r.item.gstPct}</td>
-                      <td>{Math.round(lineTotal).toLocaleString('en-IN')}</td>
-                      <td>
-                        <button
-                          type="button" className="btn o sm"
-                          disabled={!canScan}
-                          title={canScan ? `${avail.outer} outer / ${avail.inner} inner in stock` : 'No tracked cartons in stock for this product'}
-                          onClick={() => openScan(r)}
-                        >
-                          📷 {canScan ? `Scan (${avail.outer + avail.inner} in stock)` : 'No stock to scan'}
-                        </button>
-                      </td>
-                    </tr>
-                    {scanRow === r.key && (
-                      <tr>
-                        <td colSpan={11} style={{ background: 'var(--paper-d)' }}>
-                          <div style={{ padding: '8px 4px' }}>
-                            <form onSubmit={(e) => { e.preventDefault(); submitScan(r, scanValue.trim()); }} className="btnrow" style={{ flexWrap: 'wrap' }}>
-                              <input
-                                autoFocus placeholder={`Type a carton code for ${r.item.name}`}
-                                value={scanValue} onChange={(e) => setScanValue(e.target.value)}
-                                style={{ minWidth: 300 }}
-                              />
-                              <button type="submit" className="btn sm" disabled={scanningRow === r.key}>{scanningRow === r.key ? 'Checking…' : 'Add scan'}</button>
-                              {cameraRow === r.key ? (
-                                <button type="button" className="btn o sm rd" onClick={() => setCameraRow(null)}>Stop camera</button>
-                              ) : (
-                                <button type="button" className="btn o sm" onClick={() => setCameraRow(r.key)}>📷 Open camera</button>
-                              )}
-                              <button type="button" className="btn o sm" onClick={closeScan}>Close</button>
-                              {splitTarget?.rowKey === r.key && (
-                                <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
-                                  {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
-                                </button>
-                              )}
-                            </form>
-                            {cameraRow === r.key && (
-                              <div style={{ maxWidth: 480 }}>
-                                <CameraScanner
-                                  onScan={(code) => { setCameraRow(null); submitScan(r, code); }}
-                                  onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
-                                  onClose={() => setCameraRow(null)}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                  <tr key={r.key}>
+                    <td><input type="checkbox" checked={r.checked} onChange={() => toggle(r)} /></td>
+                    <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
+                    <td className="mono muted" style={{ fontSize: 11 }}>{r.item.code}</td>
+                    <td><b>{r.item.name}</b></td>
+                    <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                    <td>
+                      {r.checked ? (
+                        <input
+                          type="number" min={0} max={r.max.outers} value={r.outers}
+                          onChange={(e) => setOuters(r, e.target.value)}
+                          style={{ width: 60 }}
+                        />
+                      ) : <b>{r.max.outers}</b>}
+                      {r.item.cartonOuter > 0 && (
+                        <div className="muted" style={{ fontSize: 10 }}>
+                          {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {r.checked ? (
+                        <input
+                          type="number" min={0} max={r.max.inners} value={r.inners}
+                          onChange={(e) => setInners(r, e.target.value)}
+                          style={{ width: 60 }}
+                        />
+                      ) : <b>{r.max.inners}</b>}
+                      {r.item.cartonInner > 0 && (
+                        <div className="muted" style={{ fontSize: 10 }}>
+                          {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
+                        </div>
+                      )}
+                    </td>
+                    <td>{r.item.rate}</td>
+                    <td>{r.item.gstPct}</td>
+                    <td>{Math.round(lineTotal).toLocaleString('en-IN')}</td>
+                    <td>
+                      <button
+                        type="button" className="btn o sm"
+                        disabled={!canScan}
+                        title={canScan ? `${avail.outer} outer / ${avail.inner} inner in stock` : 'No tracked cartons in stock for this product'}
+                        onClick={() => openScan(r)}
+                      >
+                        📷 {canScan ? `Scan (${avail.outer + avail.inner} in stock)` : 'No stock to scan'}
+                      </button>
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
@@ -288,6 +251,52 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       {anySelected && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, fontSize: 15, fontWeight: 700 }}>
           Grand Total: ₹{Math.round(grandTotal).toLocaleString('en-IN')}
+        </div>
+      )}
+
+      {/* Fixed bottom sheet, not an inline table row — this is the whole
+          fix for the mobile layout problem: a wide table row that expands
+          inline scrolls out of view (or off to the side on a narrow phone
+          screen) the moment you scroll or the camera opens, so it's easy to
+          lose track of which product you're even scanning for. Anchoring
+          this to the bottom of the viewport means it never moves, and the
+          product name/code stays visible at the top of it at all times. */}
+      {activeScanRow && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 1000, background: 'var(--paper)', borderTop: '1px solid var(--line)', boxShadow: '0 -4px 16px rgba(0,0,0,0.15)', maxHeight: '85vh', overflowY: 'auto' }}>
+          <div style={{ padding: '12px 16px', maxWidth: 560, margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div>
+                <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Scanning for</div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>{activeScanRow.item.name} <span className="mono muted" style={{ fontSize: 11, fontWeight: 400 }}>{activeScanRow.item.code}</span></div>
+              </div>
+              <button type="button" className="btn o sm" onClick={closeScan}>✕ Close</button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); submitScan(activeScanRow, scanValue.trim()); }} className="btnrow" style={{ flexWrap: 'wrap' }}>
+              <input
+                autoFocus placeholder={`Type a carton code for ${activeScanRow.item.name}`}
+                value={scanValue} onChange={(e) => setScanValue(e.target.value)}
+                style={{ minWidth: 220, flex: 1 }}
+              />
+              <button type="submit" className="btn sm" disabled={scanningRow === activeScanRow.key}>{scanningRow === activeScanRow.key ? 'Checking…' : 'Add scan'}</button>
+              {cameraRow === activeScanRow.key ? (
+                <button type="button" className="btn o sm rd" onClick={() => setCameraRow(null)}>Stop camera</button>
+              ) : (
+                <button type="button" className="btn o sm" onClick={() => setCameraRow(activeScanRow.key)}>📷 Open camera</button>
+              )}
+              {splitTarget?.rowKey === activeScanRow.key && (
+                <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
+                  {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
+                </button>
+              )}
+            </form>
+            {cameraRow === activeScanRow.key && (
+              <CameraScanner
+                onScan={(code) => { setCameraRow(null); submitScan(activeScanRow, code); }}
+                onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
+                onClose={() => setCameraRow(null)}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
