@@ -196,7 +196,11 @@ async function confirmCarton(req, res) {
 async function splitCarton(req, res) {
   const carton = await CartonBarcode.findOne({ code: req.params.code });
   if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
-  if (carton.kind !== 'outer') return res.status(400).json({ message: 'Only an outer carton can be split.' });
+  // Old cartons (before this feature shipped) have no `kind` stored at all —
+  // Mongoose defaults only apply to new documents, not retroactively — so
+  // treat a missing kind as 'outer', same as everywhere else this matters.
+  const kind = carton.kind || 'outer';
+  if (kind !== 'outer') return res.status(400).json({ message: 'Only an outer carton can be split.' });
   if (!AVAILABLE_FOR_DISPATCH.includes(carton.status)) {
     return res.status(409).json({ message: `Can't split — this carton is ${carton.status}, not in stock.` });
   }
@@ -285,13 +289,15 @@ async function forDispatchScan(req, res) {
   // FIFO guidance only — find the oldest available carton of the same kind
   // for this product. Never blocks; just tells the caller if they scanned
   // something other than the oldest, so the UI can show a friendly note.
-  const oldest = await CartonBarcode.findOne({ product: carton.product, kind: carton.kind, status: { $in: AVAILABLE_FOR_DISPATCH } }).sort({ createdAt: 1 });
+  // Same missing-kind-on-old-records fix as splitCarton above.
+  const kind = carton.kind || 'outer';
+  const oldest = await CartonBarcode.findOne({ product: carton.product, kind, status: { $in: AVAILABLE_FOR_DISPATCH } }).sort({ createdAt: 1 });
   const fifoNote = oldest && oldest.code !== carton.code
     ? `There's an older carton still in stock (${oldest.code}, generated ${new Date(oldest.createdAt).toLocaleDateString('en-IN')}) — consider using that one first.`
     : null;
 
   res.json({
-    code: carton.code, product: carton.product, productName: carton.productName, qty: carton.qty, kind: carton.kind,
+    code: carton.code, product: carton.product, productName: carton.productName, qty: carton.qty, kind,
     fifoNote,
   });
 }
@@ -307,7 +313,13 @@ async function availableCounts(req, res) {
   if (!codes.length) return res.json({});
   const rows = await CartonBarcode.aggregate([
     { $match: { product: { $in: codes }, status: { $in: AVAILABLE_FOR_DISPATCH } } },
-    { $group: { _id: { product: '$product', kind: '$kind' }, count: { $sum: 1 } } },
+    // $ifNull: every carton generated before this feature shipped has no
+    // `kind` field stored in the DB at all (Mongoose only applies schema
+    // defaults to NEW documents, never retroactively to old ones) — without
+    // this, they'd group under a blank kind and never count as available.
+    // migrateOutward also backfills this properly, but this keeps the
+    // endpoint correct even before that's been run.
+    { $group: { _id: { product: '$product', kind: { $ifNull: ['$kind', 'outer'] } }, count: { $sum: 1 } } },
   ]);
   const result = Object.fromEntries(codes.map((c) => [c, { outer: 0, inner: 0 }]));
   rows.forEach((r) => { result[r._id.product][r._id.kind] = r.count; });
@@ -340,11 +352,21 @@ async function manualDispatchCarton(req, res) {
 // Reinterprets every pre-existing 'unused'/'used' carton as 'pending'/
 // 'in_stock' under the new 3-state lifecycle (outward scanning didn't exist
 // before, so every 'used' record really just means "in stock", never
-// "dispatched"). Safe to run more than once — a no-op the second time.
+// "dispatched"). Also backfills kind:'outer' on every old record that
+// predates this feature entirely — Mongoose schema defaults only apply to
+// NEW documents, so an old carton has no `kind` field in the database at
+// all, not even the default; several queries (availableCounts, splitCarton,
+// FIFO lookup) already defend against that with $ifNull/fallback logic, but
+// this fixes the actual data once so nothing has to work around it forever.
+// Safe to run more than once — a no-op the second time.
 async function migrateOutward(req, res) {
   const a = await CartonBarcode.updateMany({ status: 'unused' }, { $set: { status: 'pending' } });
   const b = await CartonBarcode.updateMany({ status: 'used' }, { $set: { status: 'in_stock' } });
-  res.json({ message: `Migrated ${a.modifiedCount} pending + ${b.modifiedCount} in_stock record(s).`, pending: a.modifiedCount, inStock: b.modifiedCount });
+  const c = await CartonBarcode.updateMany({ kind: { $exists: false } }, { $set: { kind: 'outer', parentCode: '' } });
+  res.json({
+    message: `Migrated ${a.modifiedCount} pending + ${b.modifiedCount} in_stock + ${c.modifiedCount} kind-backfilled record(s).`,
+    pending: a.modifiedCount, inStock: b.modifiedCount, kindBackfilled: c.modifiedCount,
+  });
 }
 
 // DELETE /api/inventory/carton/all — admin/masterAdmin only. Wipes every
