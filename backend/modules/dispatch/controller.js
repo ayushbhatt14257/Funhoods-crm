@@ -413,14 +413,27 @@ async function dispatchFromPool(req, res) {
     // scanning takes effect, mirroring how inward scanning already can't be
     // repeated. Doesn't change the pcs math at all (that's still the
     // existing invByCode/giftPcsByCode logic below) — this is purely the
-    // per-carton traceability layer on top.
-    for (const carton of scannedCartons) {
-      carton.status = 'dispatched';
-      carton.dispatchedTo = dealer.code;
-      carton.dispatchedInvoice = invoice.no;
-      carton.dispatchedBy = req.user.name;
-      carton.dispatchedAt = todayISODate();
-      await carton.save();
+    // per-carton traceability layer on top, which is exactly why it's
+    // wrapped separately here: the invoice above has ALREADY been durably
+    // created by this point, so if marking a carton dispatched throws for
+    // any reason (e.g. a rare version conflict), that must never turn an
+    // already-successful dispatch into what looks like a failed one to
+    // whoever is using this — that's exactly the bug this fixes: the
+    // delivery challan was being created, then this loop would throw, and
+    // the person would see an error message despite the challan already
+    // existing, risking a duplicate dispatch attempt if they assumed it
+    // hadn't gone through and tried again.
+    try {
+      for (const carton of scannedCartons) {
+        carton.status = 'dispatched';
+        carton.dispatchedTo = dealer.code;
+        carton.dispatchedInvoice = invoice.no;
+        carton.dispatchedBy = req.user.name;
+        carton.dispatchedAt = todayISODate();
+        await carton.save();
+      }
+    } catch (err) {
+      console.error(`Dispatch ${invoice.no} succeeded, but marking a scanned carton dispatched failed (traceability only, not the dispatch itself):`, err);
     }
 
     const invByCode = {};
