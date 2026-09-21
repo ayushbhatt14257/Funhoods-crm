@@ -177,7 +177,9 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
           <table className="dt">
             <thead>
               <tr>
-                <th></th><th></th><th>Code</th><th>Product</th><th>Last updated</th>
+                <th></th><th></th><th>Code</th>
+                <th style={{ position: 'sticky', left: 0, background: 'var(--paper-d)', zIndex: 2, boxShadow: '2px 0 6px rgba(0,0,0,0.08)' }}>Product</th>
+                <th>Last updated</th>
                 <th>Outer</th><th>Inner</th><th>Rate ₹</th><th>GST %</th><th>Total ₹</th><th></th>
               </tr>
             </thead>
@@ -193,7 +195,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     <td><input type="checkbox" checked={r.checked} onChange={() => toggle(r)} /></td>
                     <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{r.item.code}</td>
-                    <td><b>{r.item.name}</b></td>
+                    {/* Sticky so scrolling right to reach Outer/Inner/Scan on a
+                        narrow phone never loses sight of WHICH product this
+                        row is — this is the actual fix for "which item am I
+                        scanning" now, at the source, instead of only
+                        repeating the name inside the scan sheet below. */}
+                    <td style={{ position: 'sticky', left: 0, background: 'var(--white)', zIndex: 1, boxShadow: '2px 0 6px rgba(0,0,0,0.08)' }}><b>{r.item.name}</b></td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
                       {r.checked ? (
@@ -260,44 +267,52 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
           screen) the moment you scroll or the camera opens, so it's easy to
           lose track of which product you're even scanning for. Anchoring
           this to the bottom of the viewport means it never moves, and the
-          product name/code stays visible at the top of it at all times. */}
+          product name/code stays visible at the top of it at all times.
+          Backdrop + rounded top corners + a drag-handle bar so it reads as
+          a proper sheet rather than a flat bar glued to the screen edge. */}
       {activeScanRow && (
-        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 1000, background: 'var(--paper)', borderTop: '1px solid var(--line)', boxShadow: '0 -4px 16px rgba(0,0,0,0.15)', maxHeight: '85vh', overflowY: 'auto' }}>
-          <div style={{ padding: '12px 16px', maxWidth: 560, margin: '0 auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div>
-                <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Scanning for</div>
-                <div style={{ fontWeight: 700, fontSize: 16 }}>{activeScanRow.item.name} <span className="mono muted" style={{ fontSize: 11, fontWeight: 400 }}>{activeScanRow.item.code}</span></div>
-              </div>
-              <button type="button" className="btn o sm" onClick={closeScan}>✕ Close</button>
+        <>
+          <div onClick={closeScan} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 999 }} />
+          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 1000, background: 'var(--paper)', borderRadius: '16px 16px 0 0', boxShadow: '0 -8px 24px rgba(0,0,0,0.2)', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 0' }}>
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--line)' }} />
             </div>
-            <form onSubmit={(e) => { e.preventDefault(); submitScan(activeScanRow, scanValue.trim()); }} className="btnrow" style={{ flexWrap: 'wrap' }}>
-              <input
-                autoFocus placeholder={`Type a carton code for ${activeScanRow.item.name}`}
-                value={scanValue} onChange={(e) => setScanValue(e.target.value)}
-                style={{ minWidth: 220, flex: 1 }}
-              />
-              <button type="submit" className="btn sm" disabled={scanningRow === activeScanRow.key}>{scanningRow === activeScanRow.key ? 'Checking…' : 'Add scan'}</button>
-              {cameraRow === activeScanRow.key ? (
-                <button type="button" className="btn o sm rd" onClick={() => setCameraRow(null)}>Stop camera</button>
-              ) : (
-                <button type="button" className="btn o sm" onClick={() => setCameraRow(activeScanRow.key)}>📷 Open camera</button>
+            <div style={{ padding: '10px 16px 16px', maxWidth: 560, margin: '0 auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div>
+                  <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Scanning for</div>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>{activeScanRow.item.name} <span className="mono muted" style={{ fontSize: 11, fontWeight: 400 }}>{activeScanRow.item.code}</span></div>
+                </div>
+                <button type="button" className="btn o sm" onClick={closeScan}>✕ Close</button>
+              </div>
+              <form onSubmit={(e) => { e.preventDefault(); submitScan(activeScanRow, scanValue.trim()); }} className="btnrow" style={{ flexWrap: 'wrap' }}>
+                <input
+                  autoFocus placeholder={`Type a carton code for ${activeScanRow.item.name}`}
+                  value={scanValue} onChange={(e) => setScanValue(e.target.value)}
+                  style={{ minWidth: 220, flex: 1 }}
+                />
+                <button type="submit" className="btn sm" disabled={scanningRow === activeScanRow.key}>{scanningRow === activeScanRow.key ? 'Checking…' : 'Add scan'}</button>
+                {cameraRow === activeScanRow.key ? (
+                  <button type="button" className="btn o sm rd" onClick={() => setCameraRow(null)}>Stop camera</button>
+                ) : (
+                  <button type="button" className="btn o sm" onClick={() => setCameraRow(activeScanRow.key)}>📷 Open camera</button>
+                )}
+                {splitTarget?.rowKey === activeScanRow.key && (
+                  <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
+                    {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
+                  </button>
+                )}
+              </form>
+              {cameraRow === activeScanRow.key && (
+                <CameraScanner
+                  onScan={(code) => { setCameraRow(null); submitScan(activeScanRow, code); }}
+                  onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
+                  onClose={() => setCameraRow(null)}
+                />
               )}
-              {splitTarget?.rowKey === activeScanRow.key && (
-                <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
-                  {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
-                </button>
-              )}
-            </form>
-            {cameraRow === activeScanRow.key && (
-              <CameraScanner
-                onScan={(code) => { setCameraRow(null); submitScan(activeScanRow, code); }}
-                onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
-                onClose={() => setCameraRow(null)}
-              />
-            )}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
