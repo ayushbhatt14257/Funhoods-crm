@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useToast } from '../../../context/ToastContext';
 import { barcodeApi } from '../../inventory/barcodeApi';
+import CameraScanner from '../../../components/CameraScanner';
 
 // Quantity is whole outer/inner cartons. Checking an item defaults to
 // dispatching everything currently confirmed and pending for it (the max
@@ -32,6 +33,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   const [scanRow, setScanRow] = useState(null); // rowKey currently showing its scan input
   const [scanValue, setScanValue] = useState('');
   const [scanningRow, setScanningRow] = useState(null);
+  const [cameraRow, setCameraRow] = useState(null); // rowKey currently showing the camera view (mutually exclusive with typing — one or the other)
   const [splitTarget, setSplitTarget] = useState(null); // { rowKey, code } — last scanned outer, offered for splitting
   const [splitting, setSplitting] = useState(false);
 
@@ -81,8 +83,8 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
-  function openScan(row) { setScanRow(row.key); setScanValue(''); }
-  function closeScan() { setScanRow(null); setScanValue(''); }
+  function openScan(row) { setScanRow(row.key); setScanValue(''); setCameraRow(null); }
+  function closeScan() { setScanRow(null); setScanValue(''); setCameraRow(null); }
 
   // Scanning increments THIS row's outer/inner count by one (capped at max,
   // same rule typing a number already follows) — it's an alternative input
@@ -90,9 +92,10 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   // row's product code to the backend means a carton scanned for the wrong
   // product gets rejected with a precise "that's X, not Y" message, rather
   // than silently applying to whichever row happened to match.
-  async function submitScan(row, e) {
-    e.preventDefault();
-    const code = scanValue.trim();
+  // Takes the code directly (not read from state) so it works identically
+  // whether it came from the typed input's submit or the camera's onScan —
+  // one scan (by either method) is always exactly one carton, handled here once.
+  async function submitScan(row, code) {
     if (!code) return;
     if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); return; }
     setScanningRow(row.key);
@@ -215,20 +218,34 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     {scanRow === r.key && (
                       <tr>
                         <td colSpan={11} style={{ background: 'var(--paper-d)' }}>
-                          <form onSubmit={(e) => submitScan(r, e)} className="btnrow" style={{ padding: '8px 4px', flexWrap: 'wrap' }}>
-                            <input
-                              autoFocus placeholder={`Scan or type a carton code for ${r.item.name}`}
-                              value={scanValue} onChange={(e) => setScanValue(e.target.value)}
-                              style={{ minWidth: 300 }}
-                            />
-                            <button type="submit" className="btn sm" disabled={scanningRow === r.key}>{scanningRow === r.key ? 'Checking…' : 'Add scan'}</button>
-                            <button type="button" className="btn o sm" onClick={closeScan}>Close</button>
-                            {splitTarget?.rowKey === r.key && (
-                              <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
-                                {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
-                              </button>
+                          <div style={{ padding: '8px 4px' }}>
+                            <form onSubmit={(e) => { e.preventDefault(); submitScan(r, scanValue.trim()); }} className="btnrow" style={{ flexWrap: 'wrap' }}>
+                              <input
+                                autoFocus placeholder={`Type a carton code for ${r.item.name}`}
+                                value={scanValue} onChange={(e) => setScanValue(e.target.value)}
+                                style={{ minWidth: 300 }}
+                              />
+                              <button type="submit" className="btn sm" disabled={scanningRow === r.key}>{scanningRow === r.key ? 'Checking…' : 'Add scan'}</button>
+                              {cameraRow === r.key ? (
+                                <button type="button" className="btn o sm rd" onClick={() => setCameraRow(null)}>Stop camera</button>
+                              ) : (
+                                <button type="button" className="btn o sm" onClick={() => setCameraRow(r.key)}>📷 Open camera</button>
+                              )}
+                              <button type="button" className="btn o sm" onClick={closeScan}>Close</button>
+                              {splitTarget?.rowKey === r.key && (
+                                <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
+                                  {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
+                                </button>
+                              )}
+                            </form>
+                            {cameraRow === r.key && (
+                              <CameraScanner
+                                onScan={(code) => { setCameraRow(null); submitScan(r, code); }}
+                                onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
+                                onClose={() => setCameraRow(null)}
+                              />
                             )}
-                          </form>
+                          </div>
                         </td>
                       </tr>
                     )}

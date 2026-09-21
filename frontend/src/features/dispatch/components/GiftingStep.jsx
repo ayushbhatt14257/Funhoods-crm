@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useToast } from '../../../context/ToastContext';
 import { barcodeApi } from '../../inventory/barcodeApi';
+import CameraScanner from '../../../components/CameraScanner';
 import ProductPickerModal from '../../pi/components/ProductPickerModal';
 import ConfirmLineModal from '../../pi/components/ConfirmLineModal';
 
@@ -27,6 +28,7 @@ export default function GiftingStep({ products, gifts, onAddCatalogGift, onAddCu
   const [customWorth, setCustomWorth] = useState('');
   const [scanInput, setScanInput] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
 
   function confirmCatalogGift(product, outers, inners, directPcs) {
     onAddCatalogGift(product, outers, inners, directPcs);
@@ -42,11 +44,11 @@ export default function GiftingStep({ products, gifts, onAddCatalogGift, onAddCu
     setCustomWorth('');
   }
 
-  async function submitScan(e) {
-    e.preventDefault();
-    const code = scanInput.trim();
+  // Takes the code directly (not read from state) so it works identically
+  // whether it came from the typed input's submit or the camera's onScan.
+  async function submitScan(code) {
     if (!code) return;
-    if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); setScanInput(''); return; }
+    if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); return; }
     setScanning(true);
     try {
       const res = await barcodeApi.forDispatch(code, dealerCode, { gift: true }); // gift — no PI-pending check
@@ -68,10 +70,22 @@ export default function GiftingStep({ products, gifts, onAddCatalogGift, onAddCu
     <div className="card">
       <h3 style={{ marginTop: 0 }}>🎁 Gifting <span className="muted" style={{ fontWeight: 400, fontSize: 12.5 }}>(optional — free, not billed)</span></h3>
 
-      <form onSubmit={submitScan} className="btnrow" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
-        <input placeholder="📷 Scan a carton to gift it" value={scanInput} onChange={(e) => setScanInput(e.target.value)} style={{ minWidth: 260 }} />
+      <form onSubmit={(e) => { e.preventDefault(); submitScan(scanInput.trim()); }} className="btnrow" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
+        <input placeholder="Type a carton code to gift it" value={scanInput} onChange={(e) => setScanInput(e.target.value)} style={{ minWidth: 260 }} />
         <button type="submit" className="btn sm" disabled={scanning}>{scanning ? 'Checking…' : 'Add scan'}</button>
+        {cameraOn ? (
+          <button type="button" className="btn o sm rd" onClick={() => setCameraOn(false)}>Stop camera</button>
+        ) : (
+          <button type="button" className="btn o sm" onClick={() => setCameraOn(true)}>📷 Open camera</button>
+        )}
       </form>
+      {cameraOn && (
+        <CameraScanner
+          onScan={(code) => { setCameraOn(false); submitScan(code); }}
+          onError={(msg) => { showToast(msg, 'err'); setCameraOn(false); }}
+          onClose={() => setCameraOn(false)}
+        />
+      )}
 
       <div className="btnrow" style={{ marginBottom: 12 }}>
         <button type="button" className="btn o sm" onClick={() => setShowPicker(true)}>+ Gift a catalog product</button>
