@@ -253,7 +253,11 @@ async function forDispatchScan(req, res) {
   if (!dealerCode) return res.status(400).json({ message: 'dealer is required' });
   const expectedProduct = req.query.product ? String(req.query.product).toUpperCase() : null;
 
-  const carton = await CartonBarcode.findOne({ code: req.params.code });
+  // .lean() everywhere in this function — it's entirely read-only (nothing
+  // here ever calls .save()), so skipping Mongoose's document hydration
+  // (getters, virtuals, change-tracking) is a real, safe speed win on every
+  // one of these queries, not just a micro-optimization.
+  const carton = await CartonBarcode.findOne({ code: req.params.code }).lean();
   if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
 
   if (carton.status === 'dispatched') {
@@ -276,8 +280,13 @@ async function forDispatchScan(req, res) {
   // dispatch/controller.js uses everywhere else for this exact field.
   // Skipped entirely for a gift scan (?gift=1) — a gift is never tied to
   // any PI line by definition, so this check would always wrongly reject it.
+  // Narrowed with 'lines.code' in the query itself (not just filtered in JS
+  // afterward) and .select('lines') so MongoDB only sends back the one
+  // field this actually needs, instead of every PI's full document.
   if (!req.query.gift) {
-    const openPIs = await PI.find({ dealer: dealerCode, status: { $in: ['Confirmed', 'Partial Dispatched'] } });
+    const openPIs = await PI.find(
+      { dealer: dealerCode, status: { $in: ['Confirmed', 'Partial Dispatched'] }, 'lines.code': carton.product }
+    ).select('lines').lean();
     const pendingForProduct = openPIs.some((pi) =>
       pi.lines.some((l) => l.code === carton.product && (l.pending != null ? l.pending : l.pcs) > 0)
     );
@@ -291,7 +300,7 @@ async function forDispatchScan(req, res) {
   // something other than the oldest, so the UI can show a friendly note.
   // Same missing-kind-on-old-records fix as splitCarton above.
   const kind = carton.kind || 'outer';
-  const oldest = await CartonBarcode.findOne({ product: carton.product, kind, status: { $in: AVAILABLE_FOR_DISPATCH } }).sort({ createdAt: 1 });
+  const oldest = await CartonBarcode.findOne({ product: carton.product, kind, status: { $in: AVAILABLE_FOR_DISPATCH } }).sort({ createdAt: 1 }).select('code createdAt').lean();
   const fifoNote = oldest && oldest.code !== carton.code
     ? `There's an older carton still in stock (${oldest.code}, generated ${new Date(oldest.createdAt).toLocaleDateString('en-IN')}) — consider using that one first.`
     : null;

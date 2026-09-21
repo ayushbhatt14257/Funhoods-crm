@@ -71,7 +71,21 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       // Unchecking undoes this row's staging entirely — nothing was
       // actually dispatched (that only happens at the final Dispatch
       // button), so any cartons scanned into this row need to become
-      // scannable again, not stay permanently "used" client-side.
+      // scannable again, not stay permanently "used" client-side. That
+      // means both releasing the codes AND putting back the "available"
+      // count each of those scans had optimistically decremented —
+      // otherwise the Scan button keeps showing a stale, too-low number
+      // even though those exact cartons are scannable again.
+      const released = scannedCodes.filter((s) => s.ownerKey === row.key);
+      if (released.length) {
+        setAvailable((a) => {
+          const next = { ...a, [row.item.code]: { ...a[row.item.code] } };
+          released.forEach((s) => {
+            next[row.item.code][s.kind] = (next[row.item.code][s.kind] || 0) + 1;
+          });
+          return next;
+        });
+      }
       onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
     } else {
       // Defaults to the full max — same as before this row is ever touched.
@@ -118,7 +132,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         if (current.inners >= row.max.inners) { showToast(`Already at the max inner count for ${row.item.name}`, 'err'); return; }
         onSelectionChange({ ...selection, [row.key]: { outers: current.outers, inners: current.inners + 1 } });
       }
-      onScannedCodesChange([...scannedCodes, { code: res.code, ownerKey: row.key }]);
+      onScannedCodesChange([...scannedCodes, { code: res.code, ownerKey: row.key, kind: res.kind }]);
       // Available count just dropped by one for this product/kind — reflect
       // it immediately rather than waiting for a full pool reload.
       setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [res.kind]: Math.max(0, (a[row.item.code]?.[res.kind] || 0) - 1) } }));
