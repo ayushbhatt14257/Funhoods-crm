@@ -49,7 +49,7 @@ export default function GiftingStep({ products, gifts, onAddCatalogGift, onAddCu
     if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); setScanInput(''); return; }
     setScanning(true);
     try {
-      const res = await barcodeApi.forDispatch(code, dealerCode, true); // gift=true — no PI-pending check
+      const res = await barcodeApi.forDispatch(code, dealerCode, { gift: true }); // gift — no PI-pending check
       const product = products.find((p) => p.code === res.product);
       if (!product) { showToast(`${res.productName} not found in the catalogue`, 'err'); return; }
       // One scanned carton = exactly the pcs that carton holds, as one outer

@@ -236,14 +236,18 @@ async function splitCarton(req, res) {
   res.json({ message: `Split into ${innerCount} inner carton(s).`, parentCode: carton.code, children: fresh });
 }
 
-// GET /api/inventory/carton/:code/for-dispatch?dealer=<code> — validates a
-// scanned code is actually usable for THIS dealer's dispatch, and returns
-// FIFO guidance (never blocking — see fifoNote). Called as each carton is
-// scanned on the Dispatch screen, before it's staged locally; nothing here
-// writes anything, the actual dispatch commit is what locks it in.
+// GET /api/inventory/carton/:code/for-dispatch?dealer=<code>&product=<code>
+// — validates a scanned code is actually usable for THIS dealer's dispatch,
+// and returns FIFO guidance (never blocking — see fifoNote). Called as each
+// carton is scanned on the Dispatch screen, before it's staged locally;
+// nothing here writes anything, the actual dispatch commit is what locks it in.
+// `product`, when given (the per-row scan button always sends it), makes
+// this reject a carton scanned into the WRONG row with a precise message,
+// instead of silently letting a mismatched product through.
 async function forDispatchScan(req, res) {
   const dealerCode = String(req.query.dealer || '').toUpperCase();
   if (!dealerCode) return res.status(400).json({ message: 'dealer is required' });
+  const expectedProduct = req.query.product ? String(req.query.product).toUpperCase() : null;
 
   const carton = await CartonBarcode.findOne({ code: req.params.code });
   if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
@@ -255,7 +259,10 @@ async function forDispatchScan(req, res) {
     return res.status(409).json({ message: 'This carton was split into inner cartons — scan one of its inner labels instead.' });
   }
   if (NOT_STOCKED.includes(carton.status)) {
-    return res.status(409).json({ message: 'This carton hasn\'t been stocked in yet — scan it at Stock In first.' });
+    return res.status(409).json({ message: `This QR hasn't been scanned IN yet (still ${carton.status}) — do a Stock In scan first, then it can be scanned for dispatch OUT.` });
+  }
+  if (expectedProduct && carton.product !== expectedProduct) {
+    return res.status(409).json({ message: `This carton is ${carton.productName} (${carton.product}) — scan it in that row instead.` });
   }
 
   // Must actually be part of this dealer's confirmed, undispatched order —
@@ -287,6 +294,24 @@ async function forDispatchScan(req, res) {
     code: carton.code, product: carton.product, productName: carton.productName, qty: carton.qty, kind: carton.kind,
     fifoNote,
   });
+}
+
+// GET /api/inventory/carton/available-counts?codes=A,B,C — how many in_stock
+// outer/inner cartons currently exist for each product code, in one batch
+// call. Powers the per-row scan button on the Dispatch screen: a row with
+// zero available cartons of either kind gets its scan button disabled
+// rather than letting someone try to scan for stock that was never tracked
+// (or has all already been dispatched).
+async function availableCounts(req, res) {
+  const codes = String(req.query.codes || '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
+  if (!codes.length) return res.json({});
+  const rows = await CartonBarcode.aggregate([
+    { $match: { product: { $in: codes }, status: { $in: AVAILABLE_FOR_DISPATCH } } },
+    { $group: { _id: { product: '$product', kind: '$kind' }, count: { $sum: 1 } } },
+  ]);
+  const result = Object.fromEntries(codes.map((c) => [c, { outer: 0, inner: 0 }]));
+  rows.forEach((r) => { result[r._id.product][r._id.kind] = r.count; });
+  res.json(result);
 }
 
 // POST /api/inventory/carton/:code/manual-dispatch — admin/masterAdmin only.
@@ -336,5 +361,5 @@ async function clearAll(req, res) {
 
 module.exports = {
   generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, confirmCarton,
-  splitCarton, forDispatchScan, manualDispatchCarton, migrateOutward, clearAll,
+  splitCarton, forDispatchScan, availableCounts, manualDispatchCarton, migrateOutward, clearAll,
 };

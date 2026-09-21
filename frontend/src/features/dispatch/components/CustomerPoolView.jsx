@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useToast } from '../../../context/ToastContext';
 import { barcodeApi } from '../../inventory/barcodeApi';
 
@@ -28,9 +28,11 @@ function rowKey(item) { return `${item.code}|${item.rate}`; }
 export default function CustomerPoolView({ pool, selection, onSelectionChange, scannedCodes, onScannedCodesChange }) {
   const { showToast } = useToast();
   const [q, setQ] = useState('');
-  const [scanInput, setScanInput] = useState('');
-  const [scanning, setScanning] = useState(false);
-  const [lastScannedOuter, setLastScannedOuter] = useState(null); // { code, productName } — for the "Split this carton" affordance
+  const [available, setAvailable] = useState({}); // product code -> { outer, inner } in_stock counts
+  const [scanRow, setScanRow] = useState(null); // rowKey currently showing its scan input
+  const [scanValue, setScanValue] = useState('');
+  const [scanningRow, setScanningRow] = useState(null);
+  const [splitTarget, setSplitTarget] = useState(null); // { rowKey, code } — last scanned outer, offered for splitting
   const [splitting, setSplitting] = useState(false);
 
   const rows = useMemo(() => {
@@ -48,6 +50,16 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         return { item: it, key, max, outers, inners, checked };
       });
   }, [pool, q, selection]);
+
+  // Fetched once per pool load — how many in_stock outer/inner cartons
+  // actually exist for each product here, so a row with genuinely nothing
+  // to scan (never QR-tracked, or all already dispatched) gets its scan
+  // button disabled instead of inviting a scan that can only fail.
+  useEffect(() => {
+    const codes = [...new Set((pool?.items || []).map((it) => it.code))];
+    if (!codes.length) { setAvailable({}); return; }
+    barcodeApi.availableCounts(codes).then(setAvailable).catch(() => setAvailable({}));
+  }, [pool]);
 
   function toggle(row) {
     if (row.checked) {
@@ -69,45 +81,50 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
-  // Scanning a carton just increments the matching row's outer/inner count
-  // by one (capped at max, same rule typing a number already follows) —
-  // it's an alternative INPUT METHOD for the same field, never a separate
-  // mechanism. If a product has two rows (two rates), the first one is used.
-  async function submitScan(e) {
-    e.preventDefault();
-    const code = scanInput.trim();
-    if (!code) return;
-    if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); setScanInput(''); return; }
-    setScanning(true);
-    try {
-      const res = await barcodeApi.forDispatch(code, pool.dealer.code);
-      const row = rows.find((r) => r.item.code === res.product);
-      if (!row) { showToast(`${res.productName} isn't one of this dealer's pending items`, 'err'); return; }
+  function openScan(row) { setScanRow(row.key); setScanValue(''); }
+  function closeScan() { setScanRow(null); setScanValue(''); }
 
-      const nextSel = selection[row.key] || { outers: 0, inners: 0 };
+  // Scanning increments THIS row's outer/inner count by one (capped at max,
+  // same rule typing a number already follows) — it's an alternative input
+  // method for the same field, never a separate mechanism. Passing this
+  // row's product code to the backend means a carton scanned for the wrong
+  // product gets rejected with a precise "that's X, not Y" message, rather
+  // than silently applying to whichever row happened to match.
+  async function submitScan(row, e) {
+    e.preventDefault();
+    const code = scanValue.trim();
+    if (!code) return;
+    if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); return; }
+    setScanningRow(row.key);
+    try {
+      const res = await barcodeApi.forDispatch(code, pool.dealer.code, { product: row.item.code });
+      const current = selection[row.key] || { outers: 0, inners: 0 };
       if (res.kind === 'outer') {
-        if (nextSel.outers >= row.max.outers) { showToast(`Already at the max outer count for ${res.productName}`, 'err'); return; }
-        onSelectionChange({ ...selection, [row.key]: { outers: nextSel.outers + 1, inners: nextSel.inners } });
-        setLastScannedOuter({ code: res.code, productName: res.productName });
+        if (current.outers >= row.max.outers) { showToast(`Already at the max outer count for ${row.item.name}`, 'err'); return; }
+        onSelectionChange({ ...selection, [row.key]: { outers: current.outers + 1, inners: current.inners } });
+        setSplitTarget({ rowKey: row.key, code: res.code });
       } else {
-        if (nextSel.inners >= row.max.inners) { showToast(`Already at the max inner count for ${res.productName}`, 'err'); return; }
-        onSelectionChange({ ...selection, [row.key]: { outers: nextSel.outers, inners: nextSel.inners + 1 } });
+        if (current.inners >= row.max.inners) { showToast(`Already at the max inner count for ${row.item.name}`, 'err'); return; }
+        onSelectionChange({ ...selection, [row.key]: { outers: current.outers, inners: current.inners + 1 } });
       }
       onScannedCodesChange([...scannedCodes, res.code]);
+      // Available count just dropped by one for this product/kind — reflect
+      // it immediately rather than waiting for a full pool reload.
+      setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [res.kind]: Math.max(0, (a[row.item.code]?.[res.kind] || 0) - 1) } }));
       showToast(`Scanned ${res.code} — ${res.productName}`, 'g');
       if (res.fifoNote) showToast(res.fifoNote, 'y'); // guidance only, never blocks
-      setScanInput('');
+      closeScan();
     } catch (err) { showToast(err.message, 'err'); }
-    finally { setScanning(false); }
+    finally { setScanningRow(null); }
   }
 
-  async function splitLastScanned() {
-    if (!lastScannedOuter) return;
+  async function splitCarton() {
+    if (!splitTarget) return;
     setSplitting(true);
     try {
-      const res = await barcodeApi.split(lastScannedOuter.code);
+      const res = await barcodeApi.split(splitTarget.code);
       showToast(res.message, 'g');
-      setLastScannedOuter(null);
+      setSplitTarget(null);
     } catch (err) { showToast(err.message, 'err'); }
     finally { setSplitting(false); }
   }
@@ -127,23 +144,6 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         <input placeholder="Search item" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 220 }} />
       </div>
 
-      <form onSubmit={submitScan} className="btnrow" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
-        <input
-          placeholder="📷 Scan or type a carton code to fill outer/inner counts"
-          value={scanInput} onChange={(e) => setScanInput(e.target.value)}
-          style={{ minWidth: 320 }} autoFocus
-        />
-        <button type="submit" className="btn sm" disabled={scanning}>{scanning ? 'Checking…' : 'Add scan'}</button>
-        {lastScannedOuter && (
-          <button type="button" className="btn o sm" disabled={splitting} onClick={splitLastScanned}>
-            {splitting ? 'Splitting…' : `✂️ Split ${lastScannedOuter.code} into inners`}
-          </button>
-        )}
-        {scannedCodes.length > 0 && (
-          <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>{scannedCodes.length} carton(s) scanned so far</span>
-        )}
-      </form>
-
       {!rows.length ? (
         <div className="empty">No confirmed, undispatched items for this customer right now.</div>
       ) : (
@@ -152,7 +152,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
             <thead>
               <tr>
                 <th></th><th></th><th>Code</th><th>Product</th><th>Last updated</th>
-                <th>Outer</th><th>Inner</th><th>Rate ₹</th><th>GST %</th><th>Total ₹</th>
+                <th>Outer</th><th>Inner</th><th>Rate ₹</th><th>GST %</th><th>Total ₹</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -160,50 +160,88 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 const pcs = r.outers * r.item.cartonOuter + r.inners * r.item.cartonInner;
                 const gross = r.item.rate + (r.item.rate * r.item.gstPct) / 100;
                 const lineTotal = gross * pcs;
+                const avail = available[r.item.code] || { outer: 0, inner: 0 };
+                const canScan = avail.outer > 0 || avail.inner > 0;
                 return (
-                  <tr key={r.key}>
-                    <td><input type="checkbox" checked={r.checked} onChange={() => toggle(r)} /></td>
-                    <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
-                    <td className="mono muted" style={{ fontSize: 11 }}>{r.item.code}</td>
-                    <td><b>{r.item.name}</b></td>
-                    <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                    <td>
-                      {r.checked ? (
-                        <input
-                          type="number" min={0} max={r.max.outers} value={r.outers}
-                          onChange={(e) => setOuters(r, e.target.value)}
-                          style={{ width: 60 }}
-                        />
-                      ) : <b>{r.max.outers}</b>}
-                      {r.item.cartonOuter > 0 && (
-                        <div className="muted" style={{ fontSize: 10 }}>
-                          {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      {r.checked ? (
-                        <input
-                          type="number" min={0} max={r.max.inners} value={r.inners}
-                          onChange={(e) => setInners(r, e.target.value)}
-                          style={{ width: 60 }}
-                        />
-                      ) : <b>{r.max.inners}</b>}
-                      {r.item.cartonInner > 0 && (
-                        <div className="muted" style={{ fontSize: 10 }}>
-                          {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
-                        </div>
-                      )}
-                    </td>
-                    <td>{r.item.rate}</td>
-                    <td>{r.item.gstPct}</td>
-                    <td>{Math.round(lineTotal).toLocaleString('en-IN')}</td>
-                  </tr>
+                  <Fragment key={r.key}>
+                    <tr>
+                      <td><input type="checkbox" checked={r.checked} onChange={() => toggle(r)} /></td>
+                      <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
+                      <td className="mono muted" style={{ fontSize: 11 }}>{r.item.code}</td>
+                      <td><b>{r.item.name}</b></td>
+                      <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                      <td>
+                        {r.checked ? (
+                          <input
+                            type="number" min={0} max={r.max.outers} value={r.outers}
+                            onChange={(e) => setOuters(r, e.target.value)}
+                            style={{ width: 60 }}
+                          />
+                        ) : <b>{r.max.outers}</b>}
+                        {r.item.cartonOuter > 0 && (
+                          <div className="muted" style={{ fontSize: 10 }}>
+                            {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {r.checked ? (
+                          <input
+                            type="number" min={0} max={r.max.inners} value={r.inners}
+                            onChange={(e) => setInners(r, e.target.value)}
+                            style={{ width: 60 }}
+                          />
+                        ) : <b>{r.max.inners}</b>}
+                        {r.item.cartonInner > 0 && (
+                          <div className="muted" style={{ fontSize: 10 }}>
+                            {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
+                          </div>
+                        )}
+                      </td>
+                      <td>{r.item.rate}</td>
+                      <td>{r.item.gstPct}</td>
+                      <td>{Math.round(lineTotal).toLocaleString('en-IN')}</td>
+                      <td>
+                        <button
+                          type="button" className="btn o sm"
+                          disabled={!canScan}
+                          title={canScan ? `${avail.outer} outer / ${avail.inner} inner in stock` : 'No tracked cartons in stock for this product'}
+                          onClick={() => openScan(r)}
+                        >
+                          📷 {canScan ? `Scan (${avail.outer + avail.inner} in stock)` : 'No stock to scan'}
+                        </button>
+                      </td>
+                    </tr>
+                    {scanRow === r.key && (
+                      <tr>
+                        <td colSpan={11} style={{ background: 'var(--paper-d)' }}>
+                          <form onSubmit={(e) => submitScan(r, e)} className="btnrow" style={{ padding: '8px 4px', flexWrap: 'wrap' }}>
+                            <input
+                              autoFocus placeholder={`Scan or type a carton code for ${r.item.name}`}
+                              value={scanValue} onChange={(e) => setScanValue(e.target.value)}
+                              style={{ minWidth: 300 }}
+                            />
+                            <button type="submit" className="btn sm" disabled={scanningRow === r.key}>{scanningRow === r.key ? 'Checking…' : 'Add scan'}</button>
+                            <button type="button" className="btn o sm" onClick={closeScan}>Close</button>
+                            {splitTarget?.rowKey === r.key && (
+                              <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
+                                {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
+                              </button>
+                            )}
+                          </form>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
+      )}
+
+      {scannedCodes.length > 0 && (
+        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{scannedCodes.length} carton(s) scanned so far in this dispatch.</div>
       )}
 
       {anySelected && (

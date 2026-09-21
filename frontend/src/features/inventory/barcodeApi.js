@@ -9,7 +9,13 @@ export const barcodeApi = {
   lookup: (code) => api.get(`/inventory/carton/${encodeURIComponent(code)}`),
   confirm: (code) => api.post(`/inventory/carton/${encodeURIComponent(code)}/confirm`),
   // Outward/dispatch scanning
-  forDispatch: (code, dealerCode, isGift = false) => api.get(`/inventory/carton/${encodeURIComponent(code)}/for-dispatch?dealer=${encodeURIComponent(dealerCode)}${isGift ? '&gift=1' : ''}`),
+  forDispatch: (code, dealerCode, opts = {}) => {
+    const params = new URLSearchParams({ dealer: dealerCode });
+    if (opts.product) params.set('product', opts.product);
+    if (opts.gift) params.set('gift', '1');
+    return api.get(`/inventory/carton/${encodeURIComponent(code)}/for-dispatch?${params}`);
+  },
+  availableCounts: (codes) => api.get(`/inventory/carton/available-counts?codes=${codes.map(encodeURIComponent).join(',')}`),
   split: (code) => api.post(`/inventory/carton/${encodeURIComponent(code)}/split`),
   manualDispatch: (code, dealerCode) => api.post(`/inventory/carton/${encodeURIComponent(code)}/manual-dispatch`, { dealerCode }),
 };
