@@ -108,13 +108,22 @@ export default function Dispatch() {
     // recomputes it independently from the product's rate at dispatch time,
     // so this is never trusted as the authoritative value.
     const worth = +(product.rate * pcs).toFixed(2);
-    setGifts((g) => [...g, { code: product.code, name: product.name, photo: product.photo || '', outers, inners, directPcs, pcs, qtyLabel, worth, custom: false }]);
+    // id is how removeGift below knows which scanned carton code (if any) to
+    // release back to being scannable when this gift is removed.
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setGifts((g) => [...g, { id, code: product.code, name: product.name, photo: product.photo || '', outers, inners, directPcs, pcs, qtyLabel, worth, custom: false }]);
+    return id;
   }
   function addCustomGift(name, worth) {
-    setGifts((g) => [...g, { name, worth, custom: true }]);
+    setGifts((g) => [...g, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name, worth, custom: true }]);
   }
   function removeGift(i) {
+    const gift = gifts[i];
     setGifts((g) => g.filter((_, idx) => idx !== i));
+    // Removing an unbilled gift undoes it entirely (nothing was actually
+    // dispatched yet) — release any carton scanned into it back to being
+    // scannable, same as unchecking a paid line does in CustomerPoolView.
+    if (gift) setScannedCodes((codes) => codes.filter((s) => s.ownerKey !== `gift:${gift.id}`));
   }
 
   function openManual() {
@@ -243,7 +252,7 @@ export default function Dispatch() {
         gifts: gifts.map((g) => (g.custom
           ? { custom: true, name: g.name, worth: g.worth }
           : { code: g.code, outers: g.outers, inners: g.inners, directPcs: g.directPcs })),
-        scannedCartonCodes: scannedCodes, // locked in as "dispatched" server-side only now, at this exact commit
+        scannedCartonCodes: scannedCodes.map((s) => s.code), // locked in as "dispatched" server-side only now, at this exact commit
         force,
       });
       showToast('Dispatched · Delivery Challan raised', 'g');

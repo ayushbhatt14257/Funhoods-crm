@@ -46,9 +46,12 @@ export default function GiftingStep({ products, gifts, onAddCatalogGift, onAddCu
 
   // Takes the code directly (not read from state) so it works identically
   // whether it came from the typed input's submit or the camera's onScan.
+  // onAddCatalogGift returns the new gift's stable id, which we tag onto
+  // the scanned code here — that's what lets removeGift release it back to
+  // being scannable if this gift is later removed (nothing dispatched yet).
   async function submitScan(code) {
     if (!code) return;
-    if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); return; }
+    if (scannedCodes.some((s) => s.code === code)) { showToast('Already scanned into this dispatch', 'err'); return; }
     setScanning(true);
     try {
       const res = await barcodeApi.forDispatch(code, dealerCode, { gift: true }); // gift — no PI-pending check
@@ -56,8 +59,8 @@ export default function GiftingStep({ products, gifts, onAddCatalogGift, onAddCu
       if (!product) { showToast(`${res.productName} not found in the catalogue`, 'err'); return; }
       // One scanned carton = exactly the pcs that carton holds, as one outer
       // or one inner depending on what was actually scanned.
-      onAddCatalogGift(product, res.kind === 'outer' ? 1 : 0, res.kind === 'inner' ? 1 : 0, 0);
-      onScannedCodesChange([...scannedCodes, res.code]);
+      const giftId = onAddCatalogGift(product, res.kind === 'outer' ? 1 : 0, res.kind === 'inner' ? 1 : 0, 0);
+      onScannedCodesChange([...scannedCodes, { code: res.code, ownerKey: `gift:${giftId}` }]);
       showToast(`Gifted ${res.code} — ${res.productName}`, 'g');
       setScanInput('');
     } catch (err) { showToast(err.message, 'err'); }
@@ -80,11 +83,13 @@ export default function GiftingStep({ products, gifts, onAddCatalogGift, onAddCu
         )}
       </form>
       {cameraOn && (
-        <CameraScanner
-          onScan={(code) => { setCameraOn(false); submitScan(code); }}
-          onError={(msg) => { showToast(msg, 'err'); setCameraOn(false); }}
-          onClose={() => setCameraOn(false)}
-        />
+        <div style={{ maxWidth: 480 }}>
+          <CameraScanner
+            onScan={(code) => { setCameraOn(false); submitScan(code); }}
+            onError={(msg) => { showToast(msg, 'err'); setCameraOn(false); }}
+            onClose={() => setCameraOn(false)}
+          />
+        </div>
       )}
 
       <div className="btnrow" style={{ marginBottom: 12 }}>

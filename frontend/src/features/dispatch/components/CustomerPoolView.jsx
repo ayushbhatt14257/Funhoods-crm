@@ -68,6 +68,11 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       const next = { ...selection };
       delete next[row.key];
       onSelectionChange(next);
+      // Unchecking undoes this row's staging entirely — nothing was
+      // actually dispatched (that only happens at the final Dispatch
+      // button), so any cartons scanned into this row need to become
+      // scannable again, not stay permanently "used" client-side.
+      onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
     } else {
       // Defaults to the full max — same as before this row is ever touched.
       onSelectionChange({ ...selection, [row.key]: { outers: row.max.outers, inners: row.max.inners } });
@@ -95,9 +100,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   // Takes the code directly (not read from state) so it works identically
   // whether it came from the typed input's submit or the camera's onScan —
   // one scan (by either method) is always exactly one carton, handled here once.
+  // scannedCodes entries carry an ownerKey (this row) so unchecking the row
+  // later can release exactly these codes back to being scannable, without
+  // touching anything scanned into a different row.
   async function submitScan(row, code) {
     if (!code) return;
-    if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); return; }
+    if (scannedCodes.some((s) => s.code === code)) { showToast('Already scanned into this dispatch', 'err'); return; }
     setScanningRow(row.key);
     try {
       const res = await barcodeApi.forDispatch(code, pool.dealer.code, { product: row.item.code });
@@ -110,7 +118,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         if (current.inners >= row.max.inners) { showToast(`Already at the max inner count for ${row.item.name}`, 'err'); return; }
         onSelectionChange({ ...selection, [row.key]: { outers: current.outers, inners: current.inners + 1 } });
       }
-      onScannedCodesChange([...scannedCodes, res.code]);
+      onScannedCodesChange([...scannedCodes, { code: res.code, ownerKey: row.key }]);
       // Available count just dropped by one for this product/kind — reflect
       // it immediately rather than waiting for a full pool reload.
       setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [res.kind]: Math.max(0, (a[row.item.code]?.[res.kind] || 0) - 1) } }));
@@ -239,11 +247,13 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                               )}
                             </form>
                             {cameraRow === r.key && (
-                              <CameraScanner
-                                onScan={(code) => { setCameraRow(null); submitScan(r, code); }}
-                                onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
-                                onClose={() => setCameraRow(null)}
-                              />
+                              <div style={{ maxWidth: 480 }}>
+                                <CameraScanner
+                                  onScan={(code) => { setCameraRow(null); submitScan(r, code); }}
+                                  onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
+                                  onClose={() => setCameraRow(null)}
+                                />
+                              </div>
                             )}
                           </div>
                         </td>
