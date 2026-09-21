@@ -8,4 +8,8 @@ export const barcodeApi = {
   clearAll: () => api.del('/inventory/carton/all'),
   lookup: (code) => api.get(`/inventory/carton/${encodeURIComponent(code)}`),
   confirm: (code) => api.post(`/inventory/carton/${encodeURIComponent(code)}/confirm`),
+  // Outward/dispatch scanning
+  forDispatch: (code, dealerCode, isGift = false) => api.get(`/inventory/carton/${encodeURIComponent(code)}/for-dispatch?dealer=${encodeURIComponent(dealerCode)}${isGift ? '&gift=1' : ''}`),
+  split: (code) => api.post(`/inventory/carton/${encodeURIComponent(code)}/split`),
+  manualDispatch: (code, dealerCode) => api.post(`/inventory/carton/${encodeURIComponent(code)}/manual-dispatch`, { dealerCode }),
 };

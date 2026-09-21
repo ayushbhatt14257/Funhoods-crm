@@ -36,6 +36,7 @@ export default function Dispatch() {
   const [dealerCode, setDealerCode] = useState(dealerParam || '');
   const [pool, setPool] = useState(null); // null = loading/none picked yet
   const [selection, setSelection] = useState({}); // rowKey -> { outers, inners } (checked) | undefined (unchecked) — user-editable, capped at max in CustomerPoolView
+  const [scannedCodes, setScannedCodes] = useState([]); // raw carton codes scanned so far (paid lines + gifts, all in one list) — locked in as "dispatched" only when Dispatch is actually pressed
 
   // --- manual-mode state (unchanged from before) ---
   const [manualDealer, setManualDealer] = useState('');
@@ -68,6 +69,7 @@ export default function Dispatch() {
   async function loadPool(code) {
     setPool(null);
     setSelection({});
+    setScannedCodes([]);
     try {
       const res = await dispatchApi.getCustomerPool(code);
       setPool(res);
@@ -85,13 +87,14 @@ export default function Dispatch() {
     setDealerCode('');
     setPool(null);
     setSelection({});
+    setScannedCodes([]);
     setShowCustomerPicker(true);
     nav('/dispatch', { replace: true });
   }
 
   function resetEntryFields() {
     setTransporter(''); setFreight(0); setFreightTerm('To Pay'); setShowAdvanced(false);
-    setVehicle(''); setLr(''); setEway(''); setDriver(''); setCartonMap([]); setGifts([]);
+    setVehicle(''); setLr(''); setEway(''); setDriver(''); setCartonMap([]); setGifts([]); setScannedCodes([]);
   }
 
   // --- gifting (both modes) ---
@@ -240,6 +243,7 @@ export default function Dispatch() {
         gifts: gifts.map((g) => (g.custom
           ? { custom: true, name: g.name, worth: g.worth }
           : { code: g.code, outers: g.outers, inners: g.inners, directPcs: g.directPcs })),
+        scannedCartonCodes: scannedCodes, // locked in as "dispatched" server-side only now, at this exact commit
         force,
       });
       showToast('Dispatched · Delivery Challan raised', 'g');
@@ -374,8 +378,8 @@ export default function Dispatch() {
               <b>⏸ {pool.dealer.name} is on hold</b> — "{pool.dealer.dispatchHold.reason}" (by {pool.dealer.dispatchHold.heldBy}). This customer can't be dispatched until the hold is released from the pending list.
             </div>
           )}
-          <CustomerPoolView pool={pool} selection={selection} onSelectionChange={setSelection} />
-          <GiftingStep products={products} gifts={gifts} onAddCatalogGift={addCatalogGift} onAddCustomGift={addCustomGift} onRemoveGift={removeGift} />
+          <CustomerPoolView pool={pool} selection={selection} onSelectionChange={setSelection} scannedCodes={scannedCodes} onScannedCodesChange={setScannedCodes} />
+          <GiftingStep products={products} gifts={gifts} onAddCatalogGift={addCatalogGift} onAddCustomGift={addCustomGift} onRemoveGift={removeGift} dealerCode={dealerCode} scannedCodes={scannedCodes} onScannedCodesChange={setScannedCodes} />
           <TransportStep {...transportState} />
           <CartonMappingStep
             activeLines={activeLines}

@@ -25,7 +25,11 @@ router.get('/stock-in-batches/:batchId', allow('admin', 'masterAdmin', 'inward')
 router.get('/carton/by-product/:code', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getByProduct);
 router.get('/carton/recent-batches', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getRecentBatches);
 router.delete('/carton/all', allow('masterAdmin'), barcodeCtrl.clearAll);
+router.post('/carton/migrate-outward', allow('masterAdmin'), barcodeCtrl.migrateOutward);
 router.get('/carton/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.lookupCarton);
 router.post('/carton/:code/confirm', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.confirmCarton);
+router.post('/carton/:code/split', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.splitCarton);
+router.get('/carton/:code/for-dispatch', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.forDispatchScan);
+router.post('/carton/:code/manual-dispatch', allow('admin', 'masterAdmin'), barcodeCtrl.manualDispatchCarton);
 
 module.exports = router;

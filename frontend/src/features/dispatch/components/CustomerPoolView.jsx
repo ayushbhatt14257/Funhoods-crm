@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { useToast } from '../../../context/ToastContext';
+import { barcodeApi } from '../../inventory/barcodeApi';
 
 // Quantity is whole outer/inner cartons. Checking an item defaults to
 // dispatching everything currently confirmed and pending for it (the max
@@ -19,8 +21,17 @@ function maxCartons(pendingPcs, cartonOuter, cartonInner) {
 // separate, independently selectable rows (they'll be separate invoice lines).
 function rowKey(item) { return `${item.code}|${item.rate}`; }
 
-export default function CustomerPoolView({ pool, selection, onSelectionChange }) {
+// scannedCodes/onScannedCodesChange is lifted up to Dispatch.jsx (same way
+// selection is) so the raw list of scanned carton codes survives up to the
+// final dispatch submit — that's what actually gets locked in as
+// "dispatched" once the Dispatch button is pressed, not before.
+export default function CustomerPoolView({ pool, selection, onSelectionChange, scannedCodes, onScannedCodesChange }) {
+  const { showToast } = useToast();
   const [q, setQ] = useState('');
+  const [scanInput, setScanInput] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [lastScannedOuter, setLastScannedOuter] = useState(null); // { code, productName } — for the "Split this carton" affordance
+  const [splitting, setSplitting] = useState(false);
 
   const rows = useMemo(() => {
     return (pool?.items || [])
@@ -58,6 +69,49 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange })
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
+  // Scanning a carton just increments the matching row's outer/inner count
+  // by one (capped at max, same rule typing a number already follows) —
+  // it's an alternative INPUT METHOD for the same field, never a separate
+  // mechanism. If a product has two rows (two rates), the first one is used.
+  async function submitScan(e) {
+    e.preventDefault();
+    const code = scanInput.trim();
+    if (!code) return;
+    if (scannedCodes.includes(code)) { showToast('Already scanned into this dispatch', 'err'); setScanInput(''); return; }
+    setScanning(true);
+    try {
+      const res = await barcodeApi.forDispatch(code, pool.dealer.code);
+      const row = rows.find((r) => r.item.code === res.product);
+      if (!row) { showToast(`${res.productName} isn't one of this dealer's pending items`, 'err'); return; }
+
+      const nextSel = selection[row.key] || { outers: 0, inners: 0 };
+      if (res.kind === 'outer') {
+        if (nextSel.outers >= row.max.outers) { showToast(`Already at the max outer count for ${res.productName}`, 'err'); return; }
+        onSelectionChange({ ...selection, [row.key]: { outers: nextSel.outers + 1, inners: nextSel.inners } });
+        setLastScannedOuter({ code: res.code, productName: res.productName });
+      } else {
+        if (nextSel.inners >= row.max.inners) { showToast(`Already at the max inner count for ${res.productName}`, 'err'); return; }
+        onSelectionChange({ ...selection, [row.key]: { outers: nextSel.outers, inners: nextSel.inners + 1 } });
+      }
+      onScannedCodesChange([...scannedCodes, res.code]);
+      showToast(`Scanned ${res.code} — ${res.productName}`, 'g');
+      if (res.fifoNote) showToast(res.fifoNote, 'y'); // guidance only, never blocks
+      setScanInput('');
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setScanning(false); }
+  }
+
+  async function splitLastScanned() {
+    if (!lastScannedOuter) return;
+    setSplitting(true);
+    try {
+      const res = await barcodeApi.split(lastScannedOuter.code);
+      showToast(res.message, 'g');
+      setLastScannedOuter(null);
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setSplitting(false); }
+  }
+
   const grandTotal = rows.reduce((sum, r) => {
     if (!r.checked) return sum;
     const pcs = r.outers * r.item.cartonOuter + r.inners * r.item.cartonInner;
@@ -72,6 +126,23 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange })
         <h3 style={{ margin: 0 }}>Confirmed items — {pool.dealer.name}</h3>
         <input placeholder="Search item" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 220 }} />
       </div>
+
+      <form onSubmit={submitScan} className="btnrow" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
+        <input
+          placeholder="📷 Scan or type a carton code to fill outer/inner counts"
+          value={scanInput} onChange={(e) => setScanInput(e.target.value)}
+          style={{ minWidth: 320 }} autoFocus
+        />
+        <button type="submit" className="btn sm" disabled={scanning}>{scanning ? 'Checking…' : 'Add scan'}</button>
+        {lastScannedOuter && (
+          <button type="button" className="btn o sm" disabled={splitting} onClick={splitLastScanned}>
+            {splitting ? 'Splitting…' : `✂️ Split ${lastScannedOuter.code} into inners`}
+          </button>
+        )}
+        {scannedCodes.length > 0 && (
+          <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>{scannedCodes.length} carton(s) scanned so far</span>
+        )}
+      </form>
 
       {!rows.length ? (
         <div className="empty">No confirmed, undispatched items for this customer right now.</div>

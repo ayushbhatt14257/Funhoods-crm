@@ -3,8 +3,11 @@ const Dealer = require('../dealers/model');
 const Product = require('../products/model');
 const Invoice = require('../invoices/model');
 const Inventory = require('../inventory/model');
+const CartonBarcode = require('../inventory/cartonBarcodeModel');
 const Ledger = require('../ledger/model');
 const Notification = require('../notifications/model');
+
+const AVAILABLE_FOR_DISPATCH = ['in_stock', 'used']; // same grouping as barcodeController — physically in the warehouse, not yet gone
 
 function todayISODate() {
   return new Date();
@@ -352,6 +355,24 @@ async function dispatchFromPool(req, res) {
       }
     }
 
+    // Scanning is optional and additive — staff can type outer/inner counts
+    // exactly as before, or scan cartons instead/as well. Whatever WAS
+    // scanned (paid lines or gifts, doesn't matter which) gets re-validated
+    // HERE, right before any writes, so a stale scan (someone else dispatched
+    // that exact carton in the meantime) fails cleanly with nothing half-done,
+    // rather than after the invoice already exists. Actually marking them
+    // dispatched happens only after the invoice is successfully created below.
+    const scannedCodes = Array.isArray(req.body.scannedCartonCodes) ? req.body.scannedCartonCodes : [];
+    const scannedCartons = [];
+    for (const code of scannedCodes) {
+      const carton = await CartonBarcode.findOne({ code });
+      if (!carton) return res.status(400).json({ message: `Scanned carton ${code} not found` });
+      if (!AVAILABLE_FOR_DISPATCH.includes(carton.status)) {
+        return res.status(409).json({ message: `${code} is no longer available (${carton.status}) — someone may have just dispatched it. Rescan and try again.` });
+      }
+      scannedCartons.push(carton);
+    }
+
     const subtotal = dispatchLines.reduce((s, l) => s + l.total, 0);
     const frt = +freight || 0;
     const frtGst = +(frt * 0.05).toFixed(2); // 5% GST on transport/freight — new for invoices from this point forward
@@ -385,6 +406,21 @@ async function dispatchFromPool(req, res) {
       const allDone = pi.lines.every((l) => (l.pending != null ? l.pending : l.pcs) === 0);
       pi.status = allDone ? 'Fully Dispatched' : 'Partial Dispatched';
       await pi.save();
+    }
+
+    // Lock in every scanned carton now that the invoice actually exists —
+    // this is the moment a carton's one-time-use guarantee for OUTward
+    // scanning takes effect, mirroring how inward scanning already can't be
+    // repeated. Doesn't change the pcs math at all (that's still the
+    // existing invByCode/giftPcsByCode logic below) — this is purely the
+    // per-carton traceability layer on top.
+    for (const carton of scannedCartons) {
+      carton.status = 'dispatched';
+      carton.dispatchedTo = dealer.code;
+      carton.dispatchedInvoice = invoice.no;
+      carton.dispatchedBy = req.user.name;
+      carton.dispatchedAt = todayISODate();
+      await carton.save();
     }
 
     const invByCode = {};

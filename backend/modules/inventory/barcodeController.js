@@ -2,6 +2,15 @@ const crypto = require('crypto');
 const CartonBarcode = require('./cartonBarcodeModel');
 const Inventory = require('./model');
 const Product = require('../products/model');
+const PI = require('../pi/model');
+
+// Status groupings used throughout this file. 'unused'/'used' are the old
+// two-state names, kept alive for any record that hasn't gone through the
+// one-time migrateOutward migration yet — treat them exactly like their
+// new equivalents everywhere.
+const NOT_STOCKED = ['pending', 'unused']; // QR printed, not yet on a real carton in the warehouse
+const EVER_STOCKED = ['in_stock', 'used', 'dispatched', 'split']; // has been scanned in at some point, regardless of what happened since
+const AVAILABLE_FOR_DISPATCH = ['in_stock', 'used']; // physically in the warehouse right now, not yet gone
 
 // 6 hex chars (24 bits, ~16.7M combos) of randomness per carton, namespaced
 // under the product code. Shortened from 12 hex chars specifically so the
@@ -15,7 +24,7 @@ function randomSuffix() {
 }
 
 // POST /api/inventory/stock-in-batches  { code, cartonCount, qtyOverride? }
-// admin/masterAdmin only. Generates `cartonCount` unique, individually
+// admin/masterAdmin/inward only. Generates `cartonCount` unique, individually
 // trackable barcodes in one bulk insert (not a loop of single creates —
 // this needs to stay fast even generating hundreds of labels at once).
 async function generateBatch(req, res) {
@@ -36,6 +45,8 @@ async function generateBatch(req, res) {
     product: product.code,
     productName: product.name,
     qty,
+    kind: 'outer',
+    status: 'pending',
     createdBy: req.user.name,
   }));
 
@@ -57,7 +68,9 @@ async function getBatch(req, res) {
 // used/unused count per batch (not the individual cartons — that's what
 // getBatch is for when someone drills into one batch). Powers the "Track"
 // tab so someone can see at a glance which batches still have unscanned
-// cartons out on the floor.
+// cartons out on the floor. "used" here means "has been stocked in at some
+// point" — it does NOT distinguish in_stock vs already-dispatched, that
+// distinction lives on each carton's own status when you drill in.
 async function getByProduct(req, res) {
   const code = String(req.params.code || '').toUpperCase();
   const product = await Product.findOne({ code });
@@ -72,7 +85,7 @@ async function getByProduct(req, res) {
         createdAt: { $min: '$createdAt' },
         createdBy: { $first: '$createdBy' },
         total: { $sum: 1 },
-        used: { $sum: { $cond: [{ $eq: ['$status', 'used'] }, 1, 0] } },
+        used: { $sum: { $cond: [{ $in: ['$status', EVER_STOCKED] }, 1, 0] } },
       },
     },
     { $sort: { createdAt: -1 } },
@@ -110,7 +123,7 @@ async function getRecentBatches(req, res) {
         createdAt: { $min: '$createdAt' },
         createdBy: { $first: '$createdBy' },
         total: { $sum: 1 },
-        used: { $sum: { $cond: [{ $eq: ['$status', 'used'] }, 1, 0] } },
+        used: { $sum: { $cond: [{ $in: ['$status', EVER_STOCKED] }, 1, 0] } },
       },
     },
     { $sort: { createdAt: -1 } },
@@ -140,22 +153,23 @@ async function lookupCarton(req, res) {
     code: carton.code, status: carton.status, qty: carton.qty,
     product: carton.product, productName: carton.productName, photo: product?.photo || '',
     usedBy: carton.usedBy, usedAt: carton.usedAt,
+    dispatchedTo: carton.dispatchedTo, dispatchedAt: carton.dispatchedAt, dispatchedInvoice: carton.dispatchedInvoice,
   });
 }
 
 // POST /api/inventory/carton/:code/confirm — the actual stock-in. Marks the
-// carton used (so it can never be scanned in again) and adds its fixed
+// carton in_stock (so it can never be scanned in again) and adds its fixed
 // quantity to physical stock. Whoever can adjust inventory can do this.
 async function confirmCarton(req, res) {
   const carton = await CartonBarcode.findOne({ code: req.params.code });
   if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
-  if (carton.status === 'used') {
+  if (!NOT_STOCKED.includes(carton.status)) {
     return res.status(409).json({
       message: `Already scanned on ${new Date(carton.usedAt).toLocaleString('en-IN')} by ${carton.usedBy} — not adding again.`,
     });
   }
 
-  carton.status = 'used';
+  carton.status = 'in_stock';
   carton.usedBy = req.user.name;
   carton.usedAt = new Date();
   await carton.save();
@@ -167,6 +181,145 @@ async function confirmCarton(req, res) {
   );
 
   res.json({ message: `${carton.qty} pcs of ${carton.productName} added to stock.`, qty: carton.qty, productName: carton.productName });
+}
+
+// POST /api/inventory/carton/:code/split — admin/masterAdmin/inward only.
+// Splits an in-stock OUTER carton into however many INNER cartons actually
+// fit inside it (product.cartonOuter / product.cartonInner — not hardcoded
+// to 2), each with its own unique code and its own QR, so a partial/inner
+// order can be scanned out independently while the sibling inner(s) stay in
+// stock with their own working codes. Permanent and one-way: the outer is
+// retired (status 'split') and can never be dispatched or scanned again.
+// Inner children inherit the outer's ORIGINAL createdAt so FIFO ordering
+// treats them as exactly as old as the stock always was — splitting a
+// carton doesn't make old stock look new.
+async function splitCarton(req, res) {
+  const carton = await CartonBarcode.findOne({ code: req.params.code });
+  if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
+  if (carton.kind !== 'outer') return res.status(400).json({ message: 'Only an outer carton can be split.' });
+  if (!AVAILABLE_FOR_DISPATCH.includes(carton.status)) {
+    return res.status(409).json({ message: `Can't split — this carton is ${carton.status}, not in stock.` });
+  }
+
+  const product = await Product.findOne({ code: carton.product });
+  if (!product || !product.cartonInner) {
+    return res.status(400).json({ message: `${carton.productName} has no inner carton size set — can't split.` });
+  }
+  const innerCount = Math.max(1, Math.round(carton.qty / product.cartonInner));
+
+  const children = Array.from({ length: innerCount }, () => ({
+    code: `${carton.code}-${randomSuffix().slice(0, 2)}`,
+    batchId: carton.batchId,
+    product: carton.product,
+    productName: carton.productName,
+    qty: product.cartonInner,
+    kind: 'inner',
+    parentCode: carton.code,
+    status: 'in_stock',
+    usedBy: carton.usedBy,
+    usedAt: carton.usedAt,
+    createdBy: carton.createdBy,
+  }));
+  // createdAt has to be set explicitly and after insert (insertMany respects
+  // an explicit createdAt if given, but only via a raw update — simplest is
+  // to insert, then force it back to the parent's original date).
+  const inserted = await CartonBarcode.insertMany(children, { ordered: false });
+  await CartonBarcode.updateMany(
+    { _id: { $in: inserted.map((d) => d._id) } },
+    { $set: { createdAt: carton.createdAt } }
+  );
+
+  carton.status = 'split';
+  await carton.save();
+
+  const fresh = await CartonBarcode.find({ _id: { $in: inserted.map((d) => d._id) } });
+  res.json({ message: `Split into ${innerCount} inner carton(s).`, parentCode: carton.code, children: fresh });
+}
+
+// GET /api/inventory/carton/:code/for-dispatch?dealer=<code> — validates a
+// scanned code is actually usable for THIS dealer's dispatch, and returns
+// FIFO guidance (never blocking — see fifoNote). Called as each carton is
+// scanned on the Dispatch screen, before it's staged locally; nothing here
+// writes anything, the actual dispatch commit is what locks it in.
+async function forDispatchScan(req, res) {
+  const dealerCode = String(req.query.dealer || '').toUpperCase();
+  if (!dealerCode) return res.status(400).json({ message: 'dealer is required' });
+
+  const carton = await CartonBarcode.findOne({ code: req.params.code });
+  if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
+
+  if (carton.status === 'dispatched') {
+    return res.status(409).json({ message: `Already dispatched to ${carton.dispatchedTo} on ${new Date(carton.dispatchedAt).toLocaleDateString('en-IN')} — can't dispatch again.` });
+  }
+  if (carton.status === 'split') {
+    return res.status(409).json({ message: 'This carton was split into inner cartons — scan one of its inner labels instead.' });
+  }
+  if (NOT_STOCKED.includes(carton.status)) {
+    return res.status(409).json({ message: 'This carton hasn\'t been stocked in yet — scan it at Stock In first.' });
+  }
+
+  // Must actually be part of this dealer's confirmed, undispatched order —
+  // same "pick dealer first" rule that collapses the ambiguity of which
+  // order a scan belongs to (a scan alone can't tell you the customer).
+  // pending===null means "full pcs still pending" — same interpretation
+  // dispatch/controller.js uses everywhere else for this exact field.
+  // Skipped entirely for a gift scan (?gift=1) — a gift is never tied to
+  // any PI line by definition, so this check would always wrongly reject it.
+  if (!req.query.gift) {
+    const openPIs = await PI.find({ dealer: dealerCode, status: { $in: ['Confirmed', 'Partial Dispatched'] } });
+    const pendingForProduct = openPIs.some((pi) =>
+      pi.lines.some((l) => l.code === carton.product && (l.pending != null ? l.pending : l.pcs) > 0)
+    );
+    if (!pendingForProduct) {
+      return res.status(409).json({ message: `${carton.productName} isn't part of ${dealerCode}'s confirmed pending order.` });
+    }
+  }
+
+  // FIFO guidance only — find the oldest available carton of the same kind
+  // for this product. Never blocks; just tells the caller if they scanned
+  // something other than the oldest, so the UI can show a friendly note.
+  const oldest = await CartonBarcode.findOne({ product: carton.product, kind: carton.kind, status: { $in: AVAILABLE_FOR_DISPATCH } }).sort({ createdAt: 1 });
+  const fifoNote = oldest && oldest.code !== carton.code
+    ? `There's an older carton still in stock (${oldest.code}, generated ${new Date(oldest.createdAt).toLocaleDateString('en-IN')}) — consider using that one first.`
+    : null;
+
+  res.json({
+    code: carton.code, product: carton.product, productName: carton.productName, qty: carton.qty, kind: carton.kind,
+    fifoNote,
+  });
+}
+
+// POST /api/inventory/carton/:code/manual-dispatch — admin/masterAdmin only.
+// For a damaged/unreadable label on an old carton: marks that SPECIFIC
+// carton dispatched without going through a scan, so FIFO history still
+// records the truth (this carton, not a random one, went out). Same
+// validation as a real scan, same fields recorded, just flagged as an
+// override for the audit trail.
+async function manualDispatchCarton(req, res) {
+  const { dealerCode } = req.body;
+  const carton = await CartonBarcode.findOne({ code: req.params.code });
+  if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
+  if (!AVAILABLE_FOR_DISPATCH.includes(carton.status)) {
+    return res.status(409).json({ message: `Can't dispatch — this carton is ${carton.status}.` });
+  }
+  carton.status = 'dispatched';
+  carton.dispatchedTo = String(dealerCode || '').toUpperCase();
+  carton.dispatchedBy = req.user.name;
+  carton.dispatchedAt = new Date();
+  carton.dispatchOverride = true;
+  await carton.save();
+  res.json({ message: `${carton.code} manually marked dispatched to ${carton.dispatchedTo} (no scan — flagged as override).`, carton });
+}
+
+// POST /api/inventory/carton/migrate-outward — masterAdmin only, one-time.
+// Reinterprets every pre-existing 'unused'/'used' carton as 'pending'/
+// 'in_stock' under the new 3-state lifecycle (outward scanning didn't exist
+// before, so every 'used' record really just means "in stock", never
+// "dispatched"). Safe to run more than once — a no-op the second time.
+async function migrateOutward(req, res) {
+  const a = await CartonBarcode.updateMany({ status: 'unused' }, { $set: { status: 'pending' } });
+  const b = await CartonBarcode.updateMany({ status: 'used' }, { $set: { status: 'in_stock' } });
+  res.json({ message: `Migrated ${a.modifiedCount} pending + ${b.modifiedCount} in_stock record(s).`, pending: a.modifiedCount, inStock: b.modifiedCount });
 }
 
 // DELETE /api/inventory/carton/all — admin/masterAdmin only. Wipes every
@@ -181,4 +334,7 @@ async function clearAll(req, res) {
   res.json({ message: `Cleared ${result.deletedCount} generated code(s).`, deletedCount: result.deletedCount });
 }
 
-module.exports = { generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, confirmCarton, clearAll };
+module.exports = {
+  generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, confirmCarton,
+  splitCarton, forDispatchScan, manualDispatchCarton, migrateOutward, clearAll,
+};
