@@ -5,6 +5,7 @@ export const barcodeApi = {
   getBatch: (batchId) => api.get(`/inventory/stock-in-batches/${batchId}`),
   getByProduct: (code) => api.get(`/inventory/carton/by-product/${code}`),
   getRecentBatches: (limit = 10) => api.get(`/inventory/carton/recent-batches?limit=${limit}`),
+  deleteBatch: (batchId) => api.del(`/inventory/stock-in-batches/${batchId}`),
   clearAll: () => api.del('/inventory/carton/all'),
   lookup: (code) => api.get(`/inventory/carton/${encodeURIComponent(code)}`),
   confirm: (code) => api.post(`/inventory/carton/${encodeURIComponent(code)}/confirm`),

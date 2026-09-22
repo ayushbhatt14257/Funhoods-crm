@@ -390,7 +390,31 @@ async function clearAll(req, res) {
   res.json({ message: `Cleared ${result.deletedCount} generated code(s).`, deletedCount: result.deletedCount });
 }
 
+// DELETE /api/inventory/stock-in-batches/:batchId — masterAdmin only.
+// Deletes one whole batch's carton records (a "generate a batch of QRs"
+// mistake — wrong product, wrong quantity, duplicate click). Only allowed
+// while every carton in that batch is still 'pending' (never scanned in) —
+// once any of them have been stocked in, they represent real, already-
+// counted physical inventory (added to Inventory.physical), and deleting
+// the barcode record wouldn't reverse that count or the dispatch history;
+// it would just quietly break the traceability this whole feature exists
+// to provide. clearAll above is the deliberately blunt, all-batches,
+// admin-knows-what-they're-doing tool for a full reset — this is the safe,
+// everyday, per-batch equivalent for a QR batch that was flat-out a mistake.
+async function deleteBatch(req, res) {
+  const cartons = await CartonBarcode.find({ batchId: req.params.batchId });
+  if (!cartons.length) return res.status(404).json({ message: 'Batch not found' });
+  const touched = cartons.filter((c) => c.status !== 'pending' && c.status !== 'unused');
+  if (touched.length) {
+    return res.status(409).json({
+      message: `Can't delete — ${touched.length} of ${cartons.length} carton(s) in this batch have already been scanned in or dispatched. Use "Clear all" if you really need to wipe everything, or contact support.`,
+    });
+  }
+  const result = await CartonBarcode.deleteMany({ batchId: req.params.batchId });
+  res.json({ message: `Deleted the batch — ${result.deletedCount} unused QR code(s) removed.`, deletedCount: result.deletedCount });
+}
+
 module.exports = {
   generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, confirmCarton,
-  splitCarton, forDispatchScan, availableCounts, manualDispatchCarton, migrateOutward, clearAll,
+  splitCarton, forDispatchScan, availableCounts, manualDispatchCarton, migrateOutward, clearAll, deleteBatch,
 };
