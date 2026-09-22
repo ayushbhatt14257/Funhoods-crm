@@ -102,12 +102,15 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
-  // Always starts a fresh scan session at 0/0, checking the row if it
-  // wasn't already — regardless of whatever a prior manual-typed number or
-  // earlier scan session had set. Any cartons scanned into this row in an
-  // earlier session are released back to being scannable, same as
-  // unchecking does, so the count and the physically-available cartons
-  // stay in sync with what's actually about to be re-counted from zero.
+  // Always starts a fresh scan session — releasing anything scanned into
+  // this row in an earlier session back to being available — and leaves the
+  // row UNCHECKED with no override at all, rather than force-setting it to
+  // {outers:0, inners:0}. A checked row showing 0/0 read as "selected for
+  // dispatch but sending nothing", which is confusing; now the row only
+  // becomes checked once the first real scan actually lands (submitScan
+  // sets it naturally then). The sheet's own "X / Y scanned" progress is
+  // tracked separately via activeRowScans below, so it works correctly
+  // whether or not the row happens to be checked yet.
   function openScan(row) {
     const released = scannedCodes.filter((s) => s.ownerKey === row.key);
     if (released.length) {
@@ -118,7 +121,11 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       });
       onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
     }
-    onSelectionChange({ ...selection, [row.key]: { outers: 0, inners: 0 } });
+    if (row.checked) {
+      const next = { ...selection };
+      delete next[row.key];
+      onSelectionChange(next);
+    }
     setScanRow(row.key);
     setScanValue('');
     setCameraRow(null);
@@ -175,7 +182,9 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       // it immediately rather than waiting for a full pool reload.
       setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [res.kind]: Math.max(0, (a[row.item.code]?.[res.kind] || 0) - 1) } }));
       showToast(`Scanned ${res.code} — ${res.productName}`, 'g');
-      if (res.fifoNote) showToast(res.fifoNote, 'y'); // guidance only, never blocks
+      // FIFO guidance from the backend (res.fifoNote) is deliberately not
+      // surfaced here anymore — it was a non-blocking suggestion, but it
+      // showed up too often to be useful in practice and just added noise.
       // Auto-close ONLY the camera once this row's full target is reached —
       // the sheet itself stays open (closed manually), but there's no more
       // scanning left to do for this row, so the camera stops itself rather
@@ -332,7 +341,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                   <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Scanning for</div>
                   <div style={{ fontWeight: 700, fontSize: 16 }}>{activeScanRow.item.name} <span className="mono muted" style={{ fontSize: 11, fontWeight: 400 }}>{activeScanRow.item.code}</span></div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--spruce)', marginTop: 2 }}>
-                    {activeScanRow.outers + activeScanRow.inners} / {activeScanRow.max.outers + activeScanRow.max.inners} carton{activeScanRow.max.outers + activeScanRow.max.inners === 1 ? '' : 's'} scanned
+                    {activeRowScans.length} / {activeScanRow.max.outers + activeScanRow.max.inners} carton{activeScanRow.max.outers + activeScanRow.max.inners === 1 ? '' : 's'} scanned
                   </div>
                 </div>
                 <button type="button" className="btn o sm" onClick={closeScan}>✕ Close</button>
@@ -357,11 +366,13 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 )}
               </form>
               {cameraRow === activeScanRow.key && (
-                <CameraScanner
-                  onScan={(code) => submitScan(activeScanRow, code)}
-                  onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
-                  onClose={() => setCameraRow(null)}
-                />
+                <div style={{ maxWidth: 300, margin: '0 auto' }}>
+                  <CameraScanner
+                    onScan={(code) => submitScan(activeScanRow, code)}
+                    onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
+                    onClose={() => setCameraRow(null)}
+                  />
+                </div>
               )}
               {/* Every carton scanned into THIS row, each individually
                   removable — a fixed-height scrollable box so the sheet
