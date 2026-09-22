@@ -3,18 +3,33 @@ import { useToast } from '../../../context/ToastContext';
 import { barcodeApi } from '../../inventory/barcodeApi';
 import CameraScanner from '../../../components/CameraScanner';
 
-// Quantity is whole outer/inner cartons. Checking an item defaults to
-// dispatching everything currently confirmed and pending for it (the max
-// below) — but that default can be LOWERED per row (e.g. only 1 of 3 outer
-// cartons is actually packed and ready right now); it can never be raised
-// past what's actually confirmed. Whatever isn't dispatched just stays in
-// the pool for next time. Whatever doesn't divide evenly into a full carton
-// also just stays in the pool.
-function maxCartons(pendingPcs, cartonOuter, cartonInner) {
+// Quantity is whole outer/inner cartons — never loose pieces sold from
+// inside a carton. Two different helpers below serve two different jobs:
+//
+// defaultSplit() is only a DISPLAY suggestion for a row nobody has touched
+// yet — "as many outers as possible, remainder as inners" — shown as the
+// bold default before the row is checked.
+//
+// roomFor() is the REAL ceiling used everywhere quantity is actually
+// entered or scanned. Outer and inner share ONE pcs budget (the order's
+// pending pcs), not two independent fixed caps — so the max for one kind
+// is always computed from how many pcs the OTHER kind currently accounts
+// for. This is what makes it possible to fulfil an order using whichever
+// mix of outer/inner cartons the warehouse actually has on the shelf (e.g.
+// an order that divides evenly into 1 outer can equally be fulfilled by 4
+// inners, or partly one and partly the other) — while still only ever
+// allowing WHOLE cartons: the moment the remaining pcs can't fit one more
+// full unit of a kind, that kind's room drops to exactly 0.
+function defaultSplit(pendingPcs, cartonOuter, cartonInner) {
   if (!cartonOuter) return { outers: 0, inners: 0 };
   const outers = Math.floor(pendingPcs / cartonOuter);
   const afterOuters = pendingPcs - outers * cartonOuter;
   const inners = cartonInner ? Math.floor(afterOuters / cartonInner) : 0;
+  return { outers, inners };
+}
+function roomFor(pendingPcs, cartonOuter, cartonInner, currentOuters, currentInners) {
+  const outers = cartonOuter ? Math.max(0, Math.floor((pendingPcs - currentInners * cartonInner) / cartonOuter)) : 0;
+  const inners = cartonInner ? Math.max(0, Math.floor((pendingPcs - currentOuters * cartonOuter) / cartonInner)) : 0;
   return { outers, inners };
 }
 
@@ -42,14 +57,20 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       .filter((it) => !q || it.name.toLowerCase().includes(q.toLowerCase()) || it.code.toLowerCase().includes(q.toLowerCase()))
       .map((it) => {
         const key = rowKey(it);
-        const max = maxCartons(it.pendingPcs, it.cartonOuter, it.cartonInner);
         const override = selection[key];
         const checked = !!override;
-        // Clamp defensively in case the pool refreshed and max shrank since
-        // this override was chosen (e.g. someone else dispatched some of it).
-        const outers = checked ? Math.min(override.outers, max.outers) : max.outers;
-        const inners = checked ? Math.min(override.inners, max.inners) : max.inners;
-        return { item: it, key, max, outers, inners, checked };
+        const suggested = defaultSplit(it.pendingPcs, it.cartonOuter, it.cartonInner); // shown only as the bold default before this row is checked
+        // The real, shared-pcs-budget ceiling given whatever is currently
+        // selected — recalculates every render, so it's never possible to
+        // exceed pendingPcs regardless of which mix of outer/inner got you
+        // there, and clamps defensively if the pool refreshed and
+        // pendingPcs shrank since this override was chosen.
+        const currentOuters = checked ? override.outers : 0;
+        const currentInners = checked ? override.inners : 0;
+        const max = roomFor(it.pendingPcs, it.cartonOuter, it.cartonInner, currentOuters, currentInners);
+        const outers = checked ? Math.min(currentOuters, max.outers) : suggested.outers;
+        const inners = checked ? Math.min(currentInners, max.inners) : suggested.inners;
+        return { item: it, key, max, suggested, outers, inners, checked };
       });
   }, [pool, q, selection]);
 
@@ -88,8 +109,13 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       }
       onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
     } else {
-      // Defaults to the full max — same as before this row is ever touched.
-      onSelectionChange({ ...selection, [row.key]: { outers: row.max.outers, inners: row.max.inners } });
+      // Defaults to the suggested outer-first split — same as before this
+      // row is ever touched. (row.max here would be the wrong thing to use:
+      // it's each kind's independent ceiling given the OTHER kind's current
+      // value, which for an unchecked row are both 0 — using it directly
+      // would set outers AND inners each to their own full ceiling
+      // simultaneously, roughly doubling the actual order.)
+      onSelectionChange({ ...selection, [row.key]: { outers: row.suggested.outers, inners: row.suggested.inners } });
     }
   }
 
@@ -185,11 +211,15 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       // FIFO guidance from the backend (res.fifoNote) is deliberately not
       // surfaced here anymore — it was a non-blocking suggestion, but it
       // showed up too often to be useful in practice and just added noise.
-      // Auto-close ONLY the camera once this row's full target is reached —
-      // the sheet itself stays open (closed manually), but there's no more
-      // scanning left to do for this row, so the camera stops itself rather
-      // than sitting there uselessly running.
-      if (nextOuters >= row.max.outers && nextInners >= row.max.inners) {
+      // Auto-close ONLY the camera once this row's full pending pcs is
+      // reached — the sheet itself stays open (closed manually), but
+      // there's no more scanning left to do for this row, so the camera
+      // stops itself rather than sitting there uselessly running. Checked
+      // in pcs, not outer/inner counts, since either kind (or a mix) can
+      // complete the order now — an outer/inner-count check would be wrong
+      // as soon as the two share one budget instead of each having a fixed target.
+      const nextPcs = nextOuters * row.item.cartonOuter + nextInners * row.item.cartonInner;
+      if (nextPcs >= row.item.pendingPcs) {
         setCameraRow((c) => (c === row.key ? null : c));
       }
     } catch (err) { showToast(err.message, 'err'); }
@@ -267,7 +297,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           onChange={(e) => setOuters(r, e.target.value)}
                           style={{ width: 60 }}
                         />
-                      ) : <b>{r.max.outers}</b>}
+                      ) : <b>{r.suggested.outers}</b>}
                       {r.item.cartonOuter > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
                           {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
@@ -281,7 +311,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           onChange={(e) => setInners(r, e.target.value)}
                           style={{ width: 60 }}
                         />
-                      ) : <b>{r.max.inners}</b>}
+                      ) : <b>{r.suggested.inners}</b>}
                       {r.item.cartonInner > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
                           {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
@@ -341,7 +371,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                   <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Scanning for</div>
                   <div style={{ fontWeight: 700, fontSize: 16 }}>{activeScanRow.item.name} <span className="mono muted" style={{ fontSize: 11, fontWeight: 400 }}>{activeScanRow.item.code}</span></div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--spruce)', marginTop: 2 }}>
-                    {activeRowScans.length} / {activeScanRow.max.outers + activeScanRow.max.inners} carton{activeScanRow.max.outers + activeScanRow.max.inners === 1 ? '' : 's'} scanned
+                    {activeRowScans.reduce((sum, s) => sum + (s.kind === 'outer' ? activeScanRow.item.cartonOuter : activeScanRow.item.cartonInner), 0)} / {activeScanRow.item.pendingPcs} pcs scanned
                   </div>
                 </div>
                 <button type="button" className="btn o sm" onClick={closeScan}>✕ Close</button>
