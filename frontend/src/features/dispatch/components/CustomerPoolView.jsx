@@ -124,21 +124,29 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     try {
       const res = await barcodeApi.forDispatch(code, pool.dealer.code, { product: row.item.code });
       const current = selection[row.key] || { outers: 0, inners: 0 };
+      let nextOuters = current.outers, nextInners = current.inners;
       if (res.kind === 'outer') {
         if (current.outers >= row.max.outers) { showToast(`Already at the max outer count for ${row.item.name}`, 'err'); return; }
-        onSelectionChange({ ...selection, [row.key]: { outers: current.outers + 1, inners: current.inners } });
+        nextOuters = current.outers + 1;
         setSplitTarget({ rowKey: row.key, code: res.code });
       } else {
         if (current.inners >= row.max.inners) { showToast(`Already at the max inner count for ${row.item.name}`, 'err'); return; }
-        onSelectionChange({ ...selection, [row.key]: { outers: current.outers, inners: current.inners + 1 } });
+        nextInners = current.inners + 1;
       }
+      onSelectionChange({ ...selection, [row.key]: { outers: nextOuters, inners: nextInners } });
       onScannedCodesChange([...scannedCodes, { code: res.code, ownerKey: row.key, kind: res.kind }]);
       // Available count just dropped by one for this product/kind — reflect
       // it immediately rather than waiting for a full pool reload.
       setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [res.kind]: Math.max(0, (a[row.item.code]?.[res.kind] || 0) - 1) } }));
       showToast(`Scanned ${res.code} — ${res.productName}`, 'g');
       if (res.fifoNote) showToast(res.fifoNote, 'y'); // guidance only, never blocks
-      closeScan();
+      // Auto-close ONLY the camera once this row's full target is reached —
+      // the sheet itself stays open (closed manually), but there's no more
+      // scanning left to do for this row, so the camera stops itself rather
+      // than sitting there uselessly running.
+      if (nextOuters >= row.max.outers && nextInners >= row.max.inners) {
+        setCameraRow((c) => (c === row.key ? null : c));
+      }
     } catch (err) { showToast(err.message, 'err'); }
     finally { setScanningRow(null); }
   }
@@ -305,7 +313,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
               </form>
               {cameraRow === activeScanRow.key && (
                 <CameraScanner
-                  onScan={(code) => { setCameraRow(null); submitScan(activeScanRow, code); }}
+                  onScan={(code) => submitScan(activeScanRow, code)}
                   onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
                   onClose={() => setCameraRow(null)}
                 />

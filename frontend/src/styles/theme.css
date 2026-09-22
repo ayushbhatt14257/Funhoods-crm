@@ -101,7 +101,7 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .mhead button{background:rgba(255,255,255,.15);border:none;color:var(--paper);width:26px;height:26px;border-radius:50%;cursor:pointer}
 .mbody{padding:18px}
 
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--spruce);color:var(--paper);padding:12px 20px;border-radius:9px;font-size:13.5px;font-weight:500;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--spruce);color:var(--paper);padding:12px 20px;border-radius:9px;font-size:13.5px;font-weight:500;z-index:2000;box-shadow:0 8px 24px rgba(0,0,0,.2)}
 .toast.err{background:var(--red)}
 .toast.g{background:var(--green)}
 .toast.y{background:var(--orange);color:var(--ink)}
