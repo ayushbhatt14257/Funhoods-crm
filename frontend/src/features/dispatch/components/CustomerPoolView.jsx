@@ -102,8 +102,44 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
-  function openScan(row) { setScanRow(row.key); setScanValue(''); setCameraRow(null); }
+  // Always starts a fresh scan session at 0/0, checking the row if it
+  // wasn't already — regardless of whatever a prior manual-typed number or
+  // earlier scan session had set. Any cartons scanned into this row in an
+  // earlier session are released back to being scannable, same as
+  // unchecking does, so the count and the physically-available cartons
+  // stay in sync with what's actually about to be re-counted from zero.
+  function openScan(row) {
+    const released = scannedCodes.filter((s) => s.ownerKey === row.key);
+    if (released.length) {
+      setAvailable((a) => {
+        const next = { ...a, [row.item.code]: { ...a[row.item.code] } };
+        released.forEach((s) => { next[row.item.code][s.kind] = (next[row.item.code][s.kind] || 0) + 1; });
+        return next;
+      });
+      onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
+    }
+    onSelectionChange({ ...selection, [row.key]: { outers: 0, inners: 0 } });
+    setScanRow(row.key);
+    setScanValue('');
+    setCameraRow(null);
+  }
   function closeScan() { setScanRow(null); setScanValue(''); setCameraRow(null); }
+
+  // Undoes exactly one scanned carton: drops the row's count by one (of
+  // whichever kind that carton was), puts it back as available, and
+  // removes it from the scanned list — the mirror image of a successful scan.
+  function removeScannedEntry(row, entry) {
+    onScannedCodesChange(scannedCodes.filter((s) => s !== entry));
+    setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [entry.kind]: (a[row.item.code]?.[entry.kind] || 0) + 1 } }));
+    const current = selection[row.key] || { outers: 0, inners: 0 };
+    onSelectionChange({
+      ...selection,
+      [row.key]: {
+        outers: entry.kind === 'outer' ? Math.max(0, current.outers - 1) : current.outers,
+        inners: entry.kind === 'inner' ? Math.max(0, current.inners - 1) : current.inners,
+      },
+    });
+  }
 
   // Scanning increments THIS row's outer/inner count by one (capped at max,
   // same rule typing a number already follows) — it's an alternative input
@@ -153,6 +189,10 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
 
   async function splitCarton() {
     if (!splitTarget) return;
+    // Permanent and one-way — confirm explicitly, since this button sits
+    // right next to Add scan/Stop camera and an accidental tap previously
+    // split a carton nobody meant to split.
+    if (!confirm(`Split ${splitTarget.code} into inner cartons? This cannot be undone.`)) return;
     setSplitting(true);
     try {
       const res = await barcodeApi.split(splitTarget.code);
@@ -170,6 +210,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   }, 0);
   const anySelected = rows.some((r) => r.checked);
   const activeScanRow = rows.find((r) => r.key === scanRow) || null; // the one row (of many) currently showing the fixed scan sheet — see below
+  const activeRowScans = activeScanRow ? scannedCodes.filter((s) => s.ownerKey === activeScanRow.key) : []; // this row's scanned cartons, each individually removable in the sheet
 
   return (
     <div className="card">
@@ -300,9 +341,10 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 <input
                   autoFocus placeholder={`Type a carton code for ${activeScanRow.item.name}`}
                   value={scanValue} onChange={(e) => setScanValue(e.target.value)}
+                  disabled={cameraRow === activeScanRow.key}
                   style={{ minWidth: 220, flex: 1 }}
                 />
-                <button type="submit" className="btn sm" disabled={scanningRow === activeScanRow.key}>{scanningRow === activeScanRow.key ? 'Checking…' : 'Add scan'}</button>
+                <button type="submit" className="btn sm" disabled={scanningRow === activeScanRow.key || cameraRow === activeScanRow.key}>{scanningRow === activeScanRow.key ? 'Checking…' : 'Add scan'}</button>
                 {cameraRow === activeScanRow.key ? (
                   <button type="button" className="btn o sm rd" onClick={() => setCameraRow(null)}>Stop camera</button>
                 ) : (
@@ -320,6 +362,22 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                   onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
                   onClose={() => setCameraRow(null)}
                 />
+              )}
+              {/* Every carton scanned into THIS row, each individually
+                  removable — a fixed-height scrollable box so the sheet
+                  itself never grows taller as more get scanned. */}
+              {activeRowScans.length > 0 && (
+                <div style={{ marginTop: 10, maxHeight: 110, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+                  {activeRowScans.map((entry, i) => (
+                    <div
+                      key={entry.code}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: i < activeRowScans.length - 1 ? '1px solid var(--line)' : 'none' }}
+                    >
+                      <span className="mono" style={{ fontSize: 12 }}>{entry.code} <span className="muted" style={{ fontSize: 10 }}>({entry.kind})</span></span>
+                      <button type="button" className="btn o sm rd" onClick={() => removeScannedEntry(activeScanRow, entry)}>✕ Remove</button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>
