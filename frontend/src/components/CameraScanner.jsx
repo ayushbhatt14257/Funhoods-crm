@@ -11,17 +11,34 @@ import { useEffect, useRef, useState } from 'react';
 // The caller decides when to actually stop the camera (e.g. once a row's
 // target count is fully reached) by unmounting this component or calling
 // onClose — this component never decides to close itself after a scan.
-// Same proven camera setup as before (rear camera, continuous autofocus,
-// QR-only, fast retry, torch toggle) — pulled out here so nothing else
-// duplicates the ~80 lines of zxing setup and the several real bugs fixed
-// in it along the way.
+//
+// onScan/onError are read via refs, NOT put in the setup effect's
+// dependency array. The caller (e.g. CustomerPoolView) re-renders after
+// every single scan, which recreates these as fresh inline functions each
+// time — if the effect depended on them directly, the camera would tear
+// down and reopen the whole video stream after every scan (losing any
+// torch state, causing exactly the flakiness this was built to avoid).
+// Refs let the effect run its setup exactly once per mount regardless of
+// how often the parent re-renders.
 export default function CameraScanner({ onScan, onError, onClose }) {
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
   const pausedRef = useRef(false); // true while a scan's check is in flight — ignore frames until it resolves
+  const onScanRef = useRef(onScan);
+  const onErrorRef = useRef(onError);
+  onScanRef.current = onScan;
+  onErrorRef.current = onError;
   const [checking, setChecking] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
+
+  // iOS Safari does not support controlling the camera flash from a web
+  // page at all — this is an Apple platform restriction, not a bug, and no
+  // amount of getUserMedia/applyConstraints code can work around it. Some
+  // iOS versions still report a torch "capability" that then silently does
+  // nothing when toggled, which is worse than not offering the button at
+  // all — so it's hidden outright on iOS rather than shown broken.
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,7 +57,7 @@ export default function CameraScanner({ onScan, onError, onClose }) {
         const text = result.getText();
         // onScan may or may not return a promise — Promise.resolve() handles
         // both so this works whether the caller's handler is async or not.
-        Promise.resolve(onScan(text)).finally(() => {
+        Promise.resolve(onScanRef.current(text)).finally(() => {
           if (!cancelled) { pausedRef.current = false; setChecking(false); }
         });
       };
@@ -52,16 +69,19 @@ export default function CameraScanner({ onScan, onError, onClose }) {
         );
         if (cancelled) { controlsRef.current?.stop(); return; }
         const track = videoRef.current.srcObject?.getVideoTracks?.()[0];
-        setTorchSupported(!!track?.getCapabilities?.().torch);
+        setTorchSupported(!isIOS && !!track?.getCapabilities?.().torch);
       } catch (err) {
-        if (!cancelled) onError?.('Could not access camera — ' + err.message);
+        if (!cancelled) onErrorRef.current?.('Could not access camera — ' + err.message);
       }
     })();
     // Camera only actually stops when this component unmounts (the caller
     // hides it, e.g. once a row's target count is fully met) or on this
-    // effect's own cleanup — never automatically after a single scan.
+    // effect's own cleanup — never automatically after a single scan, and
+    // never as a side effect of the parent re-rendering (empty deps below —
+    // this must run exactly once per mount, see the note above).
     return () => { cancelled = true; controlsRef.current?.stop(); };
-  }, [onScan, onError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function toggleTorch() {
     const track = videoRef.current?.srcObject?.getVideoTracks?.()[0];
@@ -70,7 +90,7 @@ export default function CameraScanner({ onScan, onError, onClose }) {
       await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
       setTorchOn((t) => !t);
     } catch {
-      onError?.('Flashlight not available on this device');
+      onErrorRef.current?.('Flashlight not available on this device');
     }
   }
 

@@ -290,6 +290,9 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 <div>
                   <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Scanning for</div>
                   <div style={{ fontWeight: 700, fontSize: 16 }}>{activeScanRow.item.name} <span className="mono muted" style={{ fontSize: 11, fontWeight: 400 }}>{activeScanRow.item.code}</span></div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--spruce)', marginTop: 2 }}>
+                    {activeScanRow.outers + activeScanRow.inners} / {activeScanRow.max.outers + activeScanRow.max.inners} carton{activeScanRow.max.outers + activeScanRow.max.inners === 1 ? '' : 's'} scanned
+                  </div>
                 </div>
                 <button type="button" className="btn o sm" onClick={closeScan}>✕ Close</button>
               </div>
