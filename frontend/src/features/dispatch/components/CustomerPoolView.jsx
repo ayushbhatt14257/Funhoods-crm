@@ -165,13 +165,18 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onScannedCodesChange(scannedCodes.filter((s) => s !== entry));
     setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [entry.kind]: (a[row.item.code]?.[entry.kind] || 0) + 1 } }));
     const current = selection[row.key] || { outers: 0, inners: 0 };
-    onSelectionChange({
-      ...selection,
-      [row.key]: {
-        outers: entry.kind === 'outer' ? Math.max(0, current.outers - 1) : current.outers,
-        inners: entry.kind === 'inner' ? Math.max(0, current.inners - 1) : current.inners,
-      },
-    });
+    const outers = entry.kind === 'outer' ? Math.max(0, current.outers - 1) : current.outers;
+    const inners = entry.kind === 'inner' ? Math.max(0, current.inners - 1) : current.inners;
+    if (outers === 0 && inners === 0) {
+      // Back to nothing scanned — uncheck entirely rather than leaving a
+      // {outers:0, inners:0} override, which would show as checked-but-
+      // sending-nothing (the exact confusing state fixed once already).
+      const next = { ...selection };
+      delete next[row.key];
+      onSelectionChange(next);
+    } else {
+      onSelectionChange({ ...selection, [row.key]: { outers, inners } });
+    }
   }
 
   // Scanning increments THIS row's outer/inner count by one (capped at max,
@@ -195,7 +200,16 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       const current = selection[row.key] || { outers: 0, inners: 0 };
       let nextOuters = current.outers, nextInners = current.inners;
       if (res.kind === 'outer') {
-        if (current.outers >= row.max.outers) { showToast(`Already at the max outer count for ${row.item.name}`, 'err'); return; }
+        if (current.outers >= row.max.outers) {
+          // This exact outer doesn't fit what's left — but it might if
+          // split into inners, so offer that right here instead of just
+          // refusing. Whether it's ACTUALLY splittable (a whole outer
+          // carton, not itself an inner) is checked server-side when the
+          // split button is used.
+          showToast(`This outer is too big for what's left on ${row.item.name} — split it into inners instead.`, 'err');
+          setSplitTarget({ rowKey: row.key, code: res.code });
+          return;
+        }
         nextOuters = current.outers + 1;
         setSplitTarget({ rowKey: row.key, code: res.code });
       } else {
@@ -280,7 +294,22 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 const canScan = avail.outer > 0 || avail.inner > 0;
                 return (
                   <tr key={r.key}>
-                    <td><input type="checkbox" checked={r.checked} onChange={() => toggle(r)} /></td>
+                    <td>
+                      {canScan ? (
+                        // Scan-only for this row (real trackable stock
+                        // exists) — the checkbox is no longer a manual
+                        // toggle, just a read-only reflection of whether
+                        // anything has been scanned into it yet.
+                        <span
+                          title={r.checked ? 'Included (scanned)' : 'Not yet scanned'}
+                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 4, border: '1px solid var(--line)', background: r.checked ? 'var(--green)' : 'transparent', color: '#fff', fontSize: 12, fontWeight: 700 }}
+                        >
+                          {r.checked ? '✓' : ''}
+                        </span>
+                      ) : (
+                        <input type="checkbox" checked={r.checked} onChange={() => toggle(r)} />
+                      )}
+                    </td>
                     <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{r.item.code}</td>
                     {/* Sticky so scrolling right to reach Outer/Inner/Scan on a
@@ -291,7 +320,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     <td style={{ position: 'sticky', left: 0, background: 'var(--white)', zIndex: 1, boxShadow: '2px 0 6px rgba(0,0,0,0.08)' }}><b>{r.item.name}</b></td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
-                      {r.checked ? (
+                      {canScan ? (
+                        // Read-only — real quantity here only ever comes
+                        // from an actual scan when trackable stock exists,
+                        // never typed.
+                        <b>{r.checked ? r.outers : 0}</b>
+                      ) : r.checked ? (
                         <input
                           type="number" min={0} max={r.max.outers} value={r.outers}
                           onChange={(e) => setOuters(r, e.target.value)}
@@ -300,12 +334,14 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                       ) : <b>{r.suggested.outers}</b>}
                       {r.item.cartonOuter > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
-                          {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
+                          {r.checked && !canScan ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
                         </div>
                       )}
                     </td>
                     <td>
-                      {r.checked ? (
+                      {canScan ? (
+                        <b>{r.checked ? r.inners : 0}</b>
+                      ) : r.checked ? (
                         <input
                           type="number" min={0} max={r.max.inners} value={r.inners}
                           onChange={(e) => setInners(r, e.target.value)}
@@ -314,7 +350,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                       ) : <b>{r.suggested.inners}</b>}
                       {r.item.cartonInner > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
-                          {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
+                          {r.checked && !canScan ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
                         </div>
                       )}
                     </td>

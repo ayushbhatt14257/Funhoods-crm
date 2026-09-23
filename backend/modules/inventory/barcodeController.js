@@ -87,14 +87,15 @@ async function getByProduct(req, res) {
         createdBy: { $first: '$createdBy' },
         total: { $sum: 1 },
         used: { $sum: { $cond: [{ $in: ['$status', EVER_STOCKED] }, 1, 0] } },
+        dispatched: { $sum: { $cond: [{ $eq: ['$status', 'dispatched'] }, 1, 0] } },
       },
     },
     { $sort: { createdAt: -1 } },
   ]);
 
   const summary = rows.reduce(
-    (s, r) => ({ total: s.total + r.total, used: s.used + r.used }),
-    { total: 0, used: 0 }
+    (s, r) => ({ total: s.total + r.total, used: s.used + r.used, dispatched: s.dispatched + r.dispatched }),
+    { total: 0, used: 0, dispatched: 0 }
   );
 
   // Reconciliation check: how much stock the QR tracking currently thinks
@@ -169,7 +170,7 @@ async function lookupCarton(req, res) {
   if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
   const product = await Product.findOne({ code: carton.product });
   res.json({
-    code: carton.code, status: carton.status, qty: carton.qty,
+    code: carton.code, status: carton.status, qty: carton.qty, createdAt: carton.createdAt,
     product: carton.product, productName: carton.productName, photo: product?.photo || '',
     usedBy: carton.usedBy, usedAt: carton.usedAt,
     dispatchedTo: carton.dispatchedTo, dispatchedAt: carton.dispatchedAt, dispatchedInvoice: carton.dispatchedInvoice,

@@ -60,6 +60,9 @@ export default function GenerateBarcodes() {
   const [openBatchDetail, setOpenBatchDetail] = useState(null); // full carton list for openBatch
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailFilter, setDetailFilter] = useState('all'); // 'all' | 'used' | 'unused'
+  const [codeSearch, setCodeSearch] = useState('');
+  const [codeSearchResult, setCodeSearchResult] = useState(null);
+  const [codeSearchLoading, setCodeSearchLoading] = useState(false);
 
   useEffect(() => { api.get('/products').then(setProducts); }, []);
   useEffect(() => { loadRecentBatches(); }, []);
@@ -99,7 +102,32 @@ export default function GenerateBarcodes() {
     finally { setDeletingBatch(null); }
   }
 
-  // Render each carton's QR code onto its label's <canvas> once the batch is
+  // Finds one exact carton by its own code — the direct way to locate a
+  // split child (e.g. PL001-5C5D5F-D9) without having to browse through a
+  // whole batch's card list to spot it.
+  async function searchByCode(e) {
+    e.preventDefault();
+    const code = codeSearch.trim();
+    if (!code) return;
+    setCodeSearchLoading(true);
+    setCodeSearchResult(null);
+    try {
+      const res = await barcodeApi.lookup(code);
+      setCodeSearchResult(res);
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setCodeSearchLoading(false); }
+  }
+
+  async function reprintSearchResult() {
+    if (!codeSearchResult) return;
+    setBatch({
+      product: { name: codeSearchResult.productName, code: codeSearchResult.product },
+      qty: codeSearchResult.qty,
+      cartons: [{ code: codeSearchResult.code, qty: codeSearchResult.qty, createdAt: codeSearchResult.createdAt }],
+    });
+  }
+
+
   // ready. Re-runs whenever a new batch comes in. Nothing here is ever shown
   // on screen (see .silent-print below) — every generate/reprint goes
   // straight to the print dialog the moment the QR codes finish drawing;
@@ -372,6 +400,31 @@ export default function GenerateBarcodes() {
             </div>
           </div>
 
+          {/* Finds one exact carton directly by its own code — the quick
+              way to locate a split child (e.g. PL001-5C5D5F-D9) that would
+              otherwise mean scrolling through its whole parent batch to spot it. */}
+          <div className="card" style={{ maxWidth: 560, marginTop: 12 }}>
+            <div className="fg"><label>Or find one exact carton code</label>
+              <form onSubmit={searchByCode} className="btnrow">
+                <input placeholder="e.g. PL001-5C5D5F-D9" value={codeSearch} onChange={(e) => setCodeSearch(e.target.value)} style={{ flex: 1 }} />
+                <button type="submit" className="btn sm" disabled={codeSearchLoading}>{codeSearchLoading ? 'Searching…' : 'Search'}</button>
+              </form>
+            </div>
+            {codeSearchResult && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', marginTop: 8 }}>
+                <div>
+                  <div><b>{codeSearchResult.code}</b> <span className="mono muted" style={{ fontSize: 11 }}>{codeSearchResult.productName} · {codeSearchResult.qty} pcs</span></div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    Status: {codeSearchResult.status}
+                    {codeSearchResult.usedAt && ` · Scanned in ${new Date(codeSearchResult.usedAt).toLocaleDateString('en-IN')} by ${codeSearchResult.usedBy}`}
+                    {codeSearchResult.dispatchedAt && ` · Dispatched to ${codeSearchResult.dispatchedTo} on invoice ${codeSearchResult.dispatchedInvoice}`}
+                  </div>
+                </div>
+                <button className="btn o sm" onClick={reprintSearchResult}>🖨️ Reprint</button>
+              </div>
+            )}
+          </div>
+
           {trackLoading && <div className="empty">Loading…</div>}
 
           {trackData && !trackLoading && (
@@ -379,6 +432,7 @@ export default function GenerateBarcodes() {
               <div className="btnrow" style={{ marginTop: 14, gap: 18, flexWrap: 'wrap' }}>
                 <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20 }}>{trackData.summary.total}</b><div className="muted" style={{ fontSize: 11 }}>Total printed</div></div>
                 <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20, color: 'var(--green)' }}>{trackData.summary.used}</b><div className="muted" style={{ fontSize: 11 }}>Scanned in</div></div>
+                <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20, color: 'var(--spruce)' }}>{trackData.summary.dispatched}</b><div className="muted" style={{ fontSize: 11 }}>Dispatched</div></div>
                 <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20, color: 'var(--red)' }}>{trackData.summary.unused}</b><div className="muted" style={{ fontSize: 11 }}>Still unscanned</div></div>
                 {/* Compares what the QR tracking thinks is currently in the
                     warehouse (every 'in_stock' carton's pcs added up)
