@@ -418,7 +418,7 @@ export default function GenerateBarcodes() {
             {batch.cartons.map((c) => (
               <div className="label" key={c.code}>
                 <div className="label-name">{batch.product.name}</div>
-                <div className="label-meta"><b>{batch.product.code}</b> · {batch.qty} pcs</div>
+                <div className="label-meta"><b>{batch.product.code}</b> · {c.qty ?? batch.qty} pcs</div>
                 <canvas id={`qr-${c.code}`} className="label-qr"></canvas>
                 <div className="label-footer">{c.code} · {new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
