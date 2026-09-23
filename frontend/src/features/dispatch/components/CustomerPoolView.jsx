@@ -321,10 +321,11 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
                       {canScan ? (
-                        // Read-only — real quantity here only ever comes
-                        // from an actual scan when trackable stock exists,
-                        // never typed.
-                        <b>{r.checked ? r.outers : 0}</b>
+                        // Unchecked: show what the order actually needs
+                        // (informational only, never editable here — real
+                        // quantity only ever comes from a scan once
+                        // checked). Checked: show real scan progress.
+                        <b>{r.checked ? r.outers : r.suggested.outers}</b>
                       ) : r.checked ? (
                         <input
                           type="number" min={0} max={r.max.outers} value={r.outers}
@@ -340,7 +341,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     </td>
                     <td>
                       {canScan ? (
-                        <b>{r.checked ? r.inners : 0}</b>
+                        <b>{r.checked ? r.inners : r.suggested.inners}</b>
                       ) : r.checked ? (
                         <input
                           type="number" min={0} max={r.max.inners} value={r.inners}
