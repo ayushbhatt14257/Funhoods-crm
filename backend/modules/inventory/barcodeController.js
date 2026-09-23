@@ -401,17 +401,57 @@ async function clearAll(req, res) {
 // to provide. clearAll above is the deliberately blunt, all-batches,
 // admin-knows-what-they're-doing tool for a full reset — this is the safe,
 // everyday, per-batch equivalent for a QR batch that was flat-out a mistake.
+// DELETE /api/inventory/stock-in-batches/:batchId — masterAdmin only.
+// Deletes one whole batch's carton records (a "generate a batch of QRs"
+// mistake — wrong product, wrong quantity, duplicate click).
+//
+// Two very different things can be true of a carton, and they're treated
+// differently:
+//  - Stocked in (in_stock/used) but never dispatched: this genuinely IS
+//    fully reversible — deleting it also reverses the pcs it added to
+//    Inventory.physical, so no phantom stock is left behind with no QR to
+//    back it up. This is allowed.
+//  - Dispatched: this is a completed transaction tied to a real invoice and
+//    a real customer — deleting it would destroy that history with no way
+//    to reconstruct it, and unlike physical stock there's no single number
+//    to "reverse" a dispatch back to. This is always blocked, no override.
+//    clearAll is the deliberately blunt, admin-knows-what-they're-doing
+//    full reset for anyone who truly needs to wipe everything regardless.
+//
+// Note: a split carton's INNER CHILDREN share the SAME batchId as their
+// outer parent (see splitCarton), so deleting "this batch" naturally
+// includes them too — if any child was dispatched, the block above catches
+// it correctly; if a child is merely in_stock, its pcs reverse the same as
+// any other carton (the pcs were only ever counted once, at the original
+// stock-in, never a second time at split).
 async function deleteBatch(req, res) {
   const cartons = await CartonBarcode.find({ batchId: req.params.batchId });
   if (!cartons.length) return res.status(404).json({ message: 'Batch not found' });
-  const touched = cartons.filter((c) => c.status !== 'pending' && c.status !== 'unused');
-  if (touched.length) {
+
+  const dispatched = cartons.filter((c) => c.status === 'dispatched');
+  if (dispatched.length) {
     return res.status(409).json({
-      message: `Can't delete — ${touched.length} of ${cartons.length} carton(s) in this batch have already been scanned in or dispatched. Use "Clear all" if you really need to wipe everything, or contact support.`,
+      message: `Can't delete — ${dispatched.length} of ${cartons.length} carton(s) in this batch have already been dispatched to a customer. That's real transaction history and can't be removed this way — use "Clear all" only if you understand it wipes everything regardless, or contact support.`,
     });
   }
+
+  // Reverse the stock any already-scanned-in (but not dispatched) carton
+  // added, grouped by product since a batch could in principle span more
+  // than one via a split's children.
+  const stockedIn = cartons.filter((c) => c.status === 'in_stock' || c.status === 'used');
+  const pcsByProduct = {};
+  stockedIn.forEach((c) => { pcsByProduct[c.product] = (pcsByProduct[c.product] || 0) + c.qty; });
+  for (const [code, pcs] of Object.entries(pcsByProduct)) {
+    await Inventory.findOneAndUpdate({ code }, { $inc: { physical: -pcs } });
+  }
+
   const result = await CartonBarcode.deleteMany({ batchId: req.params.batchId });
-  res.json({ message: `Deleted the batch — ${result.deletedCount} unused QR code(s) removed.`, deletedCount: result.deletedCount });
+  const reversedPcs = stockedIn.reduce((sum, c) => sum + c.qty, 0);
+  res.json({
+    message: `Deleted the batch — ${result.deletedCount} QR code(s) removed${reversedPcs ? `, and ${reversedPcs} pcs reversed from stock` : ''}.`,
+    deletedCount: result.deletedCount,
+    reversedPcs,
+  });
 }
 
 module.exports = {

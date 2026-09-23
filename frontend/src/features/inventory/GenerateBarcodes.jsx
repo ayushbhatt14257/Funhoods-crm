@@ -77,7 +77,7 @@ export default function GenerateBarcodes() {
   // would silently destroy real stock/dispatch history rather than just
   // undo a mistaken batch.
   async function deleteBatchRow(b) {
-    if (!confirm(`Delete this batch of ${b.cartons} QR code(s) for ${b.productName}? This only works if none of them have been scanned yet, and cannot be undone.`)) return;
+    if (!confirm(`Delete this batch of ${b.cartons} QR code(s) for ${b.productName}? Any already scanned-in stock will be reversed automatically. Refused if any have already been dispatched to a customer. Cannot be undone.`)) return;
     setDeletingBatch(b.batchId);
     try {
       const res = await barcodeApi.deleteBatch(b.batchId);
