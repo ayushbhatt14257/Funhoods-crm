@@ -17,6 +17,18 @@ import { barcodeApi } from './barcodeApi';
 // counts elsewhere on this page were already fixed, just not these three
 // spots that inspect individual cartons directly.
 function everStockedIn(status) { return status === 'in_stock' || status === 'used' || status === 'dispatched' || status === 'split'; }
+// Per-status badge — 'split' used to fall under the generic "Scanned" label
+// (via everStockedIn above) same as an ordinary in-stock/dispatched carton,
+// which is exactly what made a split outer indistinguishable from its own
+// inner children in the batch detail table. This gives it its own label and
+// color so the parent row reads as "Split" and the table below can tell
+// parents and children apart at a glance.
+function statusBadge(status) {
+  if (status === 'split') return { label: 'Split', cls: 'p' };
+  if (status === 'dispatched') return { label: 'Dispatched', cls: 'r' };
+  if (everStockedIn(status)) return { label: 'Scanned', cls: 'g' };
+  return { label: 'Unscanned', cls: 'y' };
+}
 //
 // PRINT LAYOUT NOTES (for whoever tunes this next time the label stock changes):
 // Straight landscape slip, 100mm wide x 70mm tall, one per page, no rotation
@@ -246,15 +258,42 @@ export default function GenerateBarcodes() {
               <table className="dt">
                 <thead><tr><th>Carton code</th><th>Status</th><th>Scanned by</th><th>Scanned at</th><th></th></tr></thead>
                 <tbody>
-                  {filteredCartons.map((c) => (
-                    <tr key={c.code}>
-                      <td className="mono" style={{ fontSize: 11 }}>{c.code}</td>
-                      <td><span className={`badge ${everStockedIn(c.status) ? 'g' : 'y'}`}>{everStockedIn(c.status) ? 'Scanned' : 'Unscanned'}</span></td>
-                      <td>{c.usedBy || '—'}</td>
-                      <td>{c.usedAt ? new Date(c.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                      <td><button className="btn o sm" onClick={() => reprintSingleCarton(c)}>🖨️ Reprint</button></td>
-                    </tr>
-                  ))}
+                  {/* Split parents and their inner children used to render as flat,
+                      unrelated-looking sibling rows in whatever order the API returned
+                      them — nothing tied SP-01-4263E7's row to SP-01-4263E7-78/-A0 below
+                      it. Instead: render top-level cartons (kind !== 'inner', i.e. no
+                      parentCode) in order, and immediately after any 'split' parent,
+                      nest its own children indented right underneath it, so the
+                      parent -> children relationship is visible instead of implied. */}
+                  {filteredCartons.filter((c) => c.kind !== 'inner').map((parent) => {
+                    const pBadge = statusBadge(parent.status);
+                    const children = parent.status === 'split'
+                      ? filteredCartons.filter((c) => c.kind === 'inner' && c.parentCode === parent.code)
+                      : [];
+                    return (
+                      <Fragment key={parent.code}>
+                        <tr>
+                          <td className="mono" style={{ fontSize: 11 }}>{parent.code}</td>
+                          <td><span className={`badge ${pBadge.cls}`}>{pBadge.label}</span></td>
+                          <td>{parent.usedBy || '—'}</td>
+                          <td>{parent.usedAt ? new Date(parent.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                          <td>{parent.status !== 'split' && <button className="btn o sm" onClick={() => reprintSingleCarton(parent)}>🖨️ Reprint</button>}</td>
+                        </tr>
+                        {children.map((child) => {
+                          const cBadge = statusBadge(child.status);
+                          return (
+                            <tr key={child.code} style={{ background: 'var(--paper)' }}>
+                              <td className="mono" style={{ fontSize: 11, paddingLeft: 28, borderLeft: '2px solid var(--line)' }}>↳ {child.code}</td>
+                              <td><span className={`badge ${cBadge.cls}`}>{cBadge.label}</span></td>
+                              <td>{child.usedBy || '—'}</td>
+                              <td>{child.usedAt ? new Date(child.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                              <td><button className="btn o sm" onClick={() => reprintSingleCarton(child)}>🖨️ Reprint</button></td>
+                            </tr>
+                          );
+                        })}
+                      </Fragment>
+                    );
+                  })}
                   {!filteredCartons.length && <tr><td colSpan={5}><div className="empty">No cartons in this filter</div></td></tr>}
                 </tbody>
               </table>
