@@ -73,7 +73,8 @@ export default function GenerateBarcodes() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailFilter, setDetailFilter] = useState('all'); // 'all' | 'used' | 'unused'
   const [codeSearch, setCodeSearch] = useState('');
-  const [codeSearchResult, setCodeSearchResult] = useState(null);
+  const [codeSearchResults, setCodeSearchResults] = useState(null); // array of matches, or null before a search runs
+  const [codeSearchSelected, setCodeSearchSelected] = useState(null); // one picked from codeSearchResults (or auto-picked if only 1)
   const [codeSearchLoading, setCodeSearchLoading] = useState(false);
 
   useEffect(() => { api.get('/products').then(setProducts); }, []);
@@ -114,28 +115,35 @@ export default function GenerateBarcodes() {
     finally { setDeletingBatch(null); }
   }
 
-  // Finds one exact carton by its own code — the direct way to locate a
-  // split child (e.g. PL001-5C5D5F-D9) without having to browse through a
-  // whole batch's card list to spot it.
+  // Finds cartons by a PARTIAL code fragment — this used to require the
+  // FULL exact code (a plain findOne), which meant a fragment like
+  // "D510F9" (e.g. read off a worn label, or just the memorable tail of a
+  // split child's code) never matched anything. Now does a substring search
+  // (backend: searchCartons), scoped to the already-picked product when
+  // there is one — both to match what the person almost always wants and
+  // to keep a short fragment from colliding across unrelated products.
   async function searchByCode(e) {
     e.preventDefault();
     const code = codeSearch.trim();
     if (!code) return;
     setCodeSearchLoading(true);
-    setCodeSearchResult(null);
+    setCodeSearchResults(null);
+    setCodeSearchSelected(null);
     try {
-      const res = await barcodeApi.lookup(code);
-      setCodeSearchResult(res);
+      const res = await barcodeApi.search(code, { product: trackProduct?.code });
+      setCodeSearchResults(res);
+      // Only one match — skip the picklist and go straight to the detail card.
+      if (res.length === 1) setCodeSearchSelected(res[0]);
     } catch (err) { showToast(err.message, 'err'); }
     finally { setCodeSearchLoading(false); }
   }
 
   async function reprintSearchResult() {
-    if (!codeSearchResult) return;
+    if (!codeSearchSelected) return;
     setBatch({
-      product: { name: codeSearchResult.productName, code: codeSearchResult.product },
-      qty: codeSearchResult.qty,
-      cartons: [{ code: codeSearchResult.code, qty: codeSearchResult.qty, createdAt: codeSearchResult.createdAt }],
+      product: { name: codeSearchSelected.productName, code: codeSearchSelected.product },
+      qty: codeSearchSelected.qty,
+      cartons: [{ code: codeSearchSelected.code, qty: codeSearchSelected.qty, createdAt: codeSearchSelected.createdAt }],
     });
   }
 
@@ -466,27 +474,48 @@ export default function GenerateBarcodes() {
             </div>
           </div>
 
-          {/* Finds one exact carton directly by its own code — the quick
-              way to locate a split child (e.g. PL001-5C5D5F-D9) that would
-              otherwise mean scrolling through its whole parent batch to spot it. */}
+          {/* Finds cartons by a PARTIAL code fragment (e.g. just "D510F9") —
+              scoped to the picked product above when there is one, so a short
+              fragment doesn't collide across unrelated products. */}
           <div className="card" style={{ maxWidth: 560, marginTop: 12 }}>
-            <div className="fg"><label>Or find one exact carton code</label>
+            <div className="fg"><label>Or find a carton by code (full or partial)</label>
               <form onSubmit={searchByCode} className="btnrow">
-                <input placeholder="e.g. PL001-5C5D5F-D9" value={codeSearch} onChange={(e) => setCodeSearch(e.target.value)} style={{ flex: 1 }} />
+                <input placeholder="e.g. D510F9 or PL001-5C5D5F-D9" value={codeSearch} onChange={(e) => setCodeSearch(e.target.value)} style={{ flex: 1 }} />
                 <button type="submit" className="btn sm" disabled={codeSearchLoading}>{codeSearchLoading ? 'Searching…' : 'Search'}</button>
               </form>
+              {trackProduct && <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Searching within {trackProduct.name} only — Change the product above to search all products.</div>}
             </div>
-            {codeSearchResult && (
+
+            {/* More than one match and none picked yet — show a pickable list. */}
+            {codeSearchResults && codeSearchResults.length > 1 && !codeSearchSelected && (
+              <div style={{ marginTop: 8 }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>{codeSearchResults.length} matches — pick one:</div>
+                {codeSearchResults.map((r) => (
+                  <div key={r.code} onClick={() => setCodeSearchSelected(r)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 12px', marginBottom: 6, cursor: 'pointer' }}>
+                    <span className="mono" style={{ fontSize: 12 }}>{r.code}</span>
+                    <span className="muted" style={{ fontSize: 11 }}>{r.productName} · {r.qty} pcs · {r.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {codeSearchResults && !codeSearchResults.length && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>No carton codes match "{codeSearch}"{trackProduct ? ` for ${trackProduct.name}` : ''}.</div>
+            )}
+
+            {codeSearchSelected && (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', marginTop: 8 }}>
                 <div>
-                  <div><b>{codeSearchResult.code}</b> <span className="mono muted" style={{ fontSize: 11 }}>{codeSearchResult.productName} · {codeSearchResult.qty} pcs</span></div>
+                  <div><b>{codeSearchSelected.code}</b> <span className="mono muted" style={{ fontSize: 11 }}>{codeSearchSelected.productName} · {codeSearchSelected.qty} pcs</span></div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    Status: {codeSearchResult.status}
-                    {codeSearchResult.usedAt && ` · Scanned in ${new Date(codeSearchResult.usedAt).toLocaleDateString('en-IN')} by ${codeSearchResult.usedBy}`}
-                    {codeSearchResult.dispatchedAt && ` · Dispatched to ${codeSearchResult.dispatchedTo} on invoice ${codeSearchResult.dispatchedInvoice}`}
+                    Status: {codeSearchSelected.status}
+                    {codeSearchSelected.usedAt && ` · Scanned in ${new Date(codeSearchSelected.usedAt).toLocaleDateString('en-IN')} by ${codeSearchSelected.usedBy}`}
+                    {codeSearchSelected.dispatchedAt && ` · Dispatched to ${codeSearchSelected.dispatchedTo} on invoice ${codeSearchSelected.dispatchedInvoice}`}
                   </div>
                 </div>
-                <button className="btn o sm" onClick={reprintSearchResult}>🖨️ Reprint</button>
+                <div className="btnrow">
+                  {codeSearchResults.length > 1 && <button className="btn o sm" onClick={() => setCodeSearchSelected(null)}>← Back to matches</button>}
+                  <button className="btn o sm" onClick={reprintSearchResult}>🖨️ Reprint</button>
+                </div>
               </div>
             )}
           </div>

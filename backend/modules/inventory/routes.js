@@ -25,6 +25,7 @@ router.delete('/stock-in-batches/:batchId', allow('masterAdmin'), barcodeCtrl.de
 // "by-product"/"all"/"recent-batches" as the :code param and these routes never fire.
 router.get('/carton/by-product/:code', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getByProduct);
 router.get('/carton/recent-batches', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getRecentBatches);
+router.get('/carton/search', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.searchCartons);
 router.get('/carton/available-counts', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.availableCounts);
 router.delete('/carton/all', allow('masterAdmin'), barcodeCtrl.clearAll);
 router.post('/carton/migrate-outward', allow('masterAdmin'), barcodeCtrl.migrateOutward);

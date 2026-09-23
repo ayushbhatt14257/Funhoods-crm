@@ -8,6 +8,11 @@ export const barcodeApi = {
   deleteBatch: (batchId) => api.del(`/inventory/stock-in-batches/${batchId}`),
   clearAll: () => api.del('/inventory/carton/all'),
   lookup: (code) => api.get(`/inventory/carton/${encodeURIComponent(code)}`),
+  search: (q, opts = {}) => {
+    const params = new URLSearchParams({ q });
+    if (opts.product) params.set('product', opts.product);
+    return api.get(`/inventory/carton/search?${params}`);
+  },
   confirm: (code) => api.post(`/inventory/carton/${encodeURIComponent(code)}/confirm`),
   // Outward/dispatch scanning
   forDispatch: (code, dealerCode, opts = {}) => {

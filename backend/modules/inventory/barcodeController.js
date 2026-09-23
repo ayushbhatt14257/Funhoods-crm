@@ -163,6 +163,37 @@ async function getRecentBatches(req, res) {
   );
 }
 
+// GET /api/inventory/carton/search?q=<partial>&product=<code>&limit=20
+// admin/masterAdmin/inward only. Partial/substring match on the carton code
+// — the "OR find one exact carton code" box used to require the FULL code
+// (an exact findOne), which is useless for what it's actually used for:
+// someone reading a worn/partial label, or pasting just the last few
+// characters they can still make out (e.g. "D510F9" from a split child's
+// suffix) had no way to find it. This does a case-insensitive substring
+// search instead and returns up to `limit` matches, newest first, so the
+// caller can pick the right one when more than one contains the fragment.
+// `product`, when given (the Generate/Track tab's already-selected product),
+// narrows the search to just that product's cartons — both because it's
+// what the person almost always wants, and because a short fragment like
+// "0F1A" is far more likely to collide across products than within one.
+async function searchCartons(req, res) {
+  const q = String(req.query.q || '').trim().toUpperCase();
+  if (!q) return res.json([]);
+  if (q.length < 3) return res.status(400).json({ message: 'Type at least 3 characters to search.' });
+
+  const limit = Math.min(50, Math.max(1, +req.query.limit || 20));
+  const filter = { code: { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } };
+  if (req.query.product) filter.product = String(req.query.product).toUpperCase();
+
+  const cartons = await CartonBarcode.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+  res.json(cartons.map((c) => ({
+    code: c.code, status: c.status, qty: c.qty, kind: c.kind || 'outer', parentCode: c.parentCode || '',
+    product: c.product, productName: c.productName, createdAt: c.createdAt,
+    usedBy: c.usedBy, usedAt: c.usedAt,
+    dispatchedTo: c.dispatchedTo, dispatchedAt: c.dispatchedAt, dispatchedInvoice: c.dispatchedInvoice,
+  })));
+}
+
 // GET /api/inventory/carton/:code — look up a scanned barcode. Read-only —
 // scanning to preview doesn't consume the carton; only /confirm does.
 async function lookupCarton(req, res) {
@@ -490,6 +521,6 @@ async function deleteBatch(req, res) {
 }
 
 module.exports = {
-  generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, confirmCarton,
+  generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, searchCartons, confirmCarton,
   splitCarton, forDispatchScan, availableCounts, manualDispatchCarton, migrateOutward, clearAll, deleteBatch,
 };
