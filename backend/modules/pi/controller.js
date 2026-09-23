@@ -2,7 +2,6 @@ const PI = require('./model');
 const Dealer = require('../dealers/model');
 const Product = require('../products/model');
 const Alias = require('../aliases/model');
-const Inventory = require('../inventory/model');
 const Notification = require('../notifications/model');
 const { parseOrderText } = require('../../utils/orderParser');
 
@@ -296,39 +295,35 @@ async function confirm(req, res) {
   if (!pi) return res.status(404).json({ message: 'PI not found' });
   if (pi.status !== 'Sent') return res.status(400).json({ message: `Cannot confirm a PI in '${pi.status}' status — it must be Sent first.` });
 
+  // Confirming reserves this PI's demand against stock — no longer done by
+  // incrementing a stored Inventory.reserved counter (that counter drifted
+  // out of sync with reality whenever any code path didn't perfectly mirror
+  // it, and there was no way back to correct once it drifted). Reserved
+  // demand is now computed live, straight from every open PI's lines (see
+  // getLiveReservedMap in inventory/controller.js) — simply moving this PI's
+  // status to 'Confirmed' is what makes its lines count as reserved from
+  // here on; there is nothing else to update.
   // NOTE: this used to block confirmation when free-to-sell stock was
   // insufficient (FIFO — first PI to confirm gets the stock). Turned off for
   // now on request since it was blocking confirmations before inventory
   // records were caught up; confirming still reserves stock as before, it
   // just no longer refuses to go negative. Re-add a shortage check here
-  // (compare Inventory.physical - Inventory.reserved against each line's
+  // (compare Inventory.physical - live reserved against each line's
   // pcs) if/when this should come back.
-  for (const l of pi.lines) {
-    await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: l.pcs } }, { upsert: true });
-  }
   pi.status = 'Confirmed';
   pi.confirmedAt = new Date();
   await pi.save();
   res.json(pi);
 }
 
-// POST /api/pi/:no/cancel -> releases whatever reserved stock is still
-// outstanding on this PI (works for both 'Confirmed' — nothing dispatched
-// yet — and 'Partial Dispatched' — releases only the still-pending lines,
-// since already-dispatched pieces were never "reserved" anymore).
+// POST /api/pi/:no/cancel -> a Cancelled PI's lines simply stop counting
+// toward live reserved demand (see getLiveReservedMap) the moment its status
+// changes below — there's no stored counter to release here anymore.
 async function cancel(req, res) {
   const pi = await PI.findOne({ no: req.params.no });
   if (!pi) return res.status(404).json({ message: 'PI not found' });
   if (pi.status === 'Cancelled') return res.status(400).json({ message: 'PI is already cancelled' });
 
-  if (['Confirmed', 'Partial Dispatched'].includes(pi.status)) {
-    for (const l of pi.lines) {
-      const pending = l.pending != null ? l.pending : l.pcs;
-      if (pending > 0) {
-        await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: -pending } });
-      }
-    }
-  }
   pi.status = 'Cancelled';
   await pi.save();
   res.json(pi);
@@ -350,12 +345,13 @@ async function closeRemaining(req, res) {
   const note = String(req.body.note || '').trim();
   if (!note) return res.status(400).json({ message: 'A note explaining the write-off is required.' });
 
+  // Zeroing each line's own pending is what actually releases it from live
+  // reserved demand (see getLiveReservedMap) — moving the PI to 'Closed'
+  // alone would already exclude it too, but zeroing pending here keeps the
+  // PI's own line data honest about what's actually still outstanding (none).
   for (const l of pi.lines) {
     const pending = l.pending != null ? l.pending : l.pcs;
-    if (pending > 0) {
-      await Inventory.findOneAndUpdate({ code: l.code }, { $inc: { reserved: -pending } });
-      l.pending = 0;
-    }
+    if (pending > 0) l.pending = 0;
   }
   pi.status = 'Closed';
   pi.closeNote = note;

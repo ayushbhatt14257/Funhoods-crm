@@ -1,6 +1,30 @@
 const Inventory = require('./model');
 const Product = require('../products/model');
+const PI = require('../pi/model');
 const XLSX = require('xlsx');
+
+// Live-computed reserved demand, per product code — the sum of "pending"
+// pcs across every currently open PI (Confirmed or Partial Dispatched),
+// recalculated fresh on every read. This replaces reading Inventory.reserved
+// as a stored, incrementally-maintained counter: that counter had to be
+// perfectly adjusted by every single PI confirm, PI cancel, and dispatch
+// commit to ever stay correct, and any one code path that changed a PI's
+// demand without exactly mirroring that change here let it drift out of
+// sync — permanently, since nothing ever corrected it back. Computing it
+// fresh here, the same way the "Pending — <product>" popup already does,
+// makes that drift structurally impossible: there's no counter to fall out
+// of sync with reality, because this always IS reality.
+async function getLiveReservedMap() {
+  const pis = await PI.find({ status: { $in: ['Confirmed', 'Partial Dispatched'] } }).select('lines').lean();
+  const reserved = {};
+  pis.forEach((pi) => {
+    pi.lines.forEach((l) => {
+      const pending = l.pending != null ? l.pending : l.pcs;
+      if (pending > 0) reserved[l.code] = (reserved[l.code] || 0) + pending;
+    });
+  });
+  return reserved;
+}
 
 // Shared by both the on-screen table and the Excel export, so the two can
 // never drift apart. "Need to produce" = confirmed-order demand (Reserved)
@@ -10,12 +34,14 @@ async function buildProductionPlan() {
   const items = await Inventory.find();
   const products = await Product.find();
   const productMap = Object.fromEntries(products.map((p) => [p.code, p]));
+  const reservedMap = await getLiveReservedMap();
 
   return items
     .map((i) => {
       const p = productMap[i.code] || {};
-      const needed = Math.max(0, i.reserved - i.physical);
-      return { code: i.code, name: p.name || i.code, physical: i.physical, reserved: i.reserved, needed };
+      const reserved = reservedMap[i.code] || 0;
+      const needed = Math.max(0, reserved - i.physical);
+      return { code: i.code, name: p.name || i.code, physical: i.physical, reserved, needed };
     })
     .filter((r) => r.needed > 0)
     .sort((a, b) => b.needed - a.needed);
@@ -49,9 +75,11 @@ async function list(req, res) {
   const items = await Inventory.find();
   const products = await Product.find();
   const productMap = Object.fromEntries(products.map((p) => [p.code, p]));
+  const reservedMap = await getLiveReservedMap();
 
   const rows = items.map((i) => {
     const p = productMap[i.code] || {};
+    const reserved = reservedMap[i.code] || 0;
     return {
       code: i.code,
       name: p.name || '',
@@ -59,9 +87,9 @@ async function list(req, res) {
       cartonInner: p.cartonInner || 0,
       rate: p.rate || 0,
       physical: i.physical,
-      reserved: i.reserved,
-      free: i.physical - i.reserved, // always computed live, never stored
-      value: (i.physical - i.reserved) * (p.rate || 0),
+      reserved,
+      free: i.physical - reserved, // always computed live, never stored
+      value: (i.physical - reserved) * (p.rate || 0),
     };
   });
   res.json(rows);

@@ -436,15 +436,19 @@ async function dispatchFromPool(req, res) {
       console.error(`Dispatch ${invoice.no} succeeded, but marking a scanned carton dispatched failed (traceability only, not the dispatch itself):`, err);
     }
 
+    // reserved is no longer a stored counter to decrement here — it's
+    // computed live from every open PI's own pending field (see
+    // getLiveReservedMap in inventory/controller.js), and that pending field
+    // was already reduced earlier in this function (line.pending = pending -
+    // take) before touchedPIs were saved above — so live reserved demand for
+    // these lines is already correct by this point, with nothing more to do.
     const invByCode = {};
     dispatchLines.forEach((l) => { invByCode[l.code] = (invByCode[l.code] || 0) + l.pcs; });
     for (const [code, pcs] of Object.entries(invByCode)) {
-      await Inventory.findOneAndUpdate({ code }, { $inc: { physical: -pcs, reserved: -pcs } });
+      await Inventory.findOneAndUpdate({ code }, { $inc: { physical: -pcs } });
     }
-    // Gift pcs only ever reduce physical stock, never `reserved` — reserved
-    // tracks PI-confirmed stock, and a gift was never reserved against any
-    // PI in the first place, so touching it here would incorrectly push it
-    // negative for products with little other reserved stock.
+    // Gift pcs only ever reduce physical stock — a gift was never reserved
+    // against any PI in the first place, so there's nothing to release here.
     for (const [code, pcs] of Object.entries(giftPcsByCode)) {
       await Inventory.findOneAndUpdate({ code }, { $inc: { physical: -pcs } });
     }
