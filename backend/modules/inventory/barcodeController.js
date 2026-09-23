@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const crypto = require('crypto');
 const CartonBarcode = require('./cartonBarcodeModel');
 const Inventory = require('./model');
@@ -96,9 +97,27 @@ async function getByProduct(req, res) {
     { total: 0, used: 0 }
   );
 
+  // Reconciliation check: how much stock the QR tracking currently thinks
+  // is in the warehouse (sum of every 'in_stock' carton's pcs — not
+  // 'dispatched', that's already left; not 'pending', that never arrived)
+  // versus what Inventory.physical actually shows right now. These should
+  // always match going forward (confirmCarton now updates both atomically
+  // in one transaction), but any batch scanned in before that fix shipped
+  // could have desynced if the stock-in half of that old two-step write
+  // ever failed silently — this surfaces that mismatch instead of leaving
+  // it invisible, so it can be corrected deliberately via Adjust rather
+  // than guessed at.
+  const expectedPhysical = await CartonBarcode.aggregate([
+    { $match: { product: code, status: 'in_stock' } },
+    { $group: { _id: null, pcs: { $sum: '$qty' } } },
+  ]).then((r) => r[0]?.pcs || 0);
+  const inv = await Inventory.findOne({ code });
+  const actualPhysical = inv?.physical || 0;
+
   res.json({
     product: { code: product.code, name: product.name, photo: product.photo || '' },
     summary: { ...summary, unused: summary.total - summary.used },
+    reconcile: { expectedPhysical, actualPhysical, diff: actualPhysical - expectedPhysical },
     batches: rows.map((r) => ({
       batchId: r._id, qty: r.qty, createdAt: r.createdAt, createdBy: r.createdBy || '',
       total: r.total, used: r.used, unused: r.total - r.used,
@@ -169,16 +188,31 @@ async function confirmCarton(req, res) {
     });
   }
 
+  // Both writes below have to succeed together or not at all — this used
+  // to be two separate, sequential writes (save the carton, then increment
+  // Inventory), which meant a failure in the second one left the carton
+  // marked as stocked in while physical stock was never actually
+  // incremented: a carton showing "Scanned" with no matching stock. A
+  // transaction is what makes that structurally impossible instead of just
+  // hoping the second write never fails.
   carton.status = 'in_stock';
   carton.usedBy = req.user.name;
   carton.usedAt = new Date();
-  await carton.save();
-
-  await Inventory.findOneAndUpdate(
-    { code: carton.product },
-    { $inc: { physical: carton.qty } },
-    { upsert: true }
-  );
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await carton.save({ session });
+      await Inventory.findOneAndUpdate(
+        { code: carton.product },
+        { $inc: { physical: carton.qty } },
+        { upsert: true, session }
+      );
+    });
+  } catch (err) {
+    return res.status(500).json({ message: `Stock-in failed, nothing was changed: ${err.message}` });
+  } finally {
+    session.endSession();
+  }
 
   res.json({ message: `${carton.qty} pcs of ${carton.productName} added to stock.`, qty: carton.qty, productName: carton.productName });
 }

@@ -8,6 +8,16 @@ import { barcodeApi } from './barcodeApi';
 // admin/masterAdmin only. qrcode is loaded lazily (dynamic import) so it
 // doesn't sit in the main app bundle for everyone who never opens this screen.
 //
+// Mirrors the backend's EVER_STOCKED/NOT_STOCKED groupings (barcodeController.js)
+// — 'used' was the only "stocked in" status before the outward-scanning
+// lifecycle existed; a freshly-scanned carton is now 'in_stock', and one
+// that's since moved on is 'dispatched' or 'split'. Checking only
+// `status === 'used'` here (a leftover from before that change) meant a
+// perfectly correctly-scanned carton showed as "Unscanned" — the aggregate
+// counts elsewhere on this page were already fixed, just not these three
+// spots that inspect individual cartons directly.
+function everStockedIn(status) { return status === 'in_stock' || status === 'used' || status === 'dispatched' || status === 'split'; }
+//
 // PRINT LAYOUT NOTES (for whoever tunes this next time the label stock changes):
 // Straight landscape slip, 100mm wide x 70mm tall, one per page, no rotation
 // needed — the roll feeds this shape directly. Content top to bottom: product
@@ -184,7 +194,7 @@ export default function GenerateBarcodes() {
   }
 
   const filteredCartons = openBatchDetail
-    ? openBatchDetail.cartons.filter((c) => detailFilter === 'all' || c.status === (detailFilter === 'used' ? 'used' : 'unused'))
+    ? openBatchDetail.cartons.filter((c) => detailFilter === 'all' || (detailFilter === 'used') === everStockedIn(c.status))
     : [];
 
   // Shared between Recent Batches (Generate tab) and Track tab's per-product
@@ -201,8 +211,8 @@ export default function GenerateBarcodes() {
             <div style={{ padding: '10px 4px' }}>
               <div className="btnrow" style={{ marginBottom: 10 }}>
                 <button className={detailFilter === 'all' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('all')}>All ({openBatchDetail.cartons.length})</button>
-                <button className={detailFilter === 'unused' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('unused')}>Unscanned ({openBatchDetail.cartons.filter((c) => c.status === 'unused').length})</button>
-                <button className={detailFilter === 'used' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('used')}>Scanned ({openBatchDetail.cartons.filter((c) => c.status === 'used').length})</button>
+                <button className={detailFilter === 'unused' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('unused')}>Unscanned ({openBatchDetail.cartons.filter((c) => !everStockedIn(c.status)).length})</button>
+                <button className={detailFilter === 'used' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('used')}>Scanned ({openBatchDetail.cartons.filter((c) => everStockedIn(c.status)).length})</button>
                 <button className="btn o sm" style={{ marginLeft: 'auto' }} onClick={reprintBatch}>🖨️ Reprint this batch</button>
               </div>
               <table className="dt">
@@ -211,7 +221,7 @@ export default function GenerateBarcodes() {
                   {filteredCartons.map((c) => (
                     <tr key={c.code}>
                       <td className="mono" style={{ fontSize: 11 }}>{c.code}</td>
-                      <td><span className={`badge ${c.status === 'used' ? 'g' : 'y'}`}>{c.status === 'used' ? 'Scanned' : 'Unscanned'}</span></td>
+                      <td><span className={`badge ${everStockedIn(c.status) ? 'g' : 'y'}`}>{everStockedIn(c.status) ? 'Scanned' : 'Unscanned'}</span></td>
                       <td>{c.usedBy || '—'}</td>
                       <td>{c.usedAt ? new Date(c.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                       <td><button className="btn o sm" onClick={() => reprintSingleCarton(c)}>🖨️ Reprint</button></td>
@@ -366,10 +376,30 @@ export default function GenerateBarcodes() {
 
           {trackData && !trackLoading && (
             <>
-              <div className="btnrow" style={{ marginTop: 14, gap: 18 }}>
+              <div className="btnrow" style={{ marginTop: 14, gap: 18, flexWrap: 'wrap' }}>
                 <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20 }}>{trackData.summary.total}</b><div className="muted" style={{ fontSize: 11 }}>Total printed</div></div>
                 <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20, color: 'var(--green)' }}>{trackData.summary.used}</b><div className="muted" style={{ fontSize: 11 }}>Scanned in</div></div>
                 <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20, color: 'var(--red)' }}>{trackData.summary.unused}</b><div className="muted" style={{ fontSize: 11 }}>Still unscanned</div></div>
+                {/* Compares what the QR tracking thinks is currently in the
+                    warehouse (every 'in_stock' carton's pcs added up)
+                    against what Inventory.physical actually shows. These
+                    should always agree going forward — confirmScan now
+                    updates both in one transaction — but a batch scanned in
+                    before that fix could have desynced if the old two-step
+                    write's second half ever silently failed. A mismatch
+                    here is exactly that: something to check with Adjust,
+                    not something this page tries to auto-correct, since
+                    guessing which side is wrong could make it worse. */}
+                <div className="card" style={{ padding: '10px 16px', borderColor: trackData.reconcile.diff !== 0 ? 'var(--red)' : undefined }}>
+                  <b style={{ fontSize: 20, color: trackData.reconcile.diff === 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {trackData.reconcile.actualPhysical} <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>/ {trackData.reconcile.expectedPhysical} expected</span>
+                  </b>
+                  <div className="muted" style={{ fontSize: 11 }}>
+                    Stock check {trackData.reconcile.diff !== 0 && (
+                      <span style={{ color: 'var(--red)', fontWeight: 600 }}> — off by {Math.abs(trackData.reconcile.diff)}, use Adjust to fix</span>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="tblwrap" style={{ marginTop: 14 }}>
