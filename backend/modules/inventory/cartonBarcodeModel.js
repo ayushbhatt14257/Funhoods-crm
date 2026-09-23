@@ -43,6 +43,14 @@ const cartonBarcodeSchema = new mongoose.Schema(
     dispatchedAt: { type: Date, default: null },
     dispatchOverride: { type: Boolean, default: false }, // true if admin/masterAdmin marked it out without a scan (damaged/unreadable label)
 
+    // SPLIT event — only ever set on an outer once it's split (status
+    // becomes 'split'). Its inner children get the SAME splitAt/splitBy
+    // (see splitCarton) since they were all created in that one action —
+    // this is separate from usedAt, which stays the outer's ORIGINAL
+    // stock-in time and is never touched by a split.
+    splitAt: { type: Date, default: null },
+    splitBy: { type: String, default: '' },
+
     createdBy: { type: String, default: '' },
   },
   { timestamps: true }

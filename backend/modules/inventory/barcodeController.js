@@ -321,6 +321,7 @@ async function splitCarton(req, res) {
     return res.status(400).json({ message: `${carton.productName} has no inner carton size set — can't split.` });
   }
   const innerCount = Math.max(1, Math.round(carton.qty / product.cartonInner));
+  const splitAt = new Date();
 
   const children = Array.from({ length: innerCount }, () => ({
     code: `${carton.code}-${randomSuffix().slice(0, 2)}`,
@@ -333,6 +334,8 @@ async function splitCarton(req, res) {
     status: 'in_stock',
     usedBy: carton.usedBy,
     usedAt: carton.usedAt,
+    splitAt,
+    splitBy: req.user.name,
     createdBy: carton.createdBy,
   }));
   // createdAt has to be set explicitly and after insert (insertMany respects
@@ -345,6 +348,8 @@ async function splitCarton(req, res) {
   );
 
   carton.status = 'split';
+  carton.splitAt = splitAt;
+  carton.splitBy = req.user.name;
   await carton.save();
 
   const fresh = await CartonBarcode.find({ _id: { $in: inserted.map((d) => d._id) } });

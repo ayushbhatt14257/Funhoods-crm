@@ -362,7 +362,18 @@ export default function GenerateBarcodes() {
                           <td className="mono" style={{ fontSize: 11 }}>{parent.code}</td>
                           <td><span className={`badge ${pBadge.cls}`}>{pBadge.label}</span></td>
                           <td>{parent.usedBy || '—'}</td>
-                          <td>{parent.usedAt ? new Date(parent.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                          <td>{parent.usedAt ? new Date(parent.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                            {/* The split itself is a separate event from the original
+                                stock-in scan above it — usedAt never changes when a
+                                carton is split, so without this the table only ever
+                                showed the OLD scan time and never said when the split
+                                actually happened. */}
+                            {parent.status === 'split' && parent.splitAt && (
+                              <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+                                Split {new Date(parent.splitAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}{parent.splitBy ? ` by ${parent.splitBy}` : ''}
+                              </div>
+                            )}
+                          </td>
                           <td>{parent.status !== 'split' ? (
                             <button className="btn o sm" onClick={() => reprintSingleCarton(parent)}>🖨️ Reprint</button>
                           ) : children.length > 0 && (
@@ -376,7 +387,13 @@ export default function GenerateBarcodes() {
                               <td className="mono" style={{ fontSize: 11, paddingLeft: 28, borderLeft: '2px solid var(--line)' }}>↳ {child.code}</td>
                               <td><span className={`badge ${cBadge.cls}`}>{cBadge.label}</span></td>
                               <td>{child.usedBy || '—'}</td>
-                              <td>{child.usedAt ? new Date(child.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                              <td>{child.usedAt ? new Date(child.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                                {child.splitAt && (
+                                  <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+                                    Split {new Date(child.splitAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}{child.splitBy ? ` by ${child.splitBy}` : ''}
+                                  </div>
+                                )}
+                              </td>
                               <td><button className="btn o sm" onClick={() => reprintSingleCarton(child)}>🖨️ Reprint</button></td>
                             </tr>
                           );
