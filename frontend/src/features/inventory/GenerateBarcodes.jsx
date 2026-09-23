@@ -78,7 +78,6 @@ export default function GenerateBarcodes() {
   const [codeSearchLoading, setCodeSearchLoading] = useState(false);
   const [highlightBatch, setHighlightBatch] = useState(null); // batchId to visually flash after jumping to it
   const batchRowRefs = useRef(new Map()); // batchId -> <tr> element, so a search result can scroll straight to its row
-  const [fixingInnerQty, setFixingInnerQty] = useState(false);
 
   useEffect(() => { api.get('/products').then(setProducts); }, []);
   useEffect(() => { loadRecentBatches(); }, []);
@@ -262,22 +261,6 @@ export default function GenerateBarcodes() {
       await loadTrack({ code: carton.product, name: carton.productName });
     }
     openBatchAndScroll(carton.batchId);
-  }
-
-  // One-time correction for inner cartons split before a product's Inner
-  // Carton Pcs field was fixed — see fixInnerQty on the backend for why this
-  // can't just happen automatically when the product is edited: the wrong
-  // qty is already permanently stamped on every carton split under the old
-  // value, and correcting the product record only affects FUTURE splits.
-  async function runFixInnerQty() {
-    if (!confirm('Correct the stored pcs on every in-stock inner carton to match its product\'s current Inner Carton Pcs? This only touches in-stock cartons (never dispatched ones) and is safe to run again.')) return;
-    setFixingInnerQty(true);
-    try {
-      const res = await barcodeApi.fixInnerQty();
-      showToast(res.message, 'g');
-      if (trackProduct) loadTrack(trackProduct); // refresh so any corrected batch reflects immediately
-    } catch (err) { showToast(err.message, 'err'); }
-    finally { setFixingInnerQty(false); }
   }
 
   // Reprint an already-generated batch — no preview, no tab switch: the
@@ -532,17 +515,6 @@ export default function GenerateBarcodes() {
 
       {tab === 'track' && (
         <div className="no-print">
-          {user.role === 'masterAdmin' && (
-            <div className="card" style={{ maxWidth: 560, background: 'var(--paper-d)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                <div>
-                  <b style={{ fontSize: 13 }}>🛠 Fix inner carton quantities</b>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>One-time correction for inner cartons split before a product's Inner Carton Pcs was fixed (e.g. SP-01). Only touches in-stock cartons — safe to run more than once.</div>
-                </div>
-                <button className="btn o sm" disabled={fixingInnerQty} onClick={runFixInnerQty}>{fixingInnerQty ? 'Fixing…' : 'Run fix'}</button>
-              </div>
-            </div>
-          )}
           <div className="card" style={{ maxWidth: 560 }}>
             <div className="fg">
               <label>Product</label>

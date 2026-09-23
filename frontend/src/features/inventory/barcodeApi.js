@@ -23,6 +23,5 @@ export const barcodeApi = {
   },
   availableCounts: (codes) => api.get(`/inventory/carton/available-counts?codes=${codes.map(encodeURIComponent).join(',')}`),
   split: (code) => api.post(`/inventory/carton/${encodeURIComponent(code)}/split`),
-  fixInnerQty: () => api.post('/inventory/carton/fix-inner-qty'),
   manualDispatch: (code, dealerCode) => api.post(`/inventory/carton/${encodeURIComponent(code)}/manual-dispatch`, { dealerCode }),
 };

@@ -194,51 +194,6 @@ async function searchCartons(req, res) {
   })));
 }
 
-// POST /api/inventory/carton/fix-inner-qty — masterAdmin only, one-time (safe
-// to run more than once — a no-op once everything matches).
-// An inner carton's `qty` is stamped once, permanently, at split time from
-// whatever product.cartonInner happened to be AT THAT MOMENT (see
-// splitCarton above) — it is never re-read from the product afterward. So
-// correcting a product's Inner Carton Pcs field (e.g. SP-01's was wrongly
-// 288 instead of 144) only fixes FUTURE splits; every inner carton already
-// created under the old, wrong value keeps showing the wrong qty forever —
-// on its printed label, and in the stock reconciliation total (getByProduct
-// sums `qty` across every in_stock carton) — until something goes back and
-// corrects those existing records. This is that one-time correction: for
-// every currently in_stock inner carton whose qty no longer matches its
-// product's CURRENT cartonInner, overwrite it to match.
-// Deliberately scoped to status:'in_stock' only, not 'dispatched' — a
-// dispatched carton is a completed, invoiced transaction; rewriting its
-// historical qty after the fact would touch real transaction history for a
-// cosmetic label correction, and dispatch's own stock math never reads a
-// carton's own qty anyway (it uses the product's cartonOuter/cartonInner
-// directly — see dispatch/controller.js), so nothing downstream depends on
-// a dispatched carton's stored qty being corrected.
-async function fixInnerQty(req, res) {
-  const inners = await CartonBarcode.find({ kind: 'inner', status: 'in_stock' });
-  if (!inners.length) return res.json({ message: 'No in-stock inner cartons to check.', fixed: 0, checked: 0 });
-
-  const productCodes = [...new Set(inners.map((c) => c.product))];
-  const products = await Product.find({ code: { $in: productCodes } });
-  const cartonInnerByCode = Object.fromEntries(products.map((p) => [p.code, p.cartonInner]));
-
-  let fixed = 0;
-  for (const c of inners) {
-    const correct = cartonInnerByCode[c.product];
-    if (correct && c.qty !== correct) {
-      c.qty = correct;
-      await c.save();
-      fixed++;
-    }
-  }
-  res.json({
-    message: fixed
-      ? `Corrected qty on ${fixed} in-stock inner carton(s) to match their product's current Inner Carton Pcs.`
-      : 'Checked every in-stock inner carton — all already match their product\'s current Inner Carton Pcs.',
-    fixed, checked: inners.length,
-  });
-}
-
 // GET /api/inventory/carton/:code — look up a scanned barcode. Read-only —
 // scanning to preview doesn't consume the carton; only /confirm does.
 async function lookupCarton(req, res) {
@@ -572,5 +527,5 @@ async function deleteBatch(req, res) {
 
 module.exports = {
   generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, searchCartons, confirmCarton,
-  splitCarton, forDispatchScan, availableCounts, manualDispatchCarton, migrateOutward, fixInnerQty, clearAll, deleteBatch,
+  splitCarton, forDispatchScan, availableCounts, manualDispatchCarton, migrateOutward, clearAll, deleteBatch,
 };

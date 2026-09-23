@@ -29,7 +29,6 @@ router.get('/carton/search', allow('mhead', 'accounts', 'dispatch', 'admin', 'ma
 router.get('/carton/available-counts', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.availableCounts);
 router.delete('/carton/all', allow('masterAdmin'), barcodeCtrl.clearAll);
 router.post('/carton/migrate-outward', allow('masterAdmin'), barcodeCtrl.migrateOutward);
-router.post('/carton/fix-inner-qty', allow('masterAdmin'), barcodeCtrl.fixInnerQty);
 router.get('/carton/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.lookupCarton);
 router.post('/carton/:code/confirm', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.confirmCarton);
 router.post('/carton/:code/split', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.splitCarton);
