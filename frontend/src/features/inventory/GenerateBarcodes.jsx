@@ -233,8 +233,30 @@ export default function GenerateBarcodes() {
     setBatch({ ...openBatchDetail, cartons: [carton] });
   }
 
+  // Reprint every inner child of one split parent together, in a single
+  // print job/dialog — e.g. both SP-01-4263E7-78 and SP-01-4263E7-A0 at
+  // once, instead of hitting Reprint on each one separately.
+  function reprintChildren(children) {
+    if (!openBatchDetail || !children.length) return;
+    setBatch({ ...openBatchDetail, cartons: children });
+  }
+
+  // Every top-level (non-inner) carton currently marked 'split' — used both
+  // by the Split filter tab and to decide, per parent row, which cartons are
+  // its own children (kind==='inner' && parentCode===this code).
+  const splitParentCodes = openBatchDetail
+    ? new Set(openBatchDetail.cartons.filter((c) => c.status === 'split').map((c) => c.code))
+    : new Set();
+
   const filteredCartons = openBatchDetail
-    ? openBatchDetail.cartons.filter((c) => detailFilter === 'all' || (detailFilter === 'used') === everStockedIn(c.status))
+    ? openBatchDetail.cartons.filter((c) => {
+        if (detailFilter === 'all') return true;
+        // Split view: show every split parent plus its own inner children,
+        // regardless of whether those children have since been scanned/
+        // dispatched — this tab is about the split relationship, not status.
+        if (detailFilter === 'split') return c.status === 'split' || splitParentCodes.has(c.parentCode);
+        return (detailFilter === 'used') === everStockedIn(c.status);
+      })
     : [];
 
   // Shared between Recent Batches (Generate tab) and Track tab's per-product
@@ -253,6 +275,7 @@ export default function GenerateBarcodes() {
                 <button className={detailFilter === 'all' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('all')}>All ({openBatchDetail.cartons.length})</button>
                 <button className={detailFilter === 'unused' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('unused')}>Unscanned ({openBatchDetail.cartons.filter((c) => !everStockedIn(c.status)).length})</button>
                 <button className={detailFilter === 'used' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('used')}>Scanned ({openBatchDetail.cartons.filter((c) => everStockedIn(c.status)).length})</button>
+                <button className={detailFilter === 'split' ? 'btn sm' : 'btn o sm'} onClick={() => setDetailFilter('split')}>Split ({splitParentCodes.size})</button>
                 <button className="btn o sm" style={{ marginLeft: 'auto' }} onClick={reprintBatch}>🖨️ Reprint this batch</button>
               </div>
               <table className="dt">
@@ -277,7 +300,11 @@ export default function GenerateBarcodes() {
                           <td><span className={`badge ${pBadge.cls}`}>{pBadge.label}</span></td>
                           <td>{parent.usedBy || '—'}</td>
                           <td>{parent.usedAt ? new Date(parent.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                          <td>{parent.status !== 'split' && <button className="btn o sm" onClick={() => reprintSingleCarton(parent)}>🖨️ Reprint</button>}</td>
+                          <td>{parent.status !== 'split' ? (
+                            <button className="btn o sm" onClick={() => reprintSingleCarton(parent)}>🖨️ Reprint</button>
+                          ) : children.length > 0 && (
+                            <button className="btn o sm" onClick={() => reprintChildren(children)}>🖨️ Reprint all {children.length} inners</button>
+                          )}</td>
                         </tr>
                         {children.map((child) => {
                           const cBadge = statusBadge(child.status);
