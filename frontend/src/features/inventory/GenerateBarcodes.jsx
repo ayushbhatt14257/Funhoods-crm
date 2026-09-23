@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/client';
@@ -76,6 +76,9 @@ export default function GenerateBarcodes() {
   const [codeSearchResults, setCodeSearchResults] = useState(null); // array of matches, or null before a search runs
   const [codeSearchSelected, setCodeSearchSelected] = useState(null); // one picked from codeSearchResults (or auto-picked if only 1)
   const [codeSearchLoading, setCodeSearchLoading] = useState(false);
+  const [highlightBatch, setHighlightBatch] = useState(null); // batchId to visually flash after jumping to it
+  const batchRowRefs = useRef(new Map()); // batchId -> <tr> element, so a search result can scroll straight to its row
+  const [fixingInnerQty, setFixingInnerQty] = useState(false);
 
   useEffect(() => { api.get('/products').then(setProducts); }, []);
   useEffect(() => { loadRecentBatches(); }, []);
@@ -223,6 +226,58 @@ export default function GenerateBarcodes() {
       setOpenBatchDetail(res);
     } catch (err) { showToast(err.message, 'err'); }
     finally { setDetailLoading(false); }
+  }
+
+  // Opens a specific batch (always open, never toggles closed — unlike
+  // toggleBatch above, which a fresh "jump here" click shouldn't accidentally
+  // collapse), scrolls its row into view, and briefly flashes it so it's
+  // obvious which row the search result actually landed on.
+  async function openBatchAndScroll(batchId) {
+    if (openBatch !== batchId) {
+      setOpenBatch(batchId);
+      setOpenBatchDetail(null);
+      setDetailFilter('all');
+      setDetailLoading(true);
+      try {
+        const res = await barcodeApi.getBatch(batchId);
+        setOpenBatchDetail(res);
+      } catch (err) { showToast(err.message, 'err'); }
+      finally { setDetailLoading(false); }
+    }
+    setHighlightBatch(batchId);
+    setTimeout(() => setHighlightBatch(null), 1800);
+    // Deferred so it runs after the newly-expanded detail row has actually
+    // been added to the DOM — scrolling on the same tick can land short.
+    setTimeout(() => {
+      batchRowRefs.current.get(batchId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 60);
+  }
+
+  // A search result belongs to a specific product's batch — if the Track
+  // tab isn't already showing that product (or nothing's picked yet), switch
+  // to it first, then jump straight to the batch and scroll/highlight it.
+  async function goToSearchResultBatch(carton) {
+    if (!carton.batchId) return;
+    if (!trackProduct || trackProduct.code !== carton.product) {
+      await loadTrack({ code: carton.product, name: carton.productName });
+    }
+    openBatchAndScroll(carton.batchId);
+  }
+
+  // One-time correction for inner cartons split before a product's Inner
+  // Carton Pcs field was fixed — see fixInnerQty on the backend for why this
+  // can't just happen automatically when the product is edited: the wrong
+  // qty is already permanently stamped on every carton split under the old
+  // value, and correcting the product record only affects FUTURE splits.
+  async function runFixInnerQty() {
+    if (!confirm('Correct the stored pcs on every in-stock inner carton to match its product\'s current Inner Carton Pcs? This only touches in-stock cartons (never dispatched ones) and is safe to run again.')) return;
+    setFixingInnerQty(true);
+    try {
+      const res = await barcodeApi.fixInnerQty();
+      showToast(res.message, 'g');
+      if (trackProduct) loadTrack(trackProduct); // refresh so any corrected batch reflects immediately
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setFixingInnerQty(false); }
   }
 
   // Reprint an already-generated batch — no preview, no tab switch: the
@@ -460,6 +515,17 @@ export default function GenerateBarcodes() {
 
       {tab === 'track' && (
         <div className="no-print">
+          {user.role === 'masterAdmin' && (
+            <div className="card" style={{ maxWidth: 560, background: 'var(--paper-d)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                <div>
+                  <b style={{ fontSize: 13 }}>🛠 Fix inner carton quantities</b>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>One-time correction for inner cartons split before a product's Inner Carton Pcs was fixed (e.g. SP-01). Only touches in-stock cartons — safe to run more than once.</div>
+                </div>
+                <button className="btn o sm" disabled={fixingInnerQty} onClick={runFixInnerQty}>{fixingInnerQty ? 'Fixing…' : 'Run fix'}</button>
+              </div>
+            </div>
+          )}
           <div className="card" style={{ maxWidth: 560 }}>
             <div className="fg">
               <label>Product</label>
@@ -514,6 +580,7 @@ export default function GenerateBarcodes() {
                 </div>
                 <div className="btnrow">
                   {codeSearchResults.length > 1 && <button className="btn o sm" onClick={() => setCodeSearchSelected(null)}>← Back to matches</button>}
+                  <button className="btn o sm" onClick={() => goToSearchResultBatch(codeSearchSelected)}>📂 Go to batch</button>
                   <button className="btn o sm" onClick={reprintSearchResult}>🖨️ Reprint</button>
                 </div>
               </div>
@@ -557,7 +624,7 @@ export default function GenerateBarcodes() {
                   <tbody>
                     {trackData.batches.map((b) => (
                       <Fragment key={b.batchId}>
-                        <tr>
+                        <tr ref={(el) => batchRowRefs.current.set(b.batchId, el)} className={highlightBatch === b.batchId ? 'row-flash' : undefined}>
                           <td className="mono" style={{ fontSize: 11 }}>{b.batchId}</td>
                           <td>{new Date(b.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                           <td>{b.createdBy}</td>

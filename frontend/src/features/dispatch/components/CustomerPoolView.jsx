@@ -128,30 +128,19 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
-  // Always starts a fresh scan session — releasing anything scanned into
-  // this row in an earlier session back to being available — and leaves the
-  // row UNCHECKED with no override at all, rather than force-setting it to
-  // {outers:0, inners:0}. A checked row showing 0/0 read as "selected for
-  // dispatch but sending nothing", which is confusing; now the row only
-  // becomes checked once the first real scan actually lands (submitScan
-  // sets it naturally then). The sheet's own "X / Y scanned" progress is
-  // tracked separately via activeRowScans below, so it works correctly
-  // whether or not the row happens to be checked yet.
+  // Opens the scan sheet for this row. This used to also release every
+  // carton already scanned into the row back to "available" and uncheck the
+  // row outright — a deliberate "always start fresh" reset — but that meant
+  // clicking Scan a SECOND time on a row you'd already scanned some into
+  // (e.g. scanning 2 inners, closing the sheet, then reopening it to scan a
+  // 3rd) silently threw away the earlier scans: the row would flip back to
+  // unchecked/0 the instant the sheet reopened, and whatever you scanned
+  // next became the ONLY thing recorded, not an addition to what was there.
+  // Reopening the sheet on progress already made should resume it, not
+  // discard it — the sheet already shows "X / Y pcs scanned" from
+  // activeRowScans and lets you remove entries one at a time, so there's
+  // nothing left for a destructive reset to protect against.
   function openScan(row) {
-    const released = scannedCodes.filter((s) => s.ownerKey === row.key);
-    if (released.length) {
-      setAvailable((a) => {
-        const next = { ...a, [row.item.code]: { ...a[row.item.code] } };
-        released.forEach((s) => { next[row.item.code][s.kind] = (next[row.item.code][s.kind] || 0) + 1; });
-        return next;
-      });
-      onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
-    }
-    if (row.checked) {
-      const next = { ...selection };
-      delete next[row.key];
-      onSelectionChange(next);
-    }
     setScanRow(row.key);
     setScanValue('');
     setCameraRow(null);
@@ -297,12 +286,20 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     <td>
                       {canScan ? (
                         // Scan-only for this row (real trackable stock
-                        // exists) — the checkbox is no longer a manual
-                        // toggle, just a read-only reflection of whether
-                        // anything has been scanned into it yet.
+                        // exists) — clicking it does NOT let you check it
+                        // manually (there's nothing to check without an
+                        // actual scan), but when it's already checked,
+                        // clicking releases everything scanned into this
+                        // row and unchecks it — reusing the same toggle()
+                        // an ordinary checkbox row uses to undo itself.
+                        // Previously this was a plain <span> with no
+                        // click handler at all, so a scanned row could
+                        // never be cleared except one scan at a time from
+                        // inside the scan sheet.
                         <span
-                          title={r.checked ? 'Included (scanned)' : 'Not yet scanned'}
-                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 4, border: '1px solid var(--line)', background: r.checked ? 'var(--green)' : 'transparent', color: '#fff', fontSize: 12, fontWeight: 700 }}
+                          onClick={() => r.checked && toggle(r)}
+                          title={r.checked ? 'Click to remove all scans from this row' : 'Not yet scanned'}
+                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 4, border: '1px solid var(--line)', background: r.checked ? 'var(--green)' : 'transparent', color: '#fff', fontSize: 12, fontWeight: 700, cursor: r.checked ? 'pointer' : 'default' }}
                         >
                           {r.checked ? '✓' : ''}
                         </span>

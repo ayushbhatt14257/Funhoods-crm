@@ -178,3 +178,9 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .logincard{background:var(--paper);border-radius:16px;padding:32px;width:100%;max-width:420px}
 .logincard img{max-width:200px;display:block;margin:0 auto 6px}
 .logincard .sub{font-family:var(--mono);font-size:10px;color:var(--muted);text-align:center;letter-spacing:.1em;margin-bottom:20px}
+
+/* Brief highlight flash for a table row scrolled to programmatically —
+   used by the barcode search's "Go to batch" jump so it's obvious which
+   row the search result actually landed on. */
+@keyframes rowFlash { 0%{ background: #FDF4E3; } 100%{ background: transparent; } }
+.row-flash { animation: rowFlash 1.8s ease-out; }
