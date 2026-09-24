@@ -343,31 +343,41 @@ async function splitCarton(req, res) {
 }
 
 // DELETE /api/inventory/carton/:code — masterAdmin only. Deletes ONE
-// individual carton record and reverses whatever pcs it represented from
-// Inventory.physical, if it was ever counted as in-stock.
-//
-// This exists specifically to fix splitCarton's rounding: innerCount is
-// Math.round(carton.qty / product.cartonInner), and when that division
-// isn't exact, rounding can produce one more (or fewer) discrete QR label
-// than the pcs actually justify — e.g. 210 pcs / 60 per inner rounds 3.5 up
-// to 4 labels of 60 each (240 pcs total), overcounting the real 210 by 30.
-// That extra label is a phantom: a scannable QR with no matching physical
-// box, and its qty was never really there. This deletes it and corrects
-// the stock physical count would otherwise have been inflated by.
-//
-// Only allowed on in_stock/used cartons — never dispatched. A dispatched
-// carton is completed, invoiced transaction history (same rule as batch
-// delete above); this only ever touches a carton that never went anywhere.
+// individual carton record. Two different cases, handled differently:
+//  - status 'pending' (printed but never scanned in): pure cleanup — this
+//    carton was never counted toward Inventory.physical, so nothing needs
+//    reversing. This is for a QR that got generated/printed by mistake, or
+//    a label that was lost/damaged before it ever made it onto a real box.
+//  - status 'in_stock'/'used': reverses this carton's own qty from
+//    Inventory.physical too. This is the "phantom split sibling" case —
+//    splitCarton's inner count is Math.round(carton.qty /
+//    product.cartonInner), and when that division isn't exact, rounding can
+//    produce one more discrete QR label than the pcs actually justify —
+//    e.g. 210 pcs / 60 per inner rounds 3.5 up to 4 labels of 60 each (240
+//    pcs total), overcounting the real 210 by 30. That extra label is
+//    scannable but has no matching physical box, and its qty was never
+//    really there.
+// Never allowed on 'dispatched' (completed, invoiced transaction history —
+// same rule as batch delete) or 'split' (no stock of its own; its children
+// hold whatever stock survived the split, and are deleted individually).
 async function deleteCarton(req, res) {
   const carton = await CartonBarcode.findOne({ code: req.params.code });
   if (!carton) return res.status(404).json({ message: 'Carton not found' });
-  if (!AVAILABLE_FOR_DISPATCH.includes(carton.status)) {
-    return res.status(409).json({ message: `Can't delete — this carton is ${carton.status}, not in stock. A dispatched or split carton can't be removed this way.` });
+  const deletable = ['pending', ...AVAILABLE_FOR_DISPATCH];
+  if (!deletable.includes(carton.status)) {
+    return res.status(409).json({ message: `Can't delete — this carton is ${carton.status}. A dispatched or split carton can't be removed this way.` });
   }
 
-  await Inventory.findOneAndUpdate({ code: carton.product }, { $inc: { physical: -carton.qty } });
+  const hadStock = AVAILABLE_FOR_DISPATCH.includes(carton.status);
+  if (hadStock) {
+    await Inventory.findOneAndUpdate({ code: carton.product }, { $inc: { physical: -carton.qty } });
+  }
   await carton.deleteOne();
-  res.json({ message: `Deleted ${carton.code} and reversed ${carton.qty} pcs from stock.` });
+  res.json({
+    message: hadStock
+      ? `Deleted ${carton.code} and reversed ${carton.qty} pcs from stock.`
+      : `Deleted ${carton.code} — it was never scanned in, so no stock needed reversing.`,
+  });
 }
 
 // GET /api/inventory/carton/:code/for-dispatch?dealer=<code>&product=<code>

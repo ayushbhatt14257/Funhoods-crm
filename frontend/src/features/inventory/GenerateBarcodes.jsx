@@ -428,7 +428,7 @@ export default function GenerateBarcodes() {
                                   {splittingCode === parent.code ? 'Splitting…' : '✂️ Split'}
                                 </button>
                               )}
-                              {user.role === 'masterAdmin' && ['in_stock', 'used'].includes(parent.status) && (
+                              {user.role === 'masterAdmin' && ['pending', 'in_stock', 'used'].includes(parent.status) && (
                                 <button className="btn o sm rd" disabled={deletingCode === parent.code} onClick={() => deleteCartonRow(parent.code)}>
                                   {deletingCode === parent.code ? 'Deleting…' : '🗑️'}
                                 </button>
