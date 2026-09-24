@@ -79,7 +79,8 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
       <div id="print-area" className="pi">
         <div className="head">
           <div className="l">
-            <img src="/funhoods-logo.jpg" alt={s.company || 'Funhoods'} style={{ height: 40, marginBottom: 4 }} />
+            <img src="/funhoods-logo.jpg" alt={s.company || 'Funhoods'} style={{ height: 40, marginBottom: 2 }} />
+            <div style={{ fontWeight: 700, fontSize: 11, letterSpacing: '.04em', marginBottom: 4 }}>GR INDUSTRIES</div>
             <div>{s.address || '—'}</div>
             <div>Phone: {s.phone || '—'} · Email: {s.email || '—'}</div>
             <div><b>GSTIN: {s.gstin || '—'}</b></div>

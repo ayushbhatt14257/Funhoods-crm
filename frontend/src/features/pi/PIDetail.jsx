@@ -248,6 +248,7 @@ export default function PIDetail() {
         total={pi.total}
         remark={pi.remark}
         settings={settings}
+        salesRep={{ name: pi.by, mobile: pi.repMobile }}
       />
 
       <div className="btnrow">

@@ -1,6 +1,6 @@
 // Renders the same letterhead format used in PIPreview, but read-only —
 // for viewing an already-saved PI or Invoice. kind: 'PI' | 'INVOICE'
-export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons, gifts }) {
+export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons, outerCartons, innerCartons, salesRep, gifts }) {
   if (!settings || !dealer) return null;
   const s = settings;
   const isInvoice = kind === 'INVOICE';
@@ -10,7 +10,8 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
     <div id="print-area" className="pi">
       <div className="head">
         <div className="l">
-          <img src="/funhoods-logo.jpg" alt={s.company || 'Funhoods'} style={{ height: 40, marginBottom: 4 }} />
+          <img src="/funhoods-logo.jpg" alt={s.company || 'Funhoods'} style={{ height: 40, marginBottom: 2 }} />
+          <div style={{ fontWeight: 700, fontSize: 11, letterSpacing: '.04em', marginBottom: 4 }}>GR INDUSTRIES</div>
           <div>{s.address || '—'}</div>
           <div>Phone: {s.phone || '—'} · Email: {s.email || '—'}</div>
           <div><b>GSTIN: {s.gstin || '—'}</b></div>
@@ -39,7 +40,23 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
           <div>Payment terms: <b>{dealer.payment}</b></div>
           <div>Total items: <b>{lines.length}</b></div>
           <div>Total pieces: <b>{totalPieces}</b></div>
-          {isInvoice && <div>Cartons: <b>{cartons}</b></div>}
+          {salesRep?.name && <div>Booked by: <b>{salesRep.name}</b>{salesRep.mobile ? ` · ${salesRep.mobile}` : ''}</div>}
+          {isInvoice && (
+            <div>
+              Cartons:{' '}
+              {/* The stored `cartons` count only ever reflects the OPTIONAL
+                  packing-list step (cartonMap) — most dispatches never fill
+                  that in, so it shows 0 even when real QR-tracked cartons
+                  went out. outerCartons/innerCartons (when present) are the
+                  real count, from actual scanned barcode records — shown
+                  instead whenever either is nonzero; the old cartonMap
+                  count is the fallback for a dispatch with no barcode
+                  tracking at all but a filled-in packing list. */}
+              {(outerCartons || innerCartons) ? (
+                <b>{outerCartons > 0 ? `${outerCartons} outer` : ''}{outerCartons > 0 && innerCartons > 0 ? ', ' : ''}{innerCartons > 0 ? `${innerCartons} inner` : ''}</b>
+              ) : <b>{cartons}</b>}
+            </div>
+          )}
           {isInvoice && transporter && <div>Via: <b>{transporter}</b> {freightTerm ? `(${freightTerm})` : ''}</div>}
         </div>
       </div>

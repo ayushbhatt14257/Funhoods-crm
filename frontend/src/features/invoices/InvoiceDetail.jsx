@@ -97,6 +97,9 @@ export default function InvoiceDetail() {
         freightTerm={inv.freightTerm}
         total={inv.total}
         cartons={inv.cartons}
+        outerCartons={inv.outerCartons}
+        innerCartons={inv.innerCartons}
+        salesRep={{ name: inv.by, mobile: inv.repMobile }}
         gifts={inv.gifts}
         settings={settings}
         extraHeaderRight={inv.piRef ? <div>Against PI: <b>{inv.piRef}</b></div> : <div style={{ color: 'var(--orange)' }}>Manual dispatch (no PI)</div>}

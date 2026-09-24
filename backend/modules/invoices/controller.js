@@ -2,6 +2,8 @@ const XLSX = require('xlsx');
 const Invoice = require('./model');
 const Dealer = require('../dealers/model');
 const Notification = require('../notifications/model');
+const CartonBarcode = require('../inventory/cartonBarcodeModel');
+const User = require('../users/model');
 const { uploadBuffer, destroyAsset } = require('../../config/cloudinary');
 
 async function list(req, res) {
@@ -36,7 +38,27 @@ async function list(req, res) {
 async function getOne(req, res) {
   const inv = await Invoice.findOne({ no: req.params.no }).populate('createdBy', 'name');
   if (!inv) return res.status(404).json({ message: 'Invoice not found' });
-  res.json(inv);
+
+  // The stored `cartons` field only ever counts entries in the OPTIONAL
+  // packing-list mapping (cartonMap) — a separate, manual "which box did
+  // this go in" step most dispatches never fill in. It has nothing to do
+  // with real QR-tracked cartons, so a perfectly normal scan-based dispatch
+  // shows "Cartons: 0" here even though real physical cartons went out.
+  // Every carton actually scanned against this invoice gets
+  // dispatchedInvoice set to its number (see dispatch/controller.js) — that
+  // is the real, trustworthy count, kept separate by outer/inner as usual.
+  const cartons = await CartonBarcode.find({ dispatchedInvoice: inv.no }).select('kind').lean();
+  const outerCartons = cartons.filter((c) => c.kind !== 'inner').length;
+  const innerCartons = cartons.filter((c) => c.kind === 'inner').length;
+
+  // `by` is the dealer's assigned salesperson (dealer.assignedTo) — not
+  // necessarily createdBy, which is just whichever logged-in account
+  // physically processed this dispatch (often dispatch/admin staff on the
+  // rep's behalf). Look up that SAME `by` person's mobile by name, rather
+  // than createdBy's, which could belong to someone else entirely.
+  const rep = inv.by ? await User.findOne({ name: inv.by }).select('mobile') : null;
+
+  res.json({ ...inv.toObject(), outerCartons, innerCartons, repMobile: rep?.mobile || '' });
 }
 
 async function markDelivered(req, res) {

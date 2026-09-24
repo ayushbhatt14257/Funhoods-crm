@@ -3,6 +3,7 @@ const Dealer = require('../dealers/model');
 const Product = require('../products/model');
 const Alias = require('../aliases/model');
 const Notification = require('../notifications/model');
+const User = require('../users/model');
 const { parseOrderText } = require('../../utils/orderParser');
 
 // POST /api/pi/parse  { text }
@@ -247,7 +248,16 @@ async function statusCounts(req, res) {
 async function getOne(req, res) {
   const pi = await PI.findOne({ no: req.params.no });
   if (!pi) return res.status(404).json({ message: 'PI not found' });
-  res.json(pi);
+  // `by` is the dealer's assigned salesperson (dealer.assignedTo, falling
+  // back to whoever created the PI only if the dealer has none) — NOT
+  // necessarily the same person as createdBy, which is just whichever
+  // logged-in account physically entered this PI (often admin/accounts
+  // staff on the rep's behalf). The name shown on the document already
+  // correctly uses `by`; this looks up that SAME person's mobile by name,
+  // rather than createdBy's, which could belong to a completely different
+  // person.
+  const rep = pi.by ? await User.findOne({ name: pi.by }).select('mobile') : null;
+  res.json({ ...pi.toObject(), repMobile: rep?.mobile || '' });
 }
 
 // PUT /api/pi/:no  — edit an existing PI (only allowed while Draft or Sent, before confirm/dispatch)
