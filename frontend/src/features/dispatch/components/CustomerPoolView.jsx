@@ -33,6 +33,17 @@ function roomFor(pendingPcs, cartonOuter, cartonInner, currentOuters, currentInn
   return { outers, inners };
 }
 
+// Outer and inner are two different pcs-per-unit and are never blended into
+// one merged number in the UI — this formats whichever kind(s) actually
+// have stock as separate counts, e.g. "2 inner" or "1 outer, 3 inner",
+// never a single combined figure like "3 in stock".
+function availLabel(avail) {
+  const parts = [];
+  if (avail.outer > 0) parts.push(`${avail.outer} outer`);
+  if (avail.inner > 0) parts.push(`${avail.inner} inner`);
+  return parts.length ? parts.join(', ') : '0';
+}
+
 // One row's key — same product at two different rates needs to be two
 // separate, independently selectable rows (they'll be separate invoice lines).
 function rowKey(item) { return `${item.code}|${item.rate}`; }
@@ -327,7 +338,10 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                         title={canScan ? `${avail.outer} outer / ${avail.inner} inner in stock` : 'No tracked cartons in stock for this product'}
                         onClick={() => openScan(r)}
                       >
-                        📷 {canScan ? `Scan (${avail.outer + avail.inner} in stock)` : 'No stock to scan'}
+                        {/* Outer and inner are never blended into one merged
+                            number here — shown as separate counts, only
+                            including whichever kind actually has stock. */}
+                        📷 {canScan ? `Scan (${availLabel(avail)} in stock)` : 'No stock to scan'}
                       </button>
                     </td>
                   </tr>

@@ -99,14 +99,25 @@ async function getByProduct(req, res) {
         total: { $sum: { $cond: [{ $ne: ['$kind', 'inner'] }, 1, 0] } },
         used: { $sum: { $cond: [{ $and: [{ $ne: ['$kind', 'inner'] }, { $in: ['$status', EVER_STOCKED] }] }, 1, 0] } },
         dispatched: { $sum: { $cond: [{ $and: [{ $ne: ['$kind', 'inner'] }, { $eq: ['$status', 'dispatched'] }] }, 1, 0] } },
+        // Inner children counted SEPARATELY, never merged into the outer
+        // figures above — outer and inner cartons are never the same unit
+        // (different pcs each) and are never combined into one number
+        // anywhere in this response; every count here has its own inner
+        // twin, always kept side by side.
+        innerTotal: { $sum: { $cond: [{ $eq: ['$kind', 'inner'] }, 1, 0] } },
+        innerUsed: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'inner'] }, { $in: ['$status', EVER_STOCKED] }] }, 1, 0] } },
+        innerDispatched: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'inner'] }, { $eq: ['$status', 'dispatched'] }] }, 1, 0] } },
       },
     },
     { $sort: { createdAt: -1 } },
   ]);
 
   const summary = rows.reduce(
-    (s, r) => ({ total: s.total + r.total, used: s.used + r.used, dispatched: s.dispatched + r.dispatched }),
-    { total: 0, used: 0, dispatched: 0 }
+    (s, r) => ({
+      total: s.total + r.total, used: s.used + r.used, dispatched: s.dispatched + r.dispatched,
+      innerTotal: s.innerTotal + r.innerTotal, innerUsed: s.innerUsed + r.innerUsed, innerDispatched: s.innerDispatched + r.innerDispatched,
+    }),
+    { total: 0, used: 0, dispatched: 0, innerTotal: 0, innerUsed: 0, innerDispatched: 0 }
   );
 
   // Reconciliation check: how much stock the QR tracking currently thinks
@@ -128,11 +139,12 @@ async function getByProduct(req, res) {
 
   res.json({
     product: { code: product.code, name: product.name, photo: product.photo || '' },
-    summary: { ...summary, unused: summary.total - summary.used },
+    summary: { ...summary, unused: summary.total - summary.used, innerUnused: summary.innerTotal - summary.innerUsed },
     reconcile: { expectedPhysical, actualPhysical, diff: actualPhysical - expectedPhysical },
     batches: rows.map((r) => ({
       batchId: r._id, qty: r.qty, createdAt: r.createdAt, createdBy: r.createdBy || '',
       total: r.total, used: r.used, unused: r.total - r.used,
+      innerTotal: r.innerTotal, innerUsed: r.innerUsed, innerUnused: r.innerTotal - r.innerUsed,
     })),
   });
 }
@@ -158,6 +170,10 @@ async function getRecentBatches(req, res) {
         // never independently generated as part of this batch's run.
         total: { $sum: { $cond: [{ $ne: ['$kind', 'inner'] }, 1, 0] } },
         used: { $sum: { $cond: [{ $and: [{ $ne: ['$kind', 'inner'] }, { $in: ['$status', EVER_STOCKED] }] }, 1, 0] } },
+        // Kept separate from the outer figures above, never merged — see
+        // getByProduct for the full reasoning.
+        innerTotal: { $sum: { $cond: [{ $eq: ['$kind', 'inner'] }, 1, 0] } },
+        innerUsed: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'inner'] }, { $in: ['$status', EVER_STOCKED] }] }, 1, 0] } },
       },
     },
     { $sort: { createdAt: -1 } },
@@ -172,6 +188,7 @@ async function getRecentBatches(req, res) {
     rows.map((r) => ({
       batchId: r._id, product: r.product, productName: r.productName, photo: photoByCode[r.product] || '',
       qty: r.qty, cartons: r.total, used: r.used, unused: r.total - r.used,
+      innerTotal: r.innerTotal, innerUsed: r.innerUsed, innerUnused: r.innerTotal - r.innerUsed,
       createdBy: r.createdBy || '', createdAt: r.createdAt,
     }))
   );

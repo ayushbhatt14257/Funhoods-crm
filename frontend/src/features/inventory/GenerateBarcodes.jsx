@@ -497,10 +497,19 @@ export default function GenerateBarcodes() {
                               </b>{' '}
                               <span className="mono muted" style={{ fontSize: 10 }}>{b.product}</span>
                             </td>
-                            <td>{b.cartons}</td>
+                            <td>
+                              {b.cartons}
+                              {b.innerTotal > 0 && <div className="muted" style={{ fontSize: 10 }}>+{b.innerTotal} inner</div>}
+                            </td>
                             <td>{b.qty}</td>
-                            <td style={{ color: 'var(--green)', fontWeight: 600 }}>{b.used}</td>
-                            <td style={{ color: b.unused ? 'var(--red)' : 'inherit', fontWeight: b.unused ? 600 : 400 }}>{b.unused}</td>
+                            <td style={{ color: 'var(--green)', fontWeight: 600 }}>
+                              {b.used}
+                              {b.innerUsed > 0 && <div className="muted" style={{ fontSize: 10, fontWeight: 400 }}>+{b.innerUsed} inner</div>}
+                            </td>
+                            <td style={{ color: b.unused ? 'var(--red)' : 'inherit', fontWeight: b.unused ? 600 : 400 }}>
+                              {b.unused}
+                              {b.innerUnused > 0 && <div className="muted" style={{ fontSize: 10, fontWeight: 400 }}>+{b.innerUnused} inner</div>}
+                            </td>
                             <td>{new Date(b.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                             <td>{b.createdBy || '—'}</td>
                             <td>
@@ -603,10 +612,26 @@ export default function GenerateBarcodes() {
           {trackData && !trackLoading && (
             <>
               <div className="btnrow" style={{ marginTop: 14, gap: 18, flexWrap: 'wrap' }}>
-                <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20 }}>{trackData.summary.total}</b><div className="muted" style={{ fontSize: 11 }}>Total printed</div></div>
-                <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20, color: 'var(--green)' }}>{trackData.summary.used}</b><div className="muted" style={{ fontSize: 11 }}>Scanned in</div></div>
-                <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20, color: 'var(--spruce)' }}>{trackData.summary.dispatched}</b><div className="muted" style={{ fontSize: 11 }}>Dispatched</div></div>
-                <div className="card" style={{ padding: '10px 16px' }}><b style={{ fontSize: 20, color: 'var(--red)' }}>{trackData.summary.unused}</b><div className="muted" style={{ fontSize: 11 }}>Still unscanned</div></div>
+                {/* Outer and inner are always shown as two separate numbers,
+                    never merged into one blended total — the small line
+                    under each figure is the inner count, kept visibly
+                    distinct from the outer figure above it. */}
+                <div className="card" style={{ padding: '10px 16px' }}>
+                  <b style={{ fontSize: 20 }}>{trackData.summary.total}</b><div className="muted" style={{ fontSize: 11 }}>Total printed (outer)</div>
+                  {trackData.summary.innerTotal > 0 && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>+ {trackData.summary.innerTotal} inner (from splits)</div>}
+                </div>
+                <div className="card" style={{ padding: '10px 16px' }}>
+                  <b style={{ fontSize: 20, color: 'var(--green)' }}>{trackData.summary.used}</b><div className="muted" style={{ fontSize: 11 }}>Scanned in (outer)</div>
+                  {trackData.summary.innerUsed > 0 && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>+ {trackData.summary.innerUsed} inner</div>}
+                </div>
+                <div className="card" style={{ padding: '10px 16px' }}>
+                  <b style={{ fontSize: 20, color: 'var(--spruce)' }}>{trackData.summary.dispatched}</b><div className="muted" style={{ fontSize: 11 }}>Dispatched (outer)</div>
+                  {trackData.summary.innerDispatched > 0 && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>+ {trackData.summary.innerDispatched} inner</div>}
+                </div>
+                <div className="card" style={{ padding: '10px 16px' }}>
+                  <b style={{ fontSize: 20, color: 'var(--red)' }}>{trackData.summary.unused}</b><div className="muted" style={{ fontSize: 11 }}>Still unscanned (outer)</div>
+                  {trackData.summary.innerUnused > 0 && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>+ {trackData.summary.innerUnused} inner</div>}
+                </div>
                 {/* Compares what the QR tracking thinks is currently in the
                     warehouse (every 'in_stock' carton's pcs added up)
                     against what Inventory.physical actually shows. These
@@ -640,9 +665,18 @@ export default function GenerateBarcodes() {
                           <td>{new Date(b.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                           <td>{b.createdBy}</td>
                           <td>{b.qty}</td>
-                          <td>{b.total}</td>
-                          <td style={{ color: 'var(--green)', fontWeight: 600 }}>{b.used}</td>
-                          <td style={{ color: b.unused ? 'var(--red)' : 'inherit', fontWeight: b.unused ? 600 : 400 }}>{b.unused}</td>
+                          <td>
+                            {b.total}
+                            {b.innerTotal > 0 && <div className="muted" style={{ fontSize: 10 }}>+{b.innerTotal} inner</div>}
+                          </td>
+                          <td style={{ color: 'var(--green)', fontWeight: 600 }}>
+                            {b.used}
+                            {b.innerUsed > 0 && <div className="muted" style={{ fontSize: 10, fontWeight: 400 }}>+{b.innerUsed} inner</div>}
+                          </td>
+                          <td style={{ color: b.unused ? 'var(--red)' : 'inherit', fontWeight: b.unused ? 600 : 400 }}>
+                            {b.unused}
+                            {b.innerUnused > 0 && <div className="muted" style={{ fontSize: 10, fontWeight: 400 }}>+{b.innerUnused} inner</div>}
+                          </td>
                           <td>
                             <div className="btnrow">
                               <button className="btn o sm" onClick={() => toggleBatch(b.batchId)}>{openBatch === b.batchId ? 'Hide' : 'View cartons'}</button>
