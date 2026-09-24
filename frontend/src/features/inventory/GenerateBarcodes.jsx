@@ -515,7 +515,8 @@ export default function GenerateBarcodes() {
                 <div className="label-name">{batch.product.name}</div>
                 <div className="label-meta"><b>{batch.product.code}</b> · {c.qty ?? batch.qty} pcs</div>
                 <canvas id={`qr-${c.code}`} className="label-qr"></canvas>
-                <div className="label-footer">{c.code} · {new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="label-code">{c.code}</div>
+                <div className="label-date">{new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
             ))}
           </div>
@@ -804,7 +805,13 @@ export default function GenerateBarcodes() {
         .label-meta { font-size: 14px; color: var(--muted); margin: 3px 0 8px; }
         .label-meta b { font-family: var(--mono); }
         .label-qr { width: 32mm; height: 32mm; display: block; margin: 0 auto; }
-        .label-footer { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; letter-spacing: 0.01em; }
+        {/* Code on its own line, bold and 10px larger than the old combined
+            .label-footer (11px -> 21px) for on-shelf legibility — split from
+            the date/time so the bigger text doesn't risk overflowing the
+            fixed-size label (.label has overflow:hidden). Date/time kept
+            smaller since only the code itself was asked to be more visible. */}
+        .label-code { font-family: var(--mono); font-size: 21px; font-weight: 700; color: var(--ink); margin-top: 6px; letter-spacing: 0.01em; white-space: nowrap; }
+        .label-date { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
         /* Nothing in #print-area is ever shown in the app — generate and
            reprint both render here purely so window.print() has something to
            print, then go straight to the print dialog. Off-screen (never
