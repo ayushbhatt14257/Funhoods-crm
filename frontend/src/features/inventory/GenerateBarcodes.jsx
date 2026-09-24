@@ -163,6 +163,7 @@ export default function GenerateBarcodes() {
   }
 
   const [splittingCode, setSplittingCode] = useState(null);
+  const [deletingCode, setDeletingCode] = useState(null);
 
   // Lets a still-in-stock outer be split proactively, right from this
   // table — previously splitting was only ever possible reactively, mid-
@@ -181,6 +182,25 @@ export default function GenerateBarcodes() {
       loadRecentBatches(recentLimit);
     } catch (err) { showToast(err.message, 'err'); }
     finally { setSplittingCode(null); }
+  }
+
+  // Deletes one individual carton and reverses its own qty from physical
+  // stock — for a phantom label (splitCarton's rounding can produce one
+  // more discrete QR than pcs actually justify — see backend deleteCarton),
+  // or any other still-in-stock carton that genuinely shouldn't exist.
+  // Never allowed on a dispatched or already-split carton — enforced on the
+  // backend too, but the button is only ever shown for in_stock/used rows.
+  async function deleteCartonRow(code) {
+    if (!confirm(`Delete carton ${code}? This also reverses whatever pcs it added to stock. Cannot be undone.`)) return;
+    setDeletingCode(code);
+    try {
+      const res = await barcodeApi.deleteCarton(code);
+      showToast(res.message, 'g');
+      if (openBatch) setOpenBatchDetail(await barcodeApi.getBatch(openBatch));
+      if (trackProduct) loadTrack(trackProduct);
+      loadRecentBatches(recentLimit);
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setDeletingCode(null); }
   }
 
   async function reprintSearchResult() {
@@ -408,6 +428,11 @@ export default function GenerateBarcodes() {
                                   {splittingCode === parent.code ? 'Splitting…' : '✂️ Split'}
                                 </button>
                               )}
+                              {user.role === 'masterAdmin' && ['in_stock', 'used'].includes(parent.status) && (
+                                <button className="btn o sm rd" disabled={deletingCode === parent.code} onClick={() => deleteCartonRow(parent.code)}>
+                                  {deletingCode === parent.code ? 'Deleting…' : '🗑️'}
+                                </button>
+                              )}
                             </div>
                           ) : children.length > 0 && (
                             <button className="btn o sm" onClick={() => reprintChildren(children)}>🖨️ Reprint all {children.length} inners</button>
@@ -438,7 +463,16 @@ export default function GenerateBarcodes() {
                                   </div>
                                 )}
                               </td>
-                              <td><button className="btn o sm" onClick={() => reprintSingleCarton(child)}>🖨️ Reprint</button></td>
+                              <td>
+                                <div className="btnrow">
+                                  <button className="btn o sm" onClick={() => reprintSingleCarton(child)}>🖨️ Reprint</button>
+                                  {user.role === 'masterAdmin' && ['in_stock', 'used'].includes(child.status) && (
+                                    <button className="btn o sm rd" disabled={deletingCode === child.code} onClick={() => deleteCartonRow(child.code)}>
+                                      {deletingCode === child.code ? 'Deleting…' : '🗑️'}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           );
                         })}

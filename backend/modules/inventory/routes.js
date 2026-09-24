@@ -32,6 +32,7 @@ router.post('/carton/migrate-outward', allow('masterAdmin'), barcodeCtrl.migrate
 router.get('/carton/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.lookupCarton);
 router.post('/carton/:code/confirm', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.confirmCarton);
 router.post('/carton/:code/split', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.splitCarton);
+router.delete('/carton/:code', allow('masterAdmin'), barcodeCtrl.deleteCarton);
 router.get('/carton/:code/for-dispatch', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.forDispatchScan);
 router.post('/carton/:code/manual-dispatch', allow('admin', 'masterAdmin'), barcodeCtrl.manualDispatchCarton);
 
