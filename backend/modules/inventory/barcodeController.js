@@ -85,9 +85,20 @@ async function getByProduct(req, res) {
         qty: { $first: '$qty' },
         createdAt: { $min: '$createdAt' },
         createdBy: { $first: '$createdBy' },
-        total: { $sum: 1 },
-        used: { $sum: { $cond: [{ $in: ['$status', EVER_STOCKED] }, 1, 0] } },
-        dispatched: { $sum: { $cond: [{ $eq: ['$status', 'dispatched'] }, 1, 0] } },
+        // Only count OUTER cartons here — inner children born from a split
+        // share the same batchId as their parent (see splitCarton), but
+        // they were never separately printed/generated as part of this
+        // batch's own run: they're a downstream consequence of ONE of this
+        // batch's outers, not additional cartons. Without this filter, a
+        // batch that generated 1 outer and later split it into 2 inners
+        // showed "Cartons: 3" / inflated "Scanned" — triple-counting the
+        // same 120 pcs as if 3 separate cartons had been printed, when only
+        // 1 ever was. $ne (not $ifNull) is deliberate: every carton has
+        // `kind` set going forward (schema default 'outer'), and only a
+        // split's children are ever 'inner' — nothing legacy needs a fallback.
+        total: { $sum: { $cond: [{ $ne: ['$kind', 'inner'] }, 1, 0] } },
+        used: { $sum: { $cond: [{ $and: [{ $ne: ['$kind', 'inner'] }, { $in: ['$status', EVER_STOCKED] }] }, 1, 0] } },
+        dispatched: { $sum: { $cond: [{ $and: [{ $ne: ['$kind', 'inner'] }, { $eq: ['$status', 'dispatched'] }] }, 1, 0] } },
       },
     },
     { $sort: { createdAt: -1 } },
@@ -142,8 +153,11 @@ async function getRecentBatches(req, res) {
         qty: { $first: '$qty' },
         createdAt: { $min: '$createdAt' },
         createdBy: { $first: '$createdBy' },
-        total: { $sum: 1 },
-        used: { $sum: { $cond: [{ $in: ['$status', EVER_STOCKED] }, 1, 0] } },
+        // Same reasoning as getByProduct above — exclude a split's inner
+        // children from this batch's own Cartons/Scanned counts; they were
+        // never independently generated as part of this batch's run.
+        total: { $sum: { $cond: [{ $ne: ['$kind', 'inner'] }, 1, 0] } },
+        used: { $sum: { $cond: [{ $and: [{ $ne: ['$kind', 'inner'] }, { $in: ['$status', EVER_STOCKED] }] }, 1, 0] } },
       },
     },
     { $sort: { createdAt: -1 } },
