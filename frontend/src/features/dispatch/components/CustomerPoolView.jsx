@@ -84,49 +84,44 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     barcodeApi.availableCounts(codes).then(setAvailable).catch(() => setAvailable({}));
   }, [pool]);
 
+  // Checking a row manually (no scan at all) used to be possible whenever a
+  // product had zero in-stock QR-tracked cartons — canScan was false, and
+  // the checkbox below fell back to a plain manual toggle with typed
+  // outer/inner numbers, letting a whole line get marked dispatched with
+  // nothing actually scanned. That fallback is gone (see the render below):
+  // every row is now scan-only, always, so this branch can only ever be
+  // reached via the UNcheck path (releasing an already-scanned row) — kept
+  // here only for that.
   function toggle(row) {
-    if (row.checked) {
-      const next = { ...selection };
-      delete next[row.key];
-      onSelectionChange(next);
-      // Unchecking undoes this row's staging entirely — nothing was
-      // actually dispatched (that only happens at the final Dispatch
-      // button), so any cartons scanned into this row need to become
-      // scannable again, not stay permanently "used" client-side. That
-      // means both releasing the codes AND putting back the "available"
-      // count each of those scans had optimistically decremented —
-      // otherwise the Scan button keeps showing a stale, too-low number
-      // even though those exact cartons are scannable again.
-      const released = scannedCodes.filter((s) => s.ownerKey === row.key);
-      if (released.length) {
-        setAvailable((a) => {
-          const next = { ...a, [row.item.code]: { ...a[row.item.code] } };
-          released.forEach((s) => {
-            next[row.item.code][s.kind] = (next[row.item.code][s.kind] || 0) + 1;
-          });
-          return next;
+    if (!row.checked) return; // nothing to do — checking now only ever happens through an actual scan (submitScan)
+    const next = { ...selection };
+    delete next[row.key];
+    onSelectionChange(next);
+    // Unchecking undoes this row's staging entirely — nothing was
+    // actually dispatched (that only happens at the final Dispatch
+    // button), so any cartons scanned into this row need to become
+    // scannable again, not stay permanently "used" client-side. That
+    // means both releasing the codes AND putting back the "available"
+    // count each of those scans had optimistically decremented —
+    // otherwise the Scan button keeps showing a stale, too-low number
+    // even though those exact cartons are scannable again.
+    const released = scannedCodes.filter((s) => s.ownerKey === row.key);
+    if (released.length) {
+      setAvailable((a) => {
+        const next = { ...a, [row.item.code]: { ...a[row.item.code] } };
+        released.forEach((s) => {
+          next[row.item.code][s.kind] = (next[row.item.code][s.kind] || 0) + 1;
         });
-      }
-      onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
-    } else {
-      // Defaults to the suggested outer-first split — same as before this
-      // row is ever touched. (row.max here would be the wrong thing to use:
-      // it's each kind's independent ceiling given the OTHER kind's current
-      // value, which for an unchecked row are both 0 — using it directly
-      // would set outers AND inners each to their own full ceiling
-      // simultaneously, roughly doubling the actual order.)
-      onSelectionChange({ ...selection, [row.key]: { outers: row.suggested.outers, inners: row.suggested.inners } });
+        return next;
+      });
     }
+    onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
   }
 
-  function setOuters(row, value) {
-    const outers = Math.max(0, Math.min(row.max.outers, Math.floor(+value) || 0));
-    onSelectionChange({ ...selection, [row.key]: { outers, inners: row.inners } });
-  }
-  function setInners(row, value) {
-    const inners = Math.max(0, Math.min(row.max.inners, Math.floor(+value) || 0));
-    onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
-  }
+  // setOuters/setInners (manual typed-quantity overrides) removed along with
+  // the manual checkbox fallback below — outer/inner counts now only ever
+  // change via an actual scan (submitScan) or a scan removal
+  // (removeScannedEntry).
 
   // Opens the scan sheet for this row. This used to also release every
   // carton already scanned into the row back to "available" and uncheck the
@@ -284,28 +279,20 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 return (
                   <tr key={r.key}>
                     <td>
-                      {canScan ? (
-                        // Scan-only for this row (real trackable stock
-                        // exists) — clicking it does NOT let you check it
-                        // manually (there's nothing to check without an
-                        // actual scan), but when it's already checked,
-                        // clicking releases everything scanned into this
-                        // row and unchecks it — reusing the same toggle()
-                        // an ordinary checkbox row uses to undo itself.
-                        // Previously this was a plain <span> with no
-                        // click handler at all, so a scanned row could
-                        // never be cleared except one scan at a time from
-                        // inside the scan sheet.
-                        <span
-                          onClick={() => r.checked && toggle(r)}
-                          title={r.checked ? 'Click to remove all scans from this row' : 'Not yet scanned'}
-                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 4, border: '1px solid var(--line)', background: r.checked ? 'var(--green)' : 'transparent', color: '#fff', fontSize: 12, fontWeight: 700, cursor: r.checked ? 'pointer' : 'default' }}
-                        >
-                          {r.checked ? '✓' : ''}
-                        </span>
-                      ) : (
-                        <input type="checkbox" checked={r.checked} onChange={() => toggle(r)} />
-                      )}
+                      {/* Always scan-only now — the manual checkbox fallback
+                          for a row with nothing in stock has been removed
+                          entirely (see the Outer/Inner cells below too):
+                          checking a row, and thus dispatching it, is only
+                          ever possible through an actual scan. Clicking it
+                          when already checked still releases everything
+                          scanned into the row and unchecks it, via toggle(). */}
+                      <span
+                        onClick={() => r.checked && toggle(r)}
+                        title={r.checked ? 'Click to remove all scans from this row' : 'Not yet scanned'}
+                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: 4, border: '1px solid var(--line)', background: r.checked ? 'var(--green)' : 'transparent', color: '#fff', fontSize: 12, fontWeight: 700, cursor: r.checked ? 'pointer' : 'default' }}
+                      >
+                        {r.checked ? '✓' : ''}
+                      </span>
                     </td>
                     <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{r.item.code}</td>
@@ -317,39 +304,17 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     <td style={{ position: 'sticky', left: 0, background: 'var(--white)', zIndex: 1, boxShadow: '2px 0 6px rgba(0,0,0,0.08)' }}><b>{r.item.name}</b></td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
-                      {canScan ? (
-                        // Unchecked: show what the order actually needs
-                        // (informational only, never editable here — real
-                        // quantity only ever comes from a scan once
-                        // checked). Checked: show real scan progress.
-                        <b>{r.checked ? r.outers : r.suggested.outers}</b>
-                      ) : r.checked ? (
-                        <input
-                          type="number" min={0} max={r.max.outers} value={r.outers}
-                          onChange={(e) => setOuters(r, e.target.value)}
-                          style={{ width: 60 }}
-                        />
-                      ) : <b>{r.suggested.outers}</b>}
+                      {/* Informational only, never editable — real quantity
+                          only ever comes from a scan, whether checked or not. */}
+                      <b>{r.checked ? r.outers : r.suggested.outers}</b>
                       {r.item.cartonOuter > 0 && (
-                        <div className="muted" style={{ fontSize: 10 }}>
-                          {r.checked && !canScan ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
-                        </div>
+                        <div className="muted" style={{ fontSize: 10 }}>× {r.item.cartonOuter} pcs</div>
                       )}
                     </td>
                     <td>
-                      {canScan ? (
-                        <b>{r.checked ? r.inners : r.suggested.inners}</b>
-                      ) : r.checked ? (
-                        <input
-                          type="number" min={0} max={r.max.inners} value={r.inners}
-                          onChange={(e) => setInners(r, e.target.value)}
-                          style={{ width: 60 }}
-                        />
-                      ) : <b>{r.suggested.inners}</b>}
+                      <b>{r.checked ? r.inners : r.suggested.inners}</b>
                       {r.item.cartonInner > 0 && (
-                        <div className="muted" style={{ fontSize: 10 }}>
-                          {r.checked && !canScan ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
-                        </div>
+                        <div className="muted" style={{ fontSize: 10 }}>× {r.item.cartonInner} pcs</div>
                       )}
                     </td>
                     <td>{r.item.rate}</td>

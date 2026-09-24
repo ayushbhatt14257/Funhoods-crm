@@ -129,7 +129,11 @@ export default function Inventory() {
                       <td className="mono">{r.code}</td>
                       <td>{r.name}</td>
                       <td>{r.physical}</td>
-                      <td>{r.reserved}</td>
+                      <td>
+                        {r.reserved > 0 ? (
+                          <button className="btn o sm" onClick={() => showPendingFor(r)} title="See which customers this is reserved for">{r.reserved}</button>
+                        ) : r.reserved}
+                      </td>
                       <td style={{ color: 'var(--red)', fontWeight: 700 }}>{r.needed}</td>
                     </tr>
                   ))}
