@@ -162,6 +162,27 @@ export default function GenerateBarcodes() {
     finally { setCodeSearchLoading(false); }
   }
 
+  const [splittingCode, setSplittingCode] = useState(null);
+
+  // Lets a still-in-stock outer be split proactively, right from this
+  // table — previously splitting was only ever possible reactively, mid-
+  // scan on the Dispatch page, when a scanned outer turned out too big for
+  // what was left on an order. This is for the opposite case: staff already
+  // know an item needs to go out as inner cartons and want to prep them
+  // ahead of time, without waiting for an actual dispatch attempt.
+  async function splitCartonRow(code) {
+    if (!confirm(`Split ${code} into inner cartons? This cannot be undone.`)) return;
+    setSplittingCode(code);
+    try {
+      const res = await barcodeApi.split(code);
+      showToast(res.message, 'g');
+      if (openBatch) setOpenBatchDetail(await barcodeApi.getBatch(openBatch));
+      if (trackProduct) loadTrack(trackProduct);
+      loadRecentBatches(recentLimit);
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setSplittingCode(null); }
+  }
+
   async function reprintSearchResult() {
     if (!codeSearchSelected) return;
     setBatch({
@@ -380,7 +401,14 @@ export default function GenerateBarcodes() {
                             )}
                           </td>
                           <td>{parent.status !== 'split' ? (
-                            <button className="btn o sm" onClick={() => reprintSingleCarton(parent)}>🖨️ Reprint</button>
+                            <div className="btnrow">
+                              <button className="btn o sm" onClick={() => reprintSingleCarton(parent)}>🖨️ Reprint</button>
+                              {['in_stock', 'used'].includes(parent.status) && (
+                                <button className="btn o sm" disabled={splittingCode === parent.code} onClick={() => splitCartonRow(parent.code)}>
+                                  {splittingCode === parent.code ? 'Splitting…' : '✂️ Split'}
+                                </button>
+                              )}
+                            </div>
                           ) : children.length > 0 && (
                             <button className="btn o sm" onClick={() => reprintChildren(children)}>🖨️ Reprint all {children.length} inners</button>
                           )}</td>
@@ -391,8 +419,19 @@ export default function GenerateBarcodes() {
                             <tr key={child.code} style={{ background: 'var(--paper)' }}>
                               <td className="mono" style={{ fontSize: 11, paddingLeft: 28, borderLeft: '2px solid var(--line)' }}>↳ {child.code}</td>
                               <td><span className={`badge ${cBadge.cls}`}>{cBadge.label}</span></td>
-                              <td>{child.usedBy || '—'}</td>
-                              <td>{child.usedAt ? new Date(child.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                              <td>{child.splitAt ? <span className="muted">via split</span> : (child.usedBy || '—')}</td>
+                              <td>
+                                {/* A split child was never independently scanned in —
+                                    its usedBy/usedAt is inherited straight from the
+                                    PARENT's original stock-in event, which is
+                                    misleading shown here as if it were this exact
+                                    carton's own scan. Show that plainly instead, and
+                                    let the Split line below carry the real timing. */}
+                                {child.splitAt ? (
+                                  <span className="muted" style={{ fontSize: 11 }}>Not scanned — created by split</span>
+                                ) : (
+                                  child.usedAt ? new Date(child.usedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'
+                                )}
                                 {child.splitAt && (
                                   <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
                                     Split {new Date(child.splitAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}{child.splitBy ? ` by ${child.splitBy}` : ''}
