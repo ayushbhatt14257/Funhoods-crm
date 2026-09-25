@@ -27,6 +27,25 @@ function defaultSplit(pendingPcs, cartonOuter, cartonInner) {
   const inners = cartonInner ? Math.floor(afterOuters / cartonInner) : 0;
   return { outers, inners };
 }
+// Same outer-first idea as defaultSplit, but capped by what's actually in
+// stock at each step — the plain outer-first default above assumes
+// unlimited outers exist, so a product with 0 outer but real inner stock
+// (e.g. an order for 1 outer's worth of pcs, only inners on the shelf)
+// would default to "1 outer, 0 inner" — an impossible selection that then
+// ate the ENTIRE pcs budget in roomFor()'s shared-budget math, leaving 0
+// room for inner too, even though inner stock genuinely covers the order.
+// This picks as many outers as the order needs AND are actually
+// available, then fills whatever's left with inner, also capped by inner
+// availability — so the very first thing shown is always something
+// genuinely selectable, never a dead end.
+function stockAwareDefault(pendingPcs, cartonOuter, cartonInner, avail) {
+  if (!cartonOuter) return { outers: 0, inners: cartonInner ? Math.min(Math.floor(pendingPcs / cartonInner), avail.inner) : 0 };
+  const idealOuters = Math.floor(pendingPcs / cartonOuter);
+  const outers = Math.min(idealOuters, avail.outer);
+  const afterOuters = pendingPcs - outers * cartonOuter;
+  const inners = cartonInner ? Math.min(Math.floor(afterOuters / cartonInner), avail.inner) : 0;
+  return { outers, inners };
+}
 function roomFor(pendingPcs, cartonOuter, cartonInner, currentOuters, currentInners) {
   const outers = cartonOuter ? Math.max(0, Math.floor((pendingPcs - currentInners * cartonInner) / cartonOuter)) : 0;
   const inners = cartonInner ? Math.max(0, Math.floor((pendingPcs - currentOuters * cartonOuter) / cartonInner)) : 0;
@@ -70,7 +89,14 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         const key = rowKey(it);
         const override = selection[key];
         const checked = !!override;
-        const suggested = defaultSplit(it.pendingPcs, it.cartonOuter, it.cartonInner); // shown only as the bold default before this row is checked
+        const avail = available[it.code] || { outer: 0, inner: 0 };
+        const canScan = avail.outer > 0 || avail.inner > 0;
+        // Stock-aware from the start (see stockAwareDefault above) — shown
+        // as the bold default before this row is checked, AND used as the
+        // actual selection the moment it IS checked, so ticking the box
+        // never lands on an impossible combination that then blocks out
+        // the other kind entirely.
+        const suggested = stockAwareDefault(it.pendingPcs, it.cartonOuter, it.cartonInner, avail);
         // The real, shared-pcs-budget ceiling given whatever is currently
         // selected — recalculates every render, so it's never possible to
         // exceed pendingPcs regardless of which mix of outer/inner got you
@@ -86,8 +112,6 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         // scanning each one. Scanning itself is separately, independently
         // safe regardless of this cap (forDispatch always checks the real
         // carton server-side).
-        const avail = available[it.code] || { outer: 0, inner: 0 };
-        const canScan = avail.outer > 0 || avail.inner > 0;
         const max = { outers: Math.min(pcsMax.outers, avail.outer), inners: Math.min(pcsMax.inners, avail.inner) };
         const outers = checked ? Math.min(currentOuters, max.outers) : Math.min(suggested.outers, max.outers);
         const inners = checked ? Math.min(currentInners, max.inners) : Math.min(suggested.inners, max.inners);
