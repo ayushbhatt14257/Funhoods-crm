@@ -78,54 +78,82 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         // pendingPcs shrank since this override was chosen.
         const currentOuters = checked ? override.outers : 0;
         const currentInners = checked ? override.inners : 0;
-        const max = roomFor(it.pendingPcs, it.cartonOuter, it.cartonInner, currentOuters, currentInners);
-        const outers = checked ? Math.min(currentOuters, max.outers) : suggested.outers;
-        const inners = checked ? Math.min(currentInners, max.inners) : suggested.inners;
-        return { item: it, key, max, suggested, outers, inners, checked };
+        const pcsMax = roomFor(it.pendingPcs, it.cartonOuter, it.cartonInner, currentOuters, currentInners);
+        // Manual typing has no scan behind it to verify a carton actually
+        // exists, so it's additionally capped by the real physical count
+        // (avail) on top of the order's own pcs budget — never possible to
+        // manually type more than what's genuinely in stock, even without
+        // scanning each one. Scanning itself is separately, independently
+        // safe regardless of this cap (forDispatch always checks the real
+        // carton server-side).
+        const avail = available[it.code] || { outer: 0, inner: 0 };
+        const canScan = avail.outer > 0 || avail.inner > 0;
+        const max = { outers: Math.min(pcsMax.outers, avail.outer), inners: Math.min(pcsMax.inners, avail.inner) };
+        const outers = checked ? Math.min(currentOuters, max.outers) : Math.min(suggested.outers, max.outers);
+        const inners = checked ? Math.min(currentInners, max.inners) : Math.min(suggested.inners, max.inners);
+        return { item: it, key, max, suggested, outers, inners, checked, avail, canScan };
       });
-  }, [pool, q, selection]);
+  }, [pool, q, selection, available]);
 
   // Fetched once per pool load — how many in_stock outer/inner cartons
   // actually exist for each product here, so a row with genuinely nothing
   // to scan (never QR-tracked, or all already dispatched) gets its scan
-  // button disabled instead of inviting a scan that can only fail.
+  // button and checkbox both disabled instead of inviting a selection that
+  // can only fail or overshoot real stock.
   useEffect(() => {
     const codes = [...new Set((pool?.items || []).map((it) => it.code))];
     if (!codes.length) { setAvailable({}); return; }
     barcodeApi.availableCounts(codes).then(setAvailable).catch(() => setAvailable({}));
   }, [pool]);
 
-  // Checking this box never fakes a selection with no scan behind it — for
-  // a row with QR stock available, ticking it opens the scan sheet (same
-  // as the Scan button; see the checkbox's onClick in the render below),
-  // and this only ever runs to UNcheck: releasing everything scanned into
-  // the row. A row with no QR stock gets a properly disabled checkbox
-  // (native `disabled`, not just unclickable styling) — there's nothing to
-  // scan, so nothing to check.
+  // Checking the box stages a manual selection (defaulting to the
+  // outer-first suggested split, capped at real physical stock — see
+  // `max` above) — this is the manual, no-scan-required path. Scanning is
+  // still available separately (the Scan button) and simply adds to
+  // whatever this row's current outers/inners already are, same as before;
+  // the two aren't mutually exclusive. Unchecking releases the selection —
+  // and, if any of it came from real scans, releases those specific
+  // cartons back to available too.
   function toggle(row) {
-    if (!row.checked) return;
-    const next = { ...selection };
-    delete next[row.key];
-    onSelectionChange(next);
-    // Unchecking undoes this row's staging entirely — nothing was
-    // actually dispatched (that only happens at the final Dispatch
-    // button), so any cartons scanned into this row need to become
-    // scannable again, not stay permanently "used" client-side. That
-    // means both releasing the codes AND putting back the "available"
-    // count each of those scans had optimistically decremented —
-    // otherwise the Scan button keeps showing a stale, too-low number
-    // even though those exact cartons are scannable again.
-    const released = scannedCodes.filter((s) => s.ownerKey === row.key);
-    if (released.length) {
-      setAvailable((a) => {
-        const next = { ...a, [row.item.code]: { ...a[row.item.code] } };
-        released.forEach((s) => {
-          next[row.item.code][s.kind] = (next[row.item.code][s.kind] || 0) + 1;
+    if (row.checked) {
+      const next = { ...selection };
+      delete next[row.key];
+      onSelectionChange(next);
+      // Unchecking undoes this row's staging entirely — nothing was
+      // actually dispatched (that only happens at the final Dispatch
+      // button), so any cartons scanned into this row need to become
+      // scannable again, not stay permanently "used" client-side. That
+      // means both releasing the codes AND putting back the "available"
+      // count each of those scans had optimistically decremented —
+      // otherwise the Scan button keeps showing a stale, too-low number
+      // even though those exact cartons are scannable again.
+      const released = scannedCodes.filter((s) => s.ownerKey === row.key);
+      if (released.length) {
+        setAvailable((a) => {
+          const next = { ...a, [row.item.code]: { ...a[row.item.code] } };
+          released.forEach((s) => {
+            next[row.item.code][s.kind] = (next[row.item.code][s.kind] || 0) + 1;
+          });
+          return next;
         });
-        return next;
-      });
+      }
+      onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
+    } else {
+      onSelectionChange({ ...selection, [row.key]: { outers: row.suggested.outers, inners: row.suggested.inners } });
     }
-    onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
+  }
+
+  // Manual typed-quantity overrides — bounded by `row.max`, which already
+  // factors in both the order's own pcs budget AND real physical stock
+  // (see the rows useMemo above), so typing can never exceed what's
+  // genuinely available even without an actual scan.
+  function setOuters(row, value) {
+    const outers = Math.max(0, Math.min(row.max.outers, Math.floor(+value) || 0));
+    onSelectionChange({ ...selection, [row.key]: { outers, inners: row.inners } });
+  }
+  function setInners(row, value) {
+    const inners = Math.max(0, Math.min(row.max.inners, Math.floor(+value) || 0));
+    onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
   // Opens the scan sheet for this row. This used to also release every
@@ -279,26 +307,26 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 const pcs = r.outers * r.item.cartonOuter + r.inners * r.item.cartonInner;
                 const gross = r.item.rate + (r.item.rate * r.item.gstPct) / 100;
                 const lineTotal = gross * pcs;
-                const avail = available[r.item.code] || { outer: 0, inner: 0 };
-                const canScan = avail.outer > 0 || avail.inner > 0;
+                const avail = r.avail;
+                const canScan = r.canScan;
                 return (
                   <tr key={r.key}>
                     <td>
-                      {/* A real, native checkbox — clickable and interactive
-                          whenever this product has QR stock to scan, and
-                          properly `disabled` (greyed, non-interactive) when
-                          it doesn't, rather than just an unclickable span.
-                          Ticking it while unchecked never fakes a
-                          selection with no scan behind it — it opens the
-                          same scan sheet the Scan button does. Unticking an
-                          already-checked row releases everything scanned
-                          into it (toggle()). */}
+                      {/* A real, native checkbox — clickable whenever this
+                          product has QR stock available, disabled
+                          otherwise. Checking it stages a manual selection
+                          (no scan required) capped at real physical stock
+                          (row.max already factors this in); the Scan
+                          button below is still there too, for whoever
+                          prefers to scan instead — the two aren't
+                          mutually exclusive, scanning just adds to
+                          whatever count is already staged. */}
                       <input
                         type="checkbox"
                         checked={r.checked}
                         disabled={!canScan}
-                        onChange={() => (r.checked ? toggle(r) : openScan(r))}
-                        title={!canScan ? 'No QR stock available for this product' : r.checked ? 'Uncheck to release all scans from this row' : 'Check to start scanning this row'}
+                        onChange={() => toggle(r)}
+                        title={!canScan ? 'No QR stock available for this product' : r.checked ? 'Uncheck to clear this row' : 'Check to select this row'}
                       />
                     </td>
                     <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
@@ -311,17 +339,31 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     <td style={{ position: 'sticky', left: 0, background: 'var(--white)', zIndex: 1, boxShadow: '2px 0 6px rgba(0,0,0,0.08)' }}><b>{r.item.name}</b></td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
-                      {/* Informational only, never editable — real quantity
-                          only ever comes from a scan, whether checked or not. */}
-                      <b>{r.checked ? r.outers : r.suggested.outers}</b>
+                      {r.checked ? (
+                        <input
+                          type="number" min={0} max={r.max.outers} value={r.outers}
+                          onChange={(e) => setOuters(r, e.target.value)}
+                          style={{ width: 60 }}
+                        />
+                      ) : <b>{r.suggested.outers}</b>}
                       {r.item.cartonOuter > 0 && (
-                        <div className="muted" style={{ fontSize: 10 }}>× {r.item.cartonOuter} pcs</div>
+                        <div className="muted" style={{ fontSize: 10 }}>
+                          {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
+                        </div>
                       )}
                     </td>
                     <td>
-                      <b>{r.checked ? r.inners : r.suggested.inners}</b>
+                      {r.checked ? (
+                        <input
+                          type="number" min={0} max={r.max.inners} value={r.inners}
+                          onChange={(e) => setInners(r, e.target.value)}
+                          style={{ width: 60 }}
+                        />
+                      ) : <b>{r.suggested.inners}</b>}
                       {r.item.cartonInner > 0 && (
-                        <div className="muted" style={{ fontSize: 10 }}>× {r.item.cartonInner} pcs</div>
+                        <div className="muted" style={{ fontSize: 10 }}>
+                          {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
+                        </div>
                       )}
                     </td>
                     <td>{r.item.rate}</td>
