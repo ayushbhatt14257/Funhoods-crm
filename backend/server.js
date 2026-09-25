@@ -18,6 +18,7 @@ const importRoutes = require('./modules/import/routes');
 const ledgerRoutes = require('./modules/ledger/routes');
 const userRoutes = require('./modules/users/routes');
 const notificationRoutes = require('./modules/notifications/routes');
+const analyticsRoutes = require('./modules/analytics/routes');
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use('/api/import', importRoutes);
 app.use('/api/ledger', ledgerRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Central error handler (catches thrown errors from async routes not already try/caught)
 app.use((err, req, res, next) => {

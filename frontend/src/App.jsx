@@ -26,6 +26,7 @@ import Users from './features/users/Users';
 import Profile from './features/users/Profile';
 import Notifications from './features/notifications/Notifications';
 import Import from './features/import/Import';
+import Analytics from './features/analytics/Analytics';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -79,6 +80,7 @@ function AppRoutes() {
         <Route path="users" element={<Users />} />
         <Route path="profile" element={<Profile />} />
         <Route path="notifications" element={<Notifications />} />
+        <Route path="analytics" element={<Analytics />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

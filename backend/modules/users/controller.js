@@ -88,4 +88,20 @@ async function resetPassword(req, res) {
   res.json({ message: 'Password reset', tempPassword: newPassword ? undefined : passwordToSet });
 }
 
-module.exports = { list, names, create, setRole, setActive, remove, changeMyPassword, resetPassword };
+// PATCH /api/users/:id/analytics-access — masterAdmin only. Toggles whether
+// this specific masterAdmin account can even attempt to open the Analysis
+// page. Meaningless (silently ignored) for any other role — being
+// masterAdmin is a prerequisite, this is an additional per-person gate on
+// top of it, not a substitute for it.
+async function setAnalyticsAccess(req, res) {
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ message: 'User not found' });
+  if (user.role !== 'masterAdmin') {
+    return res.status(400).json({ message: 'Analysis access can only be granted to a masterAdmin account.' });
+  }
+  user.analyticsAccess = !!req.body.analyticsAccess;
+  await user.save();
+  res.json(user);
+}
+
+module.exports = { list, names, create, setRole, setActive, setAnalyticsAccess, remove, changeMyPassword, resetPassword };

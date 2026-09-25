@@ -12,6 +12,11 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ROLES, required: true },
     states: [{ type: String }], // territory scope for 'field' role, empty = all
     active: { type: Boolean, default: true },
+    // Only ever meaningful for role==='masterAdmin' — a per-user toggle,
+    // set on the Users page, deciding whether THIS specific masterAdmin
+    // account is even allowed to attempt opening the Analysis page at all.
+    // Being masterAdmin alone is not enough; this must also be true.
+    analyticsAccess: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

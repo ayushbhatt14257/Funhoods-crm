@@ -28,6 +28,8 @@ const NAV = [
   { to: '/users', label: 'Users', icon: '👤', roles: ['masterAdmin'] },
   { to: '/profile', label: 'Profile', icon: '🙍', roles: ['field', 'mhead', 'accounts', 'dispatch', 'delivery', 'inward', 'admin', 'masterAdmin'] },
   { to: '/notifications', label: 'Notifications', icon: '🔔', roles: ['admin', 'masterAdmin'] },
+  { group: 'Analysis' },
+  { to: '/analytics', label: 'Analysis', icon: '🔒', roles: ['masterAdmin'] },
 ];
 
 export default function Layout() {
@@ -63,7 +65,7 @@ export default function Layout() {
           {NAV.map((item, i) =>
             item.group ? (
               <div className="group" key={i}>{item.group}</div>
-            ) : item.roles.includes(user.role) ? (
+            ) : item.roles.includes(user.role) && (item.to !== '/analytics' || user.analyticsAccess) ? (
               <NavLink
                 key={item.to}
                 to={item.to}

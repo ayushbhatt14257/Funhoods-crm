@@ -17,6 +17,7 @@ router.get('/', allow('masterAdmin'), ctrl.list);
 router.post('/', allow('masterAdmin'), ctrl.create);
 router.patch('/:id/role', allow('masterAdmin'), ctrl.setRole);
 router.patch('/:id/active', allow('masterAdmin'), ctrl.setActive);
+router.patch('/:id/analytics-access', allow('masterAdmin'), ctrl.setAnalyticsAccess);
 router.patch('/:id/reset-password', allow('masterAdmin'), ctrl.resetPassword);
 router.delete('/:id', allow('masterAdmin'), ctrl.remove);
 

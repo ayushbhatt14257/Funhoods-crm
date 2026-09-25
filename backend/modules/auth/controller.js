@@ -38,6 +38,7 @@ async function login(req, res) {
         mobile: user.mobile,
         role: user.role,
         states: user.states,
+        analyticsAccess: user.analyticsAccess,
       },
     });
   } catch (err) {
@@ -54,6 +55,7 @@ async function me(req, res) {
     mobile: req.user.mobile,
     role: req.user.role,
     states: req.user.states,
+    analyticsAccess: req.user.analyticsAccess,
   });
 }
 
@@ -84,6 +86,7 @@ async function otpLogin(req, res) {
         mobile: user.mobile,
         role: user.role,
         states: user.states,
+        analyticsAccess: user.analyticsAccess,
       },
     });
   } catch (err) {

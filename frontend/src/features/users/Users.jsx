@@ -38,6 +38,16 @@ export default function Users() {
     catch (err) { showToast(err.message, 'err'); }
   }
 
+  // Only ever meaningful for a masterAdmin account — the backend refuses
+  // this for any other role. Being masterAdmin at all is a separate,
+  // prerequisite gate; this is the additional per-person switch on top of
+  // it, deciding whether THIS specific masterAdmin can open the Analysis
+  // page (behind its own OTP verification) at all.
+  async function toggleAnalyticsAccess(u) {
+    try { await api.patch(`/users/${u._id}/analytics-access`, { analyticsAccess: !u.analyticsAccess }); load(); }
+    catch (err) { showToast(err.message, 'err'); }
+  }
+
   async function removeUser(id) {
     if (!confirm('Delete this user? They will no longer be able to log in.')) return;
     try { await api.del(`/users/${id}`); showToast('User deleted', 'g'); load(); }
@@ -79,7 +89,7 @@ export default function Users() {
       ) : (
         <div className="tblwrap">
           <table className="dt">
-            <thead><tr><th>Name</th><th>Mobile</th><th>Role</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Mobile</th><th>Role</th><th>Status</th><th>Analysis access</th><th></th></tr></thead>
             <tbody>
               {users.map((u) => (
                 <tr key={u._id}>
@@ -91,13 +101,27 @@ export default function Users() {
                     </select>
                   </td>
                   <td><span className={`badge ${u.active ? 'g' : 'r'}`}>{u.active ? 'Active' : 'Inactive'}</span></td>
+                  <td>
+                    {/* Only masterAdmin can ever have this — a plain dash for
+                        every other role, since the backend would refuse the
+                        toggle anyway and it'd otherwise read as a real option. */}
+                    {u.role === 'masterAdmin' ? (
+                      <button
+                        className={`btn sm ${u.analyticsAccess ? 'g' : 'o'}`}
+                        onClick={() => toggleAnalyticsAccess(u)}
+                        title={u.analyticsAccess ? 'Click to revoke Analysis access' : 'Click to grant Analysis access'}
+                      >
+                        {u.analyticsAccess ? '🔓 Enabled' : '🔒 Disabled'}
+                      </button>
+                    ) : <span className="muted">—</span>}
+                  </td>
                   <td style={{ display: 'flex', gap: 6 }}>
                     <button className="btn o sm" onClick={() => toggleActive(u)}>{u.active ? 'Deactivate' : 'Activate'}</button>
                     <button className="btn rd sm" onClick={() => removeUser(u._id)}>Delete</button>
                   </td>
                 </tr>
               ))}
-              {!users.length && <tr><td colSpan={5}><div className="empty">No users yet</div></td></tr>}
+              {!users.length && <tr><td colSpan={6}><div className="empty">No users yet</div></td></tr>}
             </tbody>
           </table>
         </div>

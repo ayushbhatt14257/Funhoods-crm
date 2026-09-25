@@ -4,8 +4,8 @@ function getToken() {
   return localStorage.getItem('funhoods_token');
 }
 
-async function request(path, { method = 'GET', body, isForm = false } = {}) {
-  const headers = {};
+async function request(path, { method = 'GET', body, isForm = false, headers: extraHeaders = {} } = {}) {
+  const headers = { ...extraHeaders };
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (!isForm) headers['Content-Type'] = 'application/json';
@@ -31,11 +31,11 @@ async function request(path, { method = 'GET', body, isForm = false } = {}) {
 }
 
 export const api = {
-  get: (path) => request(path),
-  post: (path, body) => request(path, { method: 'POST', body }),
-  put: (path, body) => request(path, { method: 'PUT', body }),
-  patch: (path, body) => request(path, { method: 'PATCH', body }),
-  del: (path, body) => request(path, { method: 'DELETE', body }),
+  get: (path, opts = {}) => request(path, opts),
+  post: (path, body, opts = {}) => request(path, { method: 'POST', body, ...opts }),
+  put: (path, body, opts = {}) => request(path, { method: 'PUT', body, ...opts }),
+  patch: (path, body, opts = {}) => request(path, { method: 'PATCH', body, ...opts }),
+  del: (path, body, opts = {}) => request(path, { method: 'DELETE', body, ...opts }),
   postForm: (path, formData) => request(path, { method: 'POST', body: formData, isForm: true }),
   putForm: (path, formData) => request(path, { method: 'PUT', body: formData, isForm: true }),
   fileUrl: (path) => `${API_URL}${path}`,
