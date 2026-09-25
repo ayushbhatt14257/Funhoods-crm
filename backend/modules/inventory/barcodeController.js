@@ -470,7 +470,17 @@ async function availableCounts(req, res) {
     // endpoint correct even before that's been run.
     { $group: { _id: { product: '$product', kind: { $ifNull: ['$kind', 'outer'] } }, count: { $sum: 1 } } },
   ]);
-  const result = Object.fromEntries(codes.map((c) => [c, { outer: 0, inner: 0 }]));
+  // everTracked answers a DIFFERENT question from the counts above: "has
+  // this product EVER had any carton record at all, in any status" — not
+  // "is anything in stock right now". A product with QR batches that have
+  // all since been dispatched (0 in stock right now) is still everTracked;
+  // a product that has simply never gone through barcode generation at all
+  // is not. This distinction is what lets the dispatch UI offer a manual
+  // fallback ONLY for products genuinely outside the QR system, while a
+  // QR-tracked product sitting at 0 stock stays correctly un-dispatchable —
+  // no override — since that 0 is real, not just "we never asked".
+  const everTrackedCodes = new Set(await CartonBarcode.distinct('product', { product: { $in: codes } }));
+  const result = Object.fromEntries(codes.map((c) => [c, { outer: 0, inner: 0, everTracked: everTrackedCodes.has(c) }]));
   rows.forEach((r) => { result[r._id.product][r._id.kind] = r.count; });
   res.json(result);
 }
