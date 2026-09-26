@@ -76,6 +76,20 @@ async function sales(req, res) {
     .sort((a, b) => b.invoiceCount - a.invoiceCount)
     .slice(0, 20);
 
+  // All-time total pcs dispatched per SKU — the SAME "Dispatched (all-time)"
+  // figure already shown on the Products page (products/controller.js
+  // dispatchedTotals), deliberately unbounded by the months filter above:
+  // this is a lifetime figure, not a windowed one, so it stays the same
+  // number whether you're looking at the 3mo or 24mo view.
+  const allTimeTotals = await Invoice.aggregate([
+    { $match: { status: { $ne: 'Cancelled' }, 'lines.code': { $in: repeatItems.map((r) => r.code) } } },
+    { $unwind: '$lines' },
+    { $match: { 'lines.code': { $in: repeatItems.map((r) => r.code) } } },
+    { $group: { _id: '$lines.code', total: { $sum: '$lines.pcs' } } },
+  ]);
+  const allTimePcsByCode = Object.fromEntries(allTimeTotals.map((r) => [r._id, r.total]));
+  repeatItems.forEach((r) => { r.pcsAllTime = allTimePcsByCode[r.code] || 0; });
+
   // Dealer order frequency per month — how many invoices per dealer per month, averaged.
   const dealerMonthCounts = {}; // dealer -> Set of month keys they ordered in
   const dealerTotalOrders = {};

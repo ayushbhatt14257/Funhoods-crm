@@ -123,9 +123,9 @@ function SalesSection() {
       </div>
 
       <h4>Repeat item count (top 20)</h4>
-      <table className="dt"><thead><tr><th>Code</th><th>Product</th><th># invoices reordered on</th></tr></thead>
+      <table className="dt"><thead><tr><th>Code</th><th>Product</th><th># invoices reordered on</th><th>Dispatched (all-time)</th></tr></thead>
         <tbody>{data.repeatItems.map((r) => (
-          <tr key={r.code}><td className="mono">{r.code}</td><td>{r.name}</td><td>{r.invoiceCount}</td></tr>
+          <tr key={r.code}><td className="mono">{r.code}</td><td>{r.name}</td><td>{r.invoiceCount}</td><td>{(r.pcsAllTime || 0).toLocaleString('en-IN')} pcs</td></tr>
         ))}</tbody>
       </table>
 
