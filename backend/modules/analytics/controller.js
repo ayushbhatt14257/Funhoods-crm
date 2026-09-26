@@ -195,12 +195,14 @@ async function dealerIntel(req, res) {
 
   const revenueByDealer = {};
   const lastOrderByDealer = {};
-  const productsByDealer = {}; // dealer -> Set of product codes
+  const pcsByDealerProduct = {}; // dealer -> product code -> total pcs ever dispatched to them
   invoices.forEach((inv) => {
     revenueByDealer[inv.dealer] = (revenueByDealer[inv.dealer] || 0) + inv.total;
     if (!lastOrderByDealer[inv.dealer] || inv.createdAt > lastOrderByDealer[inv.dealer]) lastOrderByDealer[inv.dealer] = inv.createdAt;
-    productsByDealer[inv.dealer] = productsByDealer[inv.dealer] || new Set();
-    inv.lines.forEach((l) => productsByDealer[inv.dealer].add(l.code));
+    pcsByDealerProduct[inv.dealer] = pcsByDealerProduct[inv.dealer] || {};
+    inv.lines.forEach((l) => {
+      pcsByDealerProduct[inv.dealer][l.code] = (pcsByDealerProduct[inv.dealer][l.code] || 0) + (l.pcs || 0);
+    });
   });
 
   const totalRevenue = Object.values(revenueByDealer).reduce((s, v) => s + v, 0) || 1;
@@ -219,19 +221,23 @@ async function dealerIntel(req, res) {
     .map(([code, lastDate]) => ({ code, name: dealerByCode[code]?.name || code, lastOrderAt: lastDate, daysSince: daysBetween(now, lastDate) }))
     .sort((a, b) => b.daysSince - a.daysSince);
 
-  // Dealer-wise product mix (cross-sell gap) — only computed for one dealer
-  // at a time, via ?dealer=CODE, since "full catalog minus what they bought"
-  // for every dealer at once would be a huge, mostly-unread response.
+  // Dealer-wise product mix — every product in the active catalog, with
+  // the total pcs ever actually dispatched (all-time, not scoped to any
+  // date filter) to this ONE dealer — explicit 0 for anything they've
+  // never ordered. Only computed for one dealer at a time, via ?dealer=CODE,
+  // since every dealer × every product at once would be a huge, mostly-
+  // zero, mostly-unread response.
   let productMix = null;
   if (req.query.dealer) {
     const code = req.query.dealer.toUpperCase();
-    const bought = productsByDealer[code] || new Set();
+    const pcsByProduct = pcsByDealerProduct[code] || {};
     const allProducts = await Product.find({ active: { $ne: false } }).select('code name').lean();
-    productMix = {
-      dealer: code,
-      bought: allProducts.filter((p) => bought.has(p.code)),
-      notBought: allProducts.filter((p) => !bought.has(p.code)),
-    };
+    const items = allProducts.map((p) => ({ code: p.code, name: p.name, pcs: pcsByProduct[p.code] || 0 }));
+    // Highest pcs first, so what this dealer actually buys most floats to
+    // the top; ties (including the 0-pcs "never ordered" bulk) fall back to
+    // alphabetical so the list isn't just catalog-insertion order.
+    items.sort((a, b) => b.pcs - a.pcs || a.name.localeCompare(b.name));
+    productMix = { dealer: code, name: dealerByCode[code]?.name || '', items };
   }
 
   res.json({ ranking: ranking.slice(0, 50), top10ConcentrationPct: top10Pct, dormant, productMix });

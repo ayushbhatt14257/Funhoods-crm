@@ -208,22 +208,18 @@ function DealerSection() {
         ))}</tbody>
       </table>
 
-      <h4 style={{ marginTop: 24 }}>Dealer product mix / cross-sell gap</h4>
+      <h4 style={{ marginTop: 24 }}>Dealer product-wise pcs (all-time)</h4>
+      <p className="muted" style={{ fontSize: 12 }}>Every product in the catalog, with total pcs ever actually dispatched to this one dealer — 0 for anything they've never ordered.</p>
       <div className="btnrow" style={{ marginBottom: 8 }}>
         <input placeholder="Dealer code, e.g. DLR0084" value={dealerCode} onChange={(e) => setDealerCode(e.target.value.toUpperCase())} style={{ maxWidth: 220 }} />
         <button className="btn sm" onClick={loadMix}>Load</button>
       </div>
       {mixData && (
-        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 260 }}>
-            <b>Already buys ({mixData.bought.length})</b>
-            <ul style={{ fontSize: 12, maxHeight: 300, overflowY: 'auto' }}>{mixData.bought.map((p) => <li key={p.code}>{p.name} ({p.code})</li>)}</ul>
-          </div>
-          <div style={{ flex: 1, minWidth: 260 }}>
-            <b>Never bought — cross-sell opportunity ({mixData.notBought.length})</b>
-            <ul style={{ fontSize: 12, maxHeight: 300, overflowY: 'auto' }}>{mixData.notBought.map((p) => <li key={p.code}>{p.name} ({p.code})</li>)}</ul>
-          </div>
-        </div>
+        <table className="dt"><thead><tr><th>Code</th><th>Product</th><th>Pcs dispatched (all-time)</th></tr></thead>
+          <tbody>{mixData.items.map((p) => (
+            <tr key={p.code}><td className="mono">{p.code}</td><td>{p.name}</td><td style={{ color: p.pcs ? 'inherit' : 'var(--muted)' }}>{p.pcs.toLocaleString('en-IN')}</td></tr>
+          ))}</tbody>
+        </table>
       )}
     </div>
   );
