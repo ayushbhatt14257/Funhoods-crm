@@ -89,14 +89,16 @@ async function sales(req, res) {
   ]);
   const allTimePcsByCode = Object.fromEntries(allTimeTotals.map((r) => [r._id, r.total]));
   // Same preCrmDispatched baseline as the Products page's "Dispatched
-  // (all-time)" figure (see products/controller.js dispatchedTotals) — kept
-  // in sync so the same product shows the same all-time number on both
-  // screens, not two different totals depending on which page you're on.
+  // (all-time)" figure (see products/controller.js dispatchedTotals) —
+  // REPLACES the CRM-computed figure rather than adding to it, since the
+  // imported number (e.g. from a Tally export) is treated as the already-
+  // complete, correct all-time total, not an addition on top of what this
+  // CRM separately tracked for an overlapping period.
   const baselineByCode = Object.fromEntries(
     (await Product.find({ code: { $in: repeatItems.map((r) => r.code) }, preCrmDispatched: { $gt: 0 } }).select('code preCrmDispatched').lean())
       .map((p) => [p.code, p.preCrmDispatched])
   );
-  repeatItems.forEach((r) => { r.pcsAllTime = (allTimePcsByCode[r.code] || 0) + (baselineByCode[r.code] || 0); });
+  repeatItems.forEach((r) => { r.pcsAllTime = baselineByCode[r.code] ?? (allTimePcsByCode[r.code] || 0); });
 
   // Dealer order frequency per month — how many invoices per dealer per month, averaged.
   const dealerMonthCounts = {}; // dealer -> Set of month keys they ordered in

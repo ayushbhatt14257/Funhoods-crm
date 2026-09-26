@@ -53,7 +53,9 @@ export default function LegacyDispatchImportModal({ onClose, onApplied }) {
         <p className="muted" style={{ fontSize: 12 }}>
           Upload the Tally "Stock Group Summary" export (or similar 2-column Particulars/Outwards report).
           Each row gets matched to a real product by its code — review and adjust below before anything is saved.
-          This only ever changes the "Dispatched (all-time)" figure; it never touches current stock or invoice history.
+          The number you approve here REPLACES that product's "Dispatched (all-time)" figure everywhere it's
+          shown — it doesn't add to what this CRM has separately tracked, since the imported report's own
+          period typically already includes that. It never touches current stock or invoice history.
         </p>
 
         {!rows && (
