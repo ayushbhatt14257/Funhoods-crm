@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ctrl = require('./controller');
+const legacyDispatchCtrl = require('./legacyDispatchController');
 const { protect } = require('../../middleware/auth');
 const { allow } = require('../../middleware/role');
 const { upload, uploadMemory } = require('../../config/cloudinary');
@@ -12,6 +13,8 @@ router.use(protect);
 router.get('/', ctrl.list);
 router.get('/export', ctrl.exportProducts);
 router.get('/dispatched-totals', allow('masterAdmin'), ctrl.dispatchedTotals);
+router.post('/legacy-dispatch/preview', allow('masterAdmin'), uploadMemory.single('file'), legacyDispatchCtrl.previewLegacyDispatch);
+router.post('/legacy-dispatch/confirm', allow('masterAdmin'), legacyDispatchCtrl.applyLegacyDispatch);
 router.get('/:code', ctrl.getOne);
 router.get('/:code/dispatch-breakdown', allow('masterAdmin'), ctrl.dispatchBreakdown);
 router.post('/', canEdit, ctrl.create);

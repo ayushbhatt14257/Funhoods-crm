@@ -24,4 +24,9 @@ export const productsApi = {
   removeVideo: (code) => api.del(`/products/${code}/video`),
   getDispatchedTotals: () => api.get('/products/dispatched-totals'),
   getDispatchBreakdown: (code, params = '') => api.get(`/products/${code}/dispatch-breakdown${params ? `?${params}` : ''}`),
+  // Legacy (pre-CRM) dispatch data import — preview parses & matches the
+  // uploaded file against real product codes for review; confirm only ever
+  // saves the specific rows approved on that review screen.
+  previewLegacyDispatch: (formData) => api.postForm('/products/legacy-dispatch/preview', formData),
+  confirmLegacyDispatch: (rows) => api.post('/products/legacy-dispatch/confirm', { rows }),
 };

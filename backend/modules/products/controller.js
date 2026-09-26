@@ -262,13 +262,31 @@ async function removeVideo(req, res) {
 // history fact from real Invoice records, unrelated to current stock
 // (a product can show a recent last-sale date while sitting at 0 physical
 // stock, or vice versa).
+//
+// `total` includes preCrmDispatched — the manually-entered baseline for
+// pcs dispatched before this product was ever tracked in this CRM (see
+// legacyDispatchController.js) — added on top of what this CRM itself has
+// computed from real Invoice history. lastDispatchedAt is NOT adjusted by
+// it, since the legacy baseline is a single lifetime number with no date
+// attached, not an event this CRM ever witnessed.
 async function dispatchedTotals(req, res) {
   const rows = await Invoice.aggregate([
     { $match: { status: { $ne: 'Cancelled' } } },
     { $unwind: '$lines' },
     { $group: { _id: '$lines.code', total: { $sum: '$lines.pcs' }, lastDispatchedAt: { $max: '$dispatchDate' } } },
   ]);
-  res.json(Object.fromEntries(rows.map((r) => [r._id, { total: r.total, lastDispatchedAt: r.lastDispatchedAt }])));
+  const baselineByCode = Object.fromEntries(
+    (await Product.find({ preCrmDispatched: { $gt: 0 } }).select('code preCrmDispatched').lean())
+      .map((p) => [p.code, p.preCrmDispatched])
+  );
+  const result = Object.fromEntries(rows.map((r) => [r._id, { total: r.total + (baselineByCode[r._id] || 0), lastDispatchedAt: r.lastDispatchedAt }]));
+  // A product with a legacy baseline but NO invoices at all in this CRM yet
+  // (e.g. discontinued before this software went live) wouldn't otherwise
+  // appear here at all — this adds it in with just the baseline.
+  Object.entries(baselineByCode).forEach(([code, baseline]) => {
+    if (!result[code]) result[code] = { total: baseline, lastDispatchedAt: null };
+  });
+  res.json(result);
 }
 
 // GET /api/products/:code/dispatch-breakdown?date=YYYY-MM-DD | ?month=YYYY-MM

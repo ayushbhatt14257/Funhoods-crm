@@ -17,6 +17,14 @@ const productSchema = new mongoose.Schema(
     featuredImage: { type: mediaSchema, default: () => ({}) }, // which gallery image is the "main" one
     video: { type: mediaSchema, default: () => ({}) },
     active: { type: Boolean, default: true },
+    // Manually entered, one-time-per-product baseline — pcs dispatched
+    // BEFORE this product was ever tracked in this CRM (from the
+    // business's prior Tally records), added on top of whatever this CRM
+    // has itself computed from real Invoice history everywhere "Dispatched
+    // (all-time)" is shown. Set via the legacy-dispatch import review
+    // screen (see legacyDispatchController.js) — never auto-computed,
+    // since it represents history this software has no record of.
+    preCrmDispatched: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

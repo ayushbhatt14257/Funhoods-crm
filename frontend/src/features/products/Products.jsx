@@ -9,6 +9,7 @@ import { productsApi } from './api';
 import { categoriesApi } from './categoriesApi';
 import CategoryManagerModal from './components/CategoryManagerModal';
 import DispatchBreakdownModal from './components/DispatchBreakdownModal';
+import LegacyDispatchImportModal from './components/LegacyDispatchImportModal';
 
 const emptyForm = { code: '', name: '', size: '', category: '', cartonOuter: '', cartonInner: '', rate: '', gst_pct: 5 };
 
@@ -25,6 +26,7 @@ export default function Products() {
   const [managingCategories, setManagingCategories] = useState(false);
   const [breakdownProduct, setBreakdownProduct] = useState(null); // product object mid-breakdown-view
   const [exporting, setExporting] = useState(false);
+  const [importingLegacy, setImportingLegacy] = useState(false);
 
   async function load() { setProducts(await productsApi.list(q)); }
   async function loadCategories() { setCategories(await categoriesApi.list()); }
@@ -120,6 +122,9 @@ export default function Products() {
         <input placeholder="Search product name or code" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
         <button className="btn" onClick={openNew}>+ New product</button>
         <button className="btn o" disabled={exporting} onClick={downloadExcel}>{exporting ? 'Preparing…' : '⬇ Download Excel'}</button>
+        {user.role === 'masterAdmin' && (
+          <button className="btn o" onClick={() => setImportingLegacy(true)} title="One-time backfill for pcs dispatched before this product was ever tracked in this CRM">📥 Import legacy dispatch</button>
+        )}
       </div>
       {products === null ? (
         <Loading label="Loading products…" />
@@ -263,6 +268,13 @@ export default function Products() {
         <DispatchBreakdownModal
           product={breakdownProduct}
           onClose={() => setBreakdownProduct(null)}
+        />
+      )}
+
+      {importingLegacy && (
+        <LegacyDispatchImportModal
+          onClose={() => setImportingLegacy(false)}
+          onApplied={() => productsApi.getDispatchedTotals().then(setDispatchedTotals)}
         />
       )}
     </div>
