@@ -16,7 +16,7 @@ export default function Products() {
   const { showToast } = useToast();
   const [products, setProducts] = useState(null); // null = loading
   const { user } = useAuth();
-  const [dispatchedTotals, setDispatchedTotals] = useState(null); // masterAdmin-only, code -> total pcs ever dispatched
+  const [dispatchedTotals, setDispatchedTotals] = useState(null); // masterAdmin-only, code -> { total pcs ever dispatched, lastDispatchedAt }
   const [categories, setCategories] = useState([]);
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(null); // product object or null — quick basic-field edit only
@@ -154,7 +154,16 @@ export default function Products() {
                   onClick={() => setBreakdownProduct(p)}
                   title="Click to see which parties got this"
                 >
-                  Dispatched (all-time): {(dispatchedTotals?.[p.code] || 0).toLocaleString('en-IN')} pcs
+                  Dispatched (all-time): {(dispatchedTotals?.[p.code]?.total || 0).toLocaleString('en-IN')} pcs
+                  {/* Plain history fact from real dispatch records — has
+                      nothing to do with current stock. A product can show a
+                      recent last-sale date while sitting at 0 physical stock
+                      right now, or the reverse. */}
+                  <div style={{ color: 'var(--muted)', fontWeight: 400, textDecoration: 'none' }}>
+                    Last sale: {dispatchedTotals?.[p.code]?.lastDispatchedAt
+                      ? new Date(dispatchedTotals[p.code].lastDispatchedAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                      : 'never'}
+                  </div>
                 </div>
               )}
               {p.category && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.category}</div>}

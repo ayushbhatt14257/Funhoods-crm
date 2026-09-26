@@ -257,14 +257,18 @@ async function removeVideo(req, res) {
 // GET /api/products/dispatched-totals — masterAdmin only. Total pieces ever
 // actually dispatched per product, all-time, across every invoice (excluding
 // Cancelled ones, since those reverse the dispatch). Aggregated in the DB so
-// this stays cheap even with a large invoice history.
+// this stays cheap even with a large invoice history. Also returns, per
+// product, the most recent date it was ever dispatched at all — a plain
+// history fact from real Invoice records, unrelated to current stock
+// (a product can show a recent last-sale date while sitting at 0 physical
+// stock, or vice versa).
 async function dispatchedTotals(req, res) {
   const rows = await Invoice.aggregate([
     { $match: { status: { $ne: 'Cancelled' } } },
     { $unwind: '$lines' },
-    { $group: { _id: '$lines.code', total: { $sum: '$lines.pcs' } } },
+    { $group: { _id: '$lines.code', total: { $sum: '$lines.pcs' }, lastDispatchedAt: { $max: '$dispatchDate' } } },
   ]);
-  res.json(Object.fromEntries(rows.map((r) => [r._id, r.total])));
+  res.json(Object.fromEntries(rows.map((r) => [r._id, { total: r.total, lastDispatchedAt: r.lastDispatchedAt }])));
 }
 
 // GET /api/products/:code/dispatch-breakdown?date=YYYY-MM-DD | ?month=YYYY-MM
