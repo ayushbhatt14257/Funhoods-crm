@@ -119,20 +119,40 @@ async function sales(req, res) {
     .sort((a, b) => b.ordersPerMonth - a.ordersPerMonth)
     .slice(0, 30);
 
-  // City/state-wise order volume — join dealer.city/state onto invoice revenue.
+  // City/state-wise order volume — join dealer.city/state onto invoice
+  // revenue. Normalized (trimmed, single-spaced, title-cased) before
+  // grouping so "MUMBAI" and "Mumbai" merge into one row instead of
+  // appearing as separate locations purely from inconsistent capitalization
+  // in how each dealer's city/state happened to be typed in. This does NOT
+  // catch genuine spelling differences ("Maharashtra" vs "Maharastra") or
+  // abbreviation-vs-full-name ("UP" vs "Uttar Pradesh") — those are
+  // different text, and auto-merging them risks silently combining two
+  // actually-different places; that needs a manual data cleanup in the
+  // Dealer records themselves, not a display-time guess here.
+  const titleCase = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) || 'Unknown';
   const dealerCodes = [...new Set(invoices.map((i) => i.dealer))];
   const dealerLoc = Object.fromEntries(
-    (await Dealer.find({ code: { $in: dealerCodes } }).select('code city state')).map((d) => [d.code, { city: d.city || 'Unknown', state: d.state || 'Unknown' }])
+    (await Dealer.find({ code: { $in: dealerCodes } }).select('code city state')).map((d) => [d.code, { city: titleCase(d.city), state: titleCase(d.state) }])
   );
-  const byLocation = {};
+  const byLocation = {}, byCity = {}, byState = {};
   invoices.forEach((inv) => {
     const loc = dealerLoc[inv.dealer] || { city: 'Unknown', state: 'Unknown' };
     const key = `${loc.city}, ${loc.state}`;
     byLocation[key] = byLocation[key] || { city: loc.city, state: loc.state, orders: 0, revenue: 0 };
     byLocation[key].orders += 1;
     byLocation[key].revenue += inv.total;
+
+    byCity[loc.city] = byCity[loc.city] || { city: loc.city, orders: 0, revenue: 0 };
+    byCity[loc.city].orders += 1;
+    byCity[loc.city].revenue += inv.total;
+
+    byState[loc.state] = byState[loc.state] || { state: loc.state, orders: 0, revenue: 0 };
+    byState[loc.state].orders += 1;
+    byState[loc.state].revenue += inv.total;
   });
   const locationVolume = Object.values(byLocation).sort((a, b) => b.revenue - a.revenue);
+  const cityVolume = Object.values(byCity).sort((a, b) => b.revenue - a.revenue);
+  const stateVolume = Object.values(byState).sort((a, b) => b.revenue - a.revenue);
 
   // New vs. repeat dealer split — % of each month's revenue from a dealer
   // whose FIRST EVER invoice (all-time, not just within this window) falls
@@ -182,7 +202,7 @@ async function sales(req, res) {
     byMonth: productMonthPcs[code],
   }));
 
-  res.json({ repeatItems, dealerFrequency, locationVolume, newVsRepeat, orderSizeTrend, seasonality });
+  res.json({ repeatItems, dealerFrequency, locationVolume, cityVolume, stateVolume, newVsRepeat, orderSizeTrend, seasonality });
 }
 
 // GET /api/analytics/dealers?dormantDays=60&dealer=CODE

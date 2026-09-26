@@ -112,6 +112,7 @@ const inr = (n) => `₹${Math.round(n || 0).toLocaleString('en-IN')}`;
 function SalesSection() {
   const [data, setData] = useState(null);
   const [months, setMonths] = useState(12);
+  const [locationView, setLocationView] = useState('combined'); // 'combined' | 'city' | 'state'
   useEffect(() => { analyticsApi.sales(months).then(setData).catch(() => {}); }, [months]);
   if (!data) return <div className="empty">Loading…</div>;
   return (
@@ -137,11 +138,33 @@ function SalesSection() {
       </table>
 
       <h4 style={{ marginTop: 24 }}>City/state order volume</h4>
-      <table className="dt"><thead><tr><th>Location</th><th>Orders</th><th>Revenue</th></tr></thead>
-        <tbody>{data.locationVolume.map((r) => (
-          <tr key={r.city + r.state}><td>{r.city}, {r.state}</td><td>{r.orders}</td><td>{inr(r.revenue)}</td></tr>
-        ))}</tbody>
-      </table>
+      <p className="muted" style={{ fontSize: 12 }}>Merged by city/state spelled the same way (case and spacing ignored) — a genuinely different spelling or abbreviation (e.g. "UP" vs "Uttar Pradesh") still shows as a separate row, since merging those automatically risks combining two different places.</p>
+      <div className="btnrow" style={{ marginBottom: 8 }}>
+        <button className={locationView === 'combined' ? 'btn sm' : 'btn o sm'} onClick={() => setLocationView('combined')}>City + State</button>
+        <button className={locationView === 'city' ? 'btn sm' : 'btn o sm'} onClick={() => setLocationView('city')}>By City</button>
+        <button className={locationView === 'state' ? 'btn sm' : 'btn o sm'} onClick={() => setLocationView('state')}>By State</button>
+      </div>
+      {locationView === 'combined' && (
+        <table className="dt"><thead><tr><th>Location</th><th>Orders</th><th>Revenue</th></tr></thead>
+          <tbody>{data.locationVolume.map((r) => (
+            <tr key={r.city + r.state}><td>{r.city}, {r.state}</td><td>{r.orders}</td><td>{inr(r.revenue)}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
+      {locationView === 'city' && (
+        <table className="dt"><thead><tr><th>City</th><th>Orders</th><th>Revenue</th></tr></thead>
+          <tbody>{data.cityVolume.map((r) => (
+            <tr key={r.city}><td>{r.city}</td><td>{r.orders}</td><td>{inr(r.revenue)}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
+      {locationView === 'state' && (
+        <table className="dt"><thead><tr><th>State</th><th>Orders</th><th>Revenue</th></tr></thead>
+          <tbody>{data.stateVolume.map((r) => (
+            <tr key={r.state}><td>{r.state}</td><td>{r.orders}</td><td>{inr(r.revenue)}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
 
       <h4 style={{ marginTop: 24 }}>New vs. repeat dealer revenue, by month</h4>
       <table className="dt"><thead><tr><th>Month</th><th>New dealer ₹</th><th>Repeat dealer ₹</th><th>% new</th></tr></thead>
