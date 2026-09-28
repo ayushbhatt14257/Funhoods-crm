@@ -97,6 +97,16 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         // never lands on an impossible combination that then blocks out
         // the other kind entirely.
         const suggested = stockAwareDefault(it.pendingPcs, it.cartonOuter, it.cartonInner, avail);
+        // The dealer's actual ordered split, WITHOUT the stock cap —
+        // separate from `suggested` above on purpose. `suggested` (and the
+        // bold Outer/Inner numbers it feeds) answers "how much CAN I
+        // dispatch right now", which is legitimately 0 when there's no
+        // stock — but that made a genuinely-ordered, just out-of-stock
+        // product look identical to one that was never ordered at all.
+        // `ordered` always shows the real booked quantity regardless of
+        // what's on the shelf, so "No stock to scan" reads as a stock
+        // problem, not as "nothing was ordered".
+        const ordered = defaultSplit(it.pendingPcs, it.cartonOuter, it.cartonInner);
         // The real, shared-pcs-budget ceiling given whatever is currently
         // selected — recalculates every render, so it's never possible to
         // exceed pendingPcs regardless of which mix of outer/inner got you
@@ -115,7 +125,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         const max = { outers: Math.min(pcsMax.outers, avail.outer), inners: Math.min(pcsMax.inners, avail.inner) };
         const outers = checked ? Math.min(currentOuters, max.outers) : Math.min(suggested.outers, max.outers);
         const inners = checked ? Math.min(currentInners, max.inners) : Math.min(suggested.inners, max.inners);
-        return { item: it, key, max, suggested, outers, inners, checked, avail, canScan };
+        return { item: it, key, max, suggested, ordered, outers, inners, checked, avail, canScan };
       });
   }, [pool, q, selection, available]);
 
@@ -360,7 +370,19 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                         row is — this is the actual fix for "which item am I
                         scanning" now, at the source, instead of only
                         repeating the name inside the scan sheet below. */}
-                    <td style={{ position: 'sticky', left: 0, background: 'var(--white)', zIndex: 1, boxShadow: '2px 0 6px rgba(0,0,0,0.08)' }}><b>{r.item.name}</b></td>
+                    <td style={{ position: 'sticky', left: 0, background: 'var(--white)', zIndex: 1, boxShadow: '2px 0 6px rgba(0,0,0,0.08)' }}>
+                      <b>{r.item.name}</b>
+                      {/* The dealer's real booked quantity, independent of stock — so a
+                          product genuinely ordered but out of stock doesn't look like it
+                          was never ordered at all (both used to show a plain 0). */}
+                      {(r.ordered.outers > 0 || r.ordered.inners > 0) && (
+                        <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>
+                          Ordered: {r.ordered.outers > 0 && `${r.ordered.outers} outer`}
+                          {r.ordered.outers > 0 && r.ordered.inners > 0 && ', '}
+                          {r.ordered.inners > 0 && `${r.ordered.inners} inner`}
+                        </div>
+                      )}
+                    </td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
                       {r.checked ? (
