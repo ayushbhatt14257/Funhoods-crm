@@ -18,19 +18,30 @@ import { barcodeApi } from './barcodeApi';
 const SCAN_SPEED_MS = 30; // ms between keystrokes — real typing is 80ms+
 const AUTO_SUBMIT_DEBOUNCE_MS = 120; // pause length that means "scan finished"
 
+// --- Batch scanning ---
+// Instead of a popup-per-scan that has to be confirmed one carton at a
+// time, every scan is looked up and dropped straight into a running,
+// numbered list — including a code that's already been stocked in, or one
+// that's already sitting in THIS list — so nothing silently disappears.
+// Only once you're done scanning do you click one button to add everything
+// that's actually addable, all at once. An already-used or already-listed
+// code stays visible with a reason, but is never itself added again.
+let nextRowId = 1;
+function makeRowId() { return nextRowId++; }
+
 // Camera scanning is a separate, opt-in mode (button-triggered) since it
 // needs camera permission and a ~500KB library — loaded lazily so it never
 // costs anything for people only using a scanner gun.
 export default function ScanStockIn() {
   const { showToast } = useToast();
   const [code, setCode] = useState('');
-  const [pending, setPending] = useState(null); // looked-up carton awaiting confirm
-  const [looking, setLooking] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  const [queue, setQueue] = useState([]); // this batch's scanned rows, in scan order — see "Batch scanning" above
+  const [looking, setLooking] = useState(false); // a single lookup in flight
+  const [confirmingAll, setConfirmingAll] = useState(false); // the bulk "add all" in flight
   const [cameraOn, setCameraOn] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
-  const [recent, setRecent] = useState([]); // last few successful scans this session
+  const [recent, setRecent] = useState([]); // last few successfully-added cartons this session (across every batch confirmed)
   const inputRef = useRef(null);
   const videoRef = useRef(null);
   const readerRef = useRef(null);
@@ -38,21 +49,18 @@ export default function ScanStockIn() {
   const keyTimesRef = useRef([]); // recent keystroke timestamps, for scan-speed detection
   const autoTimerRef = useRef(null); // debounce timer for the auto-submit-on-pause check
   const lookingRef = useRef(false); // synchronous mirror of `looking`, so a queued auto-submit never double-fires while a lookup is already in flight
-  const pendingRef = useRef(null); // synchronous mirror of `pending` — same reason
   const lastSubmittedRef = useRef(''); // the exact code string a lookup has already been fired for (auto OR Enter/click) — stops the debounce timer from re-firing a second, stale lookup for a scan that's already been handled
+  const queueCodesRef = useRef(new Set()); // codes already in `queue` (synchronous, so two scans arriving a few ms apart can't both slip past the in-list-duplicate check before either has committed its state update)
 
-  // Refocus whenever the box becomes usable again — not just when the
-  // confirm popup opens/closes (`pending`), but also right after a lookup
-  // finishes with an error (`looking` going back to false, e.g. the "already
-  // scanned" case). The input is disabled while looking/pending, and a
-  // browser doesn't restore focus on its own once a disabled field becomes
-  // enabled again — without this, an error scan left the box dead until you
-  // clicked back into it, breaking the whole point of scan-without-clicking.
-  useEffect(() => { if (!looking && !pending) inputRef.current?.focus(); }, [pending, looking]);
-  useEffect(() => { pendingRef.current = pending; }, [pending]);
+  // Refocus whenever the box becomes usable again — a lookup finishing (incl.
+  // an error) or the bulk confirm finishing. The input is disabled while
+  // either is in flight, and a browser doesn't restore focus on its own once
+  // a disabled field becomes enabled again — without this, scanning would
+  // stall until you clicked back into the box.
+  useEffect(() => { if (!looking && !confirmingAll) inputRef.current?.focus(); }, [looking, confirmingAll]);
 
   // Clean up any pending debounce timer on unmount so it never fires (and
-  // calls lookup/setState) after this screen's been navigated away from.
+  // calls scanCode/setState) after this screen's been navigated away from.
   useEffect(() => () => { if (autoTimerRef.current) clearTimeout(autoTimerRef.current); }, []);
 
   function onCodeKeyDown() {
@@ -71,80 +79,128 @@ export default function ScanStockIn() {
     const trimmed = val.trim();
     const times = keyTimesRef.current;
     // Skip if: too short/too few keystrokes to judge speed from; a lookup is
-    // already in flight; a result is already showing (the scanner's own
-    // Enter already handled this exact scan — the debounce timer firing
-    // afterward for the same value would otherwise re-run a stale lookup,
-    // which is what caused the popup-then-error mixup); or this exact code
-    // string already had a lookup fired for it (covers the case where Enter
-    // fired first, already resolved, and this timer is just a late echo).
-    if (trimmed.length < 4 || times.length < 4 || lookingRef.current || pendingRef.current || trimmed === lastSubmittedRef.current) return;
+    // already in flight; or this exact code string already had a lookup
+    // fired for it (covers the case where Enter fired first, already
+    // resolved, and this timer is just a late echo for the same scan).
+    if (trimmed.length < 4 || times.length < 4 || lookingRef.current || trimmed === lastSubmittedRef.current) return;
     const recentTimes = times.slice(-trimmed.length);
     let totalGap = 0, gaps = 0;
     for (let i = 1; i < recentTimes.length; i++) { totalGap += recentTimes[i] - recentTimes[i - 1]; gaps++; }
     const avgGap = gaps ? totalGap / gaps : Infinity;
     if (avgGap <= SCAN_SPEED_MS) {
       keyTimesRef.current = [];
-      lookup(val);
+      scanCode(val);
     }
     // Slower than that = real typing; leave it for Enter / the Look up button.
   }
 
   // Clears the scan box AND everything tracking "this scan's already been
-  // handled" — keystroke timings, and the last-submitted code string. Using
-  // this everywhere the box gets cleared (instead of a bare setCode(''))
-  // means a genuinely NEW scan of the same code (e.g. testing that a
-  // duplicate gets rejected) is free to trigger a fresh lookup, while a
-  // stale debounce echo of the scan JUST handled still can't.
+  // handled" — keystroke timings, and the last-submitted code string — so
+  // the very next scan (even of the same code, e.g. testing a duplicate) is
+  // free to trigger a fresh lookup, while a stale debounce echo of the scan
+  // JUST handled still can't.
   function resetScan() {
     setCode('');
     keyTimesRef.current = [];
     lastSubmittedRef.current = '';
   }
 
-  async function lookup(rawCode) {
+  function addRow(row) {
+    setQueue((q) => [...q, { id: makeRowId(), ...row }]);
+  }
+
+  async function scanCode(rawCode) {
     const scanned = rawCode.trim();
     if (!scanned || lookingRef.current) return;
     if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; } // this scan is being handled now — don't let a stale debounce fire again for it later
     lastSubmittedRef.current = scanned;
+
+    // Already sitting in this batch (scanned twice before you've clicked
+    // "Add all") — show it again so the repeat scan isn't silently ignored,
+    // but don't hit the API a second time or create a second addable row.
+    if (queueCodesRef.current.has(scanned)) {
+      addRow({ code: scanned, status: 'dup-in-list', message: 'Already in this list' });
+      resetScan();
+      return;
+    }
+
     lookingRef.current = true;
     setLooking(true);
     try {
       const res = await barcodeApi.lookup(scanned);
       if (res.alreadyStocked) {
-        showToast(`Already scanned on ${new Date(res.usedAt).toLocaleString('en-IN')} by ${res.usedBy}`, 'err');
-        resetScan();
-        return;
+        queueCodesRef.current.add(scanned);
+        addRow({
+          code: scanned, status: 'already-stocked', productName: res.productName, qty: res.qty, photo: res.photo,
+          message: `Already scanned on ${new Date(res.usedAt).toLocaleString('en-IN')} by ${res.usedBy}`,
+        });
+      } else {
+        queueCodesRef.current.add(scanned);
+        addRow({ code: scanned, status: 'ready', productName: res.productName, qty: res.qty, photo: res.photo });
       }
-      setPending(res);
     } catch (err) {
-      showToast(err.message, 'err');
-      resetScan();
+      // Not recognised / network error etc. — NOT added to queueCodesRef, so
+      // a mistyped or misread code can be corrected and rescanned freely.
+      addRow({ code: scanned, status: 'error', message: err.message });
     } finally {
       lookingRef.current = false;
       setLooking(false);
+      resetScan();
     }
   }
 
   function onSubmit(e) {
     e.preventDefault();
-    lookup(code);
+    scanCode(code);
   }
 
-  async function confirmStockIn() {
-    setConfirming(true);
-    try {
-      const res = await barcodeApi.confirm(pending.code);
-      showToast(res.message, 'g');
-      setRecent((r) => [{ ...pending, at: new Date() }, ...r].slice(0, 8));
-      setPending(null);
-      resetScan();
-    } catch (err) {
-      showToast(err.message, 'err');
-      setPending(null);
-      resetScan();
-    } finally {
-      setConfirming(false);
+  function removeRow(id) {
+    setQueue((q) => {
+      const row = q.find((r) => r.id === id);
+      if (row) queueCodesRef.current.delete(row.code); // freed up so it can be rescanned if this was a mistaken entry
+      return q.filter((r) => r.id !== id);
+    });
+  }
+
+  function clearQueue() {
+    setQueue([]);
+    queueCodesRef.current = new Set();
+  }
+
+  // Confirms every 'ready' row, one at a time (matches how each carton is
+  // its own transactional stock-in on the backend). Successfully-added rows
+  // are cleared from the visible list once done (they're now in "This
+  // session" below); anything that failed during confirm (e.g. a genuine
+  // race with someone else stocking the same carton in the last few
+  // seconds) stays in the list as an error row instead of vanishing.
+  async function confirmAll() {
+    const readyRows = queue.filter((r) => r.status === 'ready');
+    if (!readyRows.length || confirmingAll) return;
+    setConfirmingAll(true);
+    const results = [];
+    for (const row of readyRows) {
+      try {
+        await barcodeApi.confirm(row.code);
+        results.push({ ...row, status: 'added' });
+      } catch (err) {
+        results.push({ ...row, status: 'error', message: err.message });
+        queueCodesRef.current.delete(row.code);
+      }
     }
+    const byId = new Map(results.map((r) => [r.id, r]));
+    setQueue((q) => q.map((r) => byId.get(r.id) || r).filter((r) => r.status !== 'added'));
+
+    const added = results.filter((r) => r.status === 'added');
+    const failed = results.length - added.length;
+    if (added.length) {
+      setRecent((r) => [...added.map((a) => ({ ...a, at: new Date() })).reverse(), ...r].slice(0, 20));
+    }
+    const addedPcs = added.reduce((s, r) => s + r.qty, 0);
+    showToast(
+      `${added.length} carton${added.length === 1 ? '' : 's'} added to stock (${addedPcs} pcs)${failed ? `, ${failed} failed — see list` : ''}`,
+      failed ? 'err' : 'g'
+    );
+    setConfirmingAll(false);
   }
 
   async function startCamera() {
@@ -166,12 +222,11 @@ export default function ScanStockIn() {
     // enough that a decent alignment reads almost the instant it's steady.
     const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 80 });
     readerRef.current = reader;
-    const onResult = (result) => {
-      if (result) {
-        stopCamera();
-        lookup(result.getText());
-      }
-    };
+    // Camera scanning feeds the same batch queue as the gun — it does NOT
+    // stop the camera or scanCode after every read, so you can keep holding
+    // the camera up to carton after carton the same way you'd keep pulling
+    // a gun's trigger, and everything lands in one running list either way.
+    const onResult = (result) => { if (result) scanCode(result.getText()); };
     try {
       // decodeFromVideoDevice(undefined, ...) leaves the browser to pick any
       // camera — on phones that's often the front (selfie) camera, which is
@@ -205,8 +260,7 @@ export default function ScanStockIn() {
 
   // reader.reset() does not exist on this library's BrowserMultiFormatReader
   // (@zxing/browser 0.2.1) — calling it threw every time a scan succeeded,
-  // which silently aborted the callback before lookup() ever ran. That's why
-  // the camera would close but the confirm popup never appeared. The scan
+  // which silently aborted the callback before scanCode() ever ran. The scan
   // controls object returned by decodeFromConstraints is the real way to stop.
   function stopCamera() {
     controlsRef.current?.stop();
@@ -229,10 +283,21 @@ export default function ScanStockIn() {
 
   useEffect(() => () => controlsRef.current?.stop(), []); // stop the camera if we navigate away mid-scan
 
+  const readyCount = queue.filter((r) => r.status === 'ready').length;
+  const readyPcs = queue.filter((r) => r.status === 'ready').reduce((s, r) => s + r.qty, 0);
+
+  const STATUS_LABEL = {
+    ready: { text: 'Ready', color: 'var(--green)' },
+    'already-stocked': { text: 'Already scanned', color: 'var(--red)' },
+    'dup-in-list': { text: 'Duplicate scan', color: 'var(--red)' },
+    error: { text: 'Not recognised', color: 'var(--red)' },
+    added: { text: 'Added', color: 'var(--green)' },
+  };
+
   return (
     <div>
       <div className="ph"><div className="eyebrow">Warehouse</div><h2>Stock In — Scan Carton</h2>
-        <p>Scan a carton's barcode (scanner gun or phone camera) to add its pieces to stock — it looks up automatically the instant you scan, no click needed.</p></div>
+        <p>Scan cartons one after another — each lands in the list below automatically, no click needed. Once you're done, review the total and add them all to stock in one go.</p></div>
 
       <div className="card" style={{ maxWidth: 480 }}>
         <form onSubmit={onSubmit}>
@@ -245,11 +310,11 @@ export default function ScanStockIn() {
               onKeyDown={onCodeKeyDown}
               placeholder="Point scanner here and scan…"
               autoFocus
-              disabled={looking || !!pending}
+              disabled={looking || confirmingAll}
             />
           </div>
           <div className="btnrow">
-            <button className="btn" disabled={looking || !!pending}>{looking ? 'Looking up…' : 'Look up'}</button>
+            <button className="btn" disabled={looking || confirmingAll}>{looking ? 'Looking up…' : 'Look up'}</button>
             {!cameraOn ? (
               <button type="button" className="btn o" onClick={startCamera}>📷 Use camera instead</button>
             ) : (
@@ -298,6 +363,49 @@ export default function ScanStockIn() {
         )}
       </div>
 
+      {queue.length > 0 && (
+        <div className="card" style={{ maxWidth: 640, marginTop: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h3 style={{ margin: 0 }}>This batch — {queue.length} scanned</h3>
+            <button type="button" className="btn o sm" disabled={confirmingAll} onClick={clearQueue}>Clear list</button>
+          </div>
+
+          {queue.map((r, i) => {
+            const label = STATUS_LABEL[r.status] || { text: r.status, color: 'var(--muted)' };
+            return (
+              <div key={r.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, padding: '6px 0',
+                borderTop: i > 0 ? '1px solid var(--line)' : 'none',
+              }}>
+                <span className="muted mono" style={{ width: 24, textAlign: 'right', flexShrink: 0 }}>{i + 1}.</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.productName || <span className="mono">{r.code}</span>}
+                  </div>
+                  {r.productName && <div className="mono muted" style={{ fontSize: 10.5 }}>{r.code}</div>}
+                  {r.message && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>{r.message}</div>}
+                </div>
+                {r.qty != null && <span style={{ flexShrink: 0 }}>{r.qty} pcs</span>}
+                <span style={{ flexShrink: 0, fontWeight: 600, color: label.color, minWidth: 90, textAlign: 'right' }}>{label.text}</span>
+                <button
+                  type="button" className="btn o sm rd" disabled={confirmingAll}
+                  onClick={() => removeRow(r.id)} title="Remove from this list" style={{ flexShrink: 0, padding: '2px 8px' }}
+                >✕</button>
+              </div>
+            );
+          })}
+
+          <div className="btnrow" style={{ marginTop: 14, justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="muted" style={{ fontSize: 12.5 }}>
+              {readyCount > 0 ? `${readyCount} ready · ${readyPcs} pcs total` : 'Nothing ready to add yet'}
+            </span>
+            <button className="btn g" disabled={!readyCount || confirmingAll} onClick={confirmAll}>
+              {confirmingAll ? 'Adding…' : `✓ Add ${readyCount || ''} to stock`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {recent.length > 0 && (
         <div className="card" style={{ maxWidth: 480, marginTop: 14 }}>
           <h3 style={{ marginTop: 0 }}>This session</h3>
@@ -307,25 +415,6 @@ export default function ScanStockIn() {
               <span style={{ color: 'var(--green)', fontWeight: 600 }}>+{r.qty} pcs</span>
             </div>
           ))}
-        </div>
-      )}
-
-      {pending && (
-        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="card" style={{ maxWidth: 360, textAlign: 'center' }}>
-            {pending.photo ? (
-              <img src={pending.photo} alt="" style={{ width: 120, height: 120, objectFit: 'cover', borderRadius: 8, margin: '0 auto 12px' }} />
-            ) : (
-              <div style={{ fontSize: 48, marginBottom: 12 }}>📦</div>
-            )}
-            <h2 style={{ margin: '0 0 4px' }}>{pending.qty} pcs</h2>
-            <div style={{ fontWeight: 600, marginBottom: 2 }}>{pending.productName}</div>
-            <div className="mono muted" style={{ fontSize: 11, marginBottom: 16 }}>{pending.code}</div>
-            <div className="btnrow" style={{ justifyContent: 'center' }}>
-              <button className="btn g" disabled={confirming} onClick={confirmStockIn}>{confirming ? 'Adding…' : `✓ Add ${pending.qty} to stock`}</button>
-              <button className="btn o" disabled={confirming} onClick={() => { setPending(null); resetScan(); }}>Cancel</button>
-            </div>
-          </div>
         </div>
       )}
     </div>
