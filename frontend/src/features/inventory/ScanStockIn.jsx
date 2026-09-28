@@ -38,8 +38,11 @@ export default function ScanStockIn() {
   const keyTimesRef = useRef([]); // recent keystroke timestamps, for scan-speed detection
   const autoTimerRef = useRef(null); // debounce timer for the auto-submit-on-pause check
   const lookingRef = useRef(false); // synchronous mirror of `looking`, so a queued auto-submit never double-fires while a lookup is already in flight
+  const pendingRef = useRef(null); // synchronous mirror of `pending` — same reason
+  const lastSubmittedRef = useRef(''); // the exact code string a lookup has already been fired for (auto OR Enter/click) — stops the debounce timer from re-firing a second, stale lookup for a scan that's already been handled
 
   useEffect(() => { inputRef.current?.focus(); }, [pending]);
+  useEffect(() => { pendingRef.current = pending; }, [pending]);
 
   // Clean up any pending debounce timer on unmount so it never fires (and
   // calls lookup/setState) after this screen's been navigated away from.
@@ -60,9 +63,14 @@ export default function ScanStockIn() {
   function maybeAutoSubmit(val) {
     const trimmed = val.trim();
     const times = keyTimesRef.current;
-    // Require a handful of keystrokes to judge speed from, and a code long
-    // enough to plausibly be real (avoids firing on a single stray keypress).
-    if (trimmed.length < 4 || times.length < 4 || lookingRef.current) return;
+    // Skip if: too short/too few keystrokes to judge speed from; a lookup is
+    // already in flight; a result is already showing (the scanner's own
+    // Enter already handled this exact scan — the debounce timer firing
+    // afterward for the same value would otherwise re-run a stale lookup,
+    // which is what caused the popup-then-error mixup); or this exact code
+    // string already had a lookup fired for it (covers the case where Enter
+    // fired first, already resolved, and this timer is just a late echo).
+    if (trimmed.length < 4 || times.length < 4 || lookingRef.current || pendingRef.current || trimmed === lastSubmittedRef.current) return;
     const recentTimes = times.slice(-trimmed.length);
     let totalGap = 0, gaps = 0;
     for (let i = 1; i < recentTimes.length; i++) { totalGap += recentTimes[i] - recentTimes[i - 1]; gaps++; }
@@ -74,22 +82,36 @@ export default function ScanStockIn() {
     // Slower than that = real typing; leave it for Enter / the Look up button.
   }
 
+  // Clears the scan box AND everything tracking "this scan's already been
+  // handled" — keystroke timings, and the last-submitted code string. Using
+  // this everywhere the box gets cleared (instead of a bare setCode(''))
+  // means a genuinely NEW scan of the same code (e.g. testing that a
+  // duplicate gets rejected) is free to trigger a fresh lookup, while a
+  // stale debounce echo of the scan JUST handled still can't.
+  function resetScan() {
+    setCode('');
+    keyTimesRef.current = [];
+    lastSubmittedRef.current = '';
+  }
+
   async function lookup(rawCode) {
     const scanned = rawCode.trim();
     if (!scanned || lookingRef.current) return;
+    if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; } // this scan is being handled now — don't let a stale debounce fire again for it later
+    lastSubmittedRef.current = scanned;
     lookingRef.current = true;
     setLooking(true);
     try {
       const res = await barcodeApi.lookup(scanned);
       if (res.status === 'used') {
         showToast(`Already scanned on ${new Date(res.usedAt).toLocaleString('en-IN')} by ${res.usedBy}`, 'err');
-        setCode('');
+        resetScan();
         return;
       }
       setPending(res);
     } catch (err) {
       showToast(err.message, 'err');
-      setCode('');
+      resetScan();
     } finally {
       lookingRef.current = false;
       setLooking(false);
@@ -108,11 +130,11 @@ export default function ScanStockIn() {
       showToast(res.message, 'g');
       setRecent((r) => [{ ...pending, at: new Date() }, ...r].slice(0, 8));
       setPending(null);
-      setCode('');
+      resetScan();
     } catch (err) {
       showToast(err.message, 'err');
       setPending(null);
-      setCode('');
+      resetScan();
     } finally {
       setConfirming(false);
     }
@@ -294,7 +316,7 @@ export default function ScanStockIn() {
             <div className="mono muted" style={{ fontSize: 11, marginBottom: 16 }}>{pending.code}</div>
             <div className="btnrow" style={{ justifyContent: 'center' }}>
               <button className="btn g" disabled={confirming} onClick={confirmStockIn}>{confirming ? 'Adding…' : `✓ Add ${pending.qty} to stock`}</button>
-              <button className="btn o" disabled={confirming} onClick={() => { setPending(null); setCode(''); }}>Cancel</button>
+              <button className="btn o" disabled={confirming} onClick={() => { setPending(null); resetScan(); }}>Cancel</button>
             </div>
           </div>
         </div>
