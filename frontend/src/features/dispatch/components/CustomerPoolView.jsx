@@ -391,12 +391,19 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           onChange={(e) => setOuters(r, e.target.value)}
                           style={{ width: 60 }}
                         />
-                      ) : !canScan && r.ordered.outers > 0 ? (
-                        // Nothing to dispatch (0 stock), but something WAS
-                        // ordered — show the real ordered count instead of a
-                        // bare 0, styled in red so it reads as "ordered, not
-                        // available" rather than "ready to dispatch".
-                        <b style={{ color: 'var(--red)' }} title="Ordered but out of stock">{r.ordered.outers}</b>
+                      ) : r.suggested.outers < r.ordered.outers ? (
+                        // Compared per-column against the real order, not the
+                        // row's overall canScan — a product can have outer
+                        // stock but zero inner (or vice versa), so a
+                        // row-level flag alone missed a shortfall in just one
+                        // column (e.g. 17 outer in stock but the order needs
+                        // an inner, which has 0). Whenever what's actually
+                        // available (suggested) falls short of what was
+                        // ordered, show the real ordered count in red instead
+                        // of the stock-capped number, so a shortfall in
+                        // EITHER column is always visible, not just a total
+                        // stockout.
+                        <b style={{ color: 'var(--red)' }} title="Ordered but not enough in stock">{r.ordered.outers}</b>
                       ) : <b>{r.suggested.outers}</b>}
                       {r.item.cartonOuter > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
@@ -411,8 +418,8 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           onChange={(e) => setInners(r, e.target.value)}
                           style={{ width: 60 }}
                         />
-                      ) : !canScan && r.ordered.inners > 0 ? (
-                        <b style={{ color: 'var(--red)' }} title="Ordered but out of stock">{r.ordered.inners}</b>
+                      ) : r.suggested.inners < r.ordered.inners ? (
+                        <b style={{ color: 'var(--red)' }} title="Ordered but not enough in stock">{r.ordered.inners}</b>
                       ) : <b>{r.suggested.inners}</b>}
                       {r.item.cartonInner > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
