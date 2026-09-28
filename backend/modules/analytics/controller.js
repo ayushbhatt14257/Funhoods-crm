@@ -71,10 +71,14 @@ async function sales(req, res) {
       skuName[l.code] = l.name;
     });
   });
+  // No top-N cap here: every SKU that has ever appeared on an invoice in
+  // this window is listed, plus (below) any product whose ONLY dispatch
+  // history is a pre-CRM Tally baseline — so this always matches the full
+  // count of products with real dispatch history (e.g. a 35-product Tally
+  // sheet), not just the most-repeated 20.
   const repeatItems = Object.entries(skuInvoiceCount)
     .map(([code, count]) => ({ code, name: skuName[code], invoiceCount: count }))
-    .sort((a, b) => b.invoiceCount - a.invoiceCount)
-    .slice(0, 20);
+    .sort((a, b) => b.invoiceCount - a.invoiceCount);
 
   // All-time total pcs dispatched per SKU — the SAME "Dispatched (all-time)"
   // figure already shown on the Products page (products/controller.js
@@ -82,9 +86,8 @@ async function sales(req, res) {
   // this is a lifetime figure, not a windowed one, so it stays the same
   // number whether you're looking at the 3mo or 24mo view.
   const allTimeTotals = await Invoice.aggregate([
-    { $match: { status: { $ne: 'Cancelled' }, 'lines.code': { $in: repeatItems.map((r) => r.code) } } },
+    { $match: { status: { $ne: 'Cancelled' } } },
     { $unwind: '$lines' },
-    { $match: { 'lines.code': { $in: repeatItems.map((r) => r.code) } } },
     { $group: { _id: '$lines.code', total: { $sum: '$lines.pcs' } } },
   ]);
   const allTimePcsByCode = Object.fromEntries(allTimeTotals.map((r) => [r._id, r.total]));
@@ -94,11 +97,21 @@ async function sales(req, res) {
   // imported number (e.g. from a Tally export) is treated as the already-
   // complete, correct all-time total, not an addition on top of what this
   // CRM separately tracked for an overlapping period.
-  const baselineByCode = Object.fromEntries(
-    (await Product.find({ code: { $in: repeatItems.map((r) => r.code) }, preCrmDispatched: { $gt: 0 } }).select('code preCrmDispatched').lean())
-      .map((p) => [p.code, p.preCrmDispatched])
-  );
+  const allBaselineProducts = await Product.find({ preCrmDispatched: { $gt: 0 } }).select('code name preCrmDispatched').lean();
+  const baselineByCode = Object.fromEntries(allBaselineProducts.map((p) => [p.code, p.preCrmDispatched]));
   repeatItems.forEach((r) => { r.pcsAllTime = baselineByCode[r.code] ?? (allTimePcsByCode[r.code] || 0); });
+
+  // Products whose only dispatch history is the imported Tally baseline —
+  // no invoice line in this CRM at all (e.g. discontinued or last sold
+  // before this software went live) — still belong in this list since it's
+  // meant to mirror "every product with any dispatch history," not just
+  // ones with a repeat-order count. invoiceCount stays 0 for these; they
+  // have no invoice line here to count.
+  allBaselineProducts
+    .filter((p) => !(p.code in skuInvoiceCount))
+    .forEach((p) => { repeatItems.push({ code: p.code, name: p.name, invoiceCount: 0, pcsAllTime: p.preCrmDispatched }); });
+
+  repeatItems.sort((a, b) => b.invoiceCount - a.invoiceCount || b.pcsAllTime - a.pcsAllTime);
 
   // Dealer order frequency per month — how many invoices per dealer per month, averaged.
   const dealerMonthCounts = {}; // dealer -> Set of month keys they ordered in
