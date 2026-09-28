@@ -3,10 +3,21 @@ import { useToast } from '../../context/ToastContext';
 import { barcodeApi } from './barcodeApi';
 
 // A hardware barcode scanner gun works by "typing" the decoded value into
-// whatever's focused, then sending Enter — it behaves exactly like a very
-// fast keyboard. So the manual-entry input below doubles as the scanner-gun
-// input with zero extra code: keep it focused, and Enter submits either way.
+// whatever's focused, ideally followed by an Enter keystroke — which would
+// submit this form automatically, just like a very fast keyboard. In
+// practice not every scanner (or every out-of-box config) sends that
+// trailing Enter, so we can't rely on it alone.
 //
+// Instead, every keystroke into the input is timestamped. A scanner "types"
+// an entire code in a handful of milliseconds — far faster than any human
+// can physically type — so if the average gap between the last several
+// keystrokes is under SCAN_SPEED_MS, this is almost certainly a scan, and
+// we auto-submit the moment typing pauses, with no Enter required at all.
+// Genuine manual typing (much slower gaps) is left alone and still needs
+// Enter or the Look up button, so it's never accidentally submitted early.
+const SCAN_SPEED_MS = 30; // ms between keystrokes — real typing is 80ms+
+const AUTO_SUBMIT_DEBOUNCE_MS = 120; // pause length that means "scan finished"
+
 // Camera scanning is a separate, opt-in mode (button-triggered) since it
 // needs camera permission and a ~500KB library — loaded lazily so it never
 // costs anything for people only using a scanner gun.
@@ -24,12 +35,49 @@ export default function ScanStockIn() {
   const videoRef = useRef(null);
   const readerRef = useRef(null);
   const controlsRef = useRef(null); // returned by decodeFromConstraints — this is what actually stops a scan
+  const keyTimesRef = useRef([]); // recent keystroke timestamps, for scan-speed detection
+  const autoTimerRef = useRef(null); // debounce timer for the auto-submit-on-pause check
+  const lookingRef = useRef(false); // synchronous mirror of `looking`, so a queued auto-submit never double-fires while a lookup is already in flight
 
   useEffect(() => { inputRef.current?.focus(); }, [pending]);
 
+  // Clean up any pending debounce timer on unmount so it never fires (and
+  // calls lookup/setState) after this screen's been navigated away from.
+  useEffect(() => () => { if (autoTimerRef.current) clearTimeout(autoTimerRef.current); }, []);
+
+  function onCodeKeyDown() {
+    keyTimesRef.current.push(performance.now());
+    if (keyTimesRef.current.length > 24) keyTimesRef.current.shift(); // only need a recent window, not the whole history
+  }
+
+  function onCodeChange(e) {
+    const val = e.target.value;
+    setCode(val);
+    if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+    autoTimerRef.current = setTimeout(() => maybeAutoSubmit(val), AUTO_SUBMIT_DEBOUNCE_MS);
+  }
+
+  function maybeAutoSubmit(val) {
+    const trimmed = val.trim();
+    const times = keyTimesRef.current;
+    // Require a handful of keystrokes to judge speed from, and a code long
+    // enough to plausibly be real (avoids firing on a single stray keypress).
+    if (trimmed.length < 4 || times.length < 4 || lookingRef.current) return;
+    const recentTimes = times.slice(-trimmed.length);
+    let totalGap = 0, gaps = 0;
+    for (let i = 1; i < recentTimes.length; i++) { totalGap += recentTimes[i] - recentTimes[i - 1]; gaps++; }
+    const avgGap = gaps ? totalGap / gaps : Infinity;
+    if (avgGap <= SCAN_SPEED_MS) {
+      keyTimesRef.current = [];
+      lookup(val);
+    }
+    // Slower than that = real typing; leave it for Enter / the Look up button.
+  }
+
   async function lookup(rawCode) {
     const scanned = rawCode.trim();
-    if (!scanned) return;
+    if (!scanned || lookingRef.current) return;
+    lookingRef.current = true;
     setLooking(true);
     try {
       const res = await barcodeApi.lookup(scanned);
@@ -43,6 +91,7 @@ export default function ScanStockIn() {
       showToast(err.message, 'err');
       setCode('');
     } finally {
+      lookingRef.current = false;
       setLooking(false);
     }
   }
@@ -154,7 +203,7 @@ export default function ScanStockIn() {
   return (
     <div>
       <div className="ph"><div className="eyebrow">Warehouse</div><h2>Stock In — Scan Carton</h2>
-        <p>Scan a carton's QR code (scanner gun or phone camera) to add its pieces to stock.</p></div>
+        <p>Scan a carton's barcode (scanner gun or phone camera) to add its pieces to stock — it looks up automatically the instant you scan, no click needed.</p></div>
 
       <div className="card" style={{ maxWidth: 480 }}>
         <form onSubmit={onSubmit}>
@@ -163,7 +212,8 @@ export default function ScanStockIn() {
             <input
               ref={inputRef}
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={onCodeChange}
+              onKeyDown={onCodeKeyDown}
               placeholder="Point scanner here and scan…"
               autoFocus
               disabled={looking || !!pending}
