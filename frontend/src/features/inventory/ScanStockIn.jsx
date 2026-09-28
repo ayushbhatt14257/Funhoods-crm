@@ -41,7 +41,14 @@ export default function ScanStockIn() {
   const pendingRef = useRef(null); // synchronous mirror of `pending` — same reason
   const lastSubmittedRef = useRef(''); // the exact code string a lookup has already been fired for (auto OR Enter/click) — stops the debounce timer from re-firing a second, stale lookup for a scan that's already been handled
 
-  useEffect(() => { inputRef.current?.focus(); }, [pending]);
+  // Refocus whenever the box becomes usable again — not just when the
+  // confirm popup opens/closes (`pending`), but also right after a lookup
+  // finishes with an error (`looking` going back to false, e.g. the "already
+  // scanned" case). The input is disabled while looking/pending, and a
+  // browser doesn't restore focus on its own once a disabled field becomes
+  // enabled again — without this, an error scan left the box dead until you
+  // clicked back into it, breaking the whole point of scan-without-clicking.
+  useEffect(() => { if (!looking && !pending) inputRef.current?.focus(); }, [pending, looking]);
   useEffect(() => { pendingRef.current = pending; }, [pending]);
 
   // Clean up any pending debounce timer on unmount so it never fires (and
