@@ -103,7 +103,7 @@ export default function ScanStockIn() {
     setLooking(true);
     try {
       const res = await barcodeApi.lookup(scanned);
-      if (res.status === 'used') {
+      if (res.alreadyStocked) {
         showToast(`Already scanned on ${new Date(res.usedAt).toLocaleString('en-IN')} by ${res.usedBy}`, 'err');
         resetScan();
         return;

@@ -236,6 +236,16 @@ async function lookupCarton(req, res) {
     product: carton.product, productName: carton.productName, photo: product?.photo || '',
     usedBy: carton.usedBy, usedAt: carton.usedAt,
     dispatchedTo: carton.dispatchedTo, dispatchedAt: carton.dispatchedAt, dispatchedInvoice: carton.dispatchedInvoice,
+    // The single source of truth for "can this still be stocked in" —
+    // mirrors EXACTLY what /confirm itself checks (NOT_STOCKED), so a caller
+    // never has to duplicate that status-list logic (or guess a status
+    // string like 'used', which this carton model never actually sets —
+    // a confirmed carton's status becomes 'in_stock', not 'used'. A caller
+    // that checked for status === 'used' would silently never catch an
+    // already-stocked-in carton here, even though /confirm would correctly
+    // reject it a moment later — exactly that mismatch caused the "shows
+    // the add popup, then errors on confirm" bug.)
+    alreadyStocked: !NOT_STOCKED.includes(carton.status),
   });
 }
 
