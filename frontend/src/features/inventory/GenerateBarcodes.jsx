@@ -215,27 +215,35 @@ export default function GenerateBarcodes() {
 
   // ready. Re-runs whenever a new batch comes in. Nothing here is ever shown
   // on screen (see .silent-print below) — every generate/reprint goes
-  // straight to the print dialog the moment the QR codes finish drawing;
+  // straight to the print dialog the moment the barcodes finish drawing;
   // printing any earlier would print blank/undrawn canvases.
+  //
+  // Switched from QR to a 1D Code128 barcode (same code string, e.g.
+  // "SP-01-30EED0", just printed as bars instead of a QR square) so labels
+  // can be read by a dedicated wireless barcode gun (1D-laser only, can't
+  // read QR) instead of the phone/webcam camera. Code128 handles the full
+  // alphanumeric + hyphen code scheme already in use with no changes needed
+  // to how codes are generated or stored.
   useEffect(() => {
     if (!batch) return;
     (async () => {
-      const QRCode = (await import('qrcode')).default;
+      const JsBarcode = (await import('jsbarcode')).default;
       batch.cartons.forEach((c) => {
-        const canvas = document.getElementById(`qr-${c.code}`);
-        // errorCorrectionLevel 'H' (~30% of the code can be damaged/dirty and
-        // it still scans) — the whole point of moving to QR was resilience
-        // against exactly that, so this is intentionally the highest level
-        // rather than the library's 'M' default.
+        const canvas = document.getElementById(`barcode-${c.code}`);
         if (canvas) {
-          QRCode.toCanvas(canvas, c.code, { errorCorrectionLevel: 'H', width: 400, margin: 1 });
-          // qrcode's canvas renderer sets canvas.style.width/height inline to
-          // match the "width" option above (400px) — inline styles always
-          // beat an external stylesheet rule no matter how specific, so this
-          // silently overrode .label-qr's 34mm and made the QR balloon to
-          // fill the whole label. Clearing it here lets .label-qr's CSS size
-          // take over for display, while the canvas keeps its sharp 400px
-          // internal resolution for print.
+          JsBarcode(canvas, c.code, {
+            format: 'CODE128',
+            width: 2.4,       // px per narrow bar — controls scan-resolution, not print size
+            height: 90,       // px, tall enough for a reliable laser sweep even off-angle
+            margin: 4,
+            displayValue: false, // the code is already printed big below (.label-code) — a second copy under the bars would be redundant and eats vertical space
+          });
+          // As with the old QR canvas, jsbarcode sets canvas.style.width/height
+          // inline to match its native pixel size — that would override
+          // .label-barcode's CSS sizing. Clearing width only (keeping height
+          // auto via CSS) lets the browser scale the barcode to the label's
+          // fixed height while preserving its native aspect ratio, so bars
+          // don't get stretched unevenly and stay reliably scannable.
           canvas.style.width = '';
           canvas.style.height = '';
         }
@@ -514,7 +522,7 @@ export default function GenerateBarcodes() {
               <div className="label" key={c.code}>
                 <div className="label-name">{batch.product.name}</div>
                 <div className="label-meta"><b>{batch.product.code}</b> · {c.qty ?? batch.qty} pcs</div>
-                <canvas id={`qr-${c.code}`} className="label-qr"></canvas>
+                <canvas id={`barcode-${c.code}`} className="label-barcode"></canvas>
                 <div className="label-code">{c.code}</div>
                 <div className="label-date">{new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
@@ -804,7 +812,10 @@ export default function GenerateBarcodes() {
         .label-name { font-weight: 700; font-size: 22px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .label-meta { font-size: 14px; color: var(--muted); margin: 3px 0 8px; }
         .label-meta b { font-family: var(--mono); }
-        .label-qr { width: 32mm; height: 32mm; display: block; margin: 0 auto; }
+        /* Only height is fixed — width is left to the browser so it scales
+           from the canvas's native aspect ratio instead of being stretched
+           to a fixed square like the old QR code was. */
+        .label-barcode { height: 22mm; width: auto; display: block; margin: 0 auto; }
         {/* Code on its own line, bold and 10px larger than the old combined
             .label-footer (11px -> 21px) for on-shelf legibility — split from
             the date/time so the bigger text doesn't risk overflowing the
