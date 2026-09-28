@@ -391,6 +391,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           onChange={(e) => setOuters(r, e.target.value)}
                           style={{ width: 60 }}
                         />
+                      ) : !canScan && r.ordered.outers > 0 ? (
+                        // Nothing to dispatch (0 stock), but something WAS
+                        // ordered — show the real ordered count instead of a
+                        // bare 0, styled in red so it reads as "ordered, not
+                        // available" rather than "ready to dispatch".
+                        <b style={{ color: 'var(--red)' }} title="Ordered but out of stock">{r.ordered.outers}</b>
                       ) : <b>{r.suggested.outers}</b>}
                       {r.item.cartonOuter > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
@@ -405,6 +411,8 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           onChange={(e) => setInners(r, e.target.value)}
                           style={{ width: 60 }}
                         />
+                      ) : !canScan && r.ordered.inners > 0 ? (
+                        <b style={{ color: 'var(--red)' }} title="Ordered but out of stock">{r.ordered.inners}</b>
                       ) : <b>{r.suggested.inners}</b>}
                       {r.item.cartonInner > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
