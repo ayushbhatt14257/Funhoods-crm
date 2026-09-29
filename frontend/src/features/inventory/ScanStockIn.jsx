@@ -51,6 +51,14 @@ export default function ScanStockIn() {
   const lookingRef = useRef(false); // synchronous mirror of `looking`, so a queued auto-submit never double-fires while a lookup is already in flight
   const lastSubmittedRef = useRef(''); // the exact code string a lookup has already been fired for (auto OR Enter/click) — stops the debounce timer from re-firing a second, stale lookup for a scan that's already been handled
   const queueCodesRef = useRef(new Set()); // codes already in `queue` (synchronous, so two scans arriving a few ms apart can't both slip past the in-list-duplicate check before either has committed its state update)
+  // The outer whose box is currently "open" in this scanning session — the
+  // one you scan an outer's own inner labels against. A label physically
+  // stuck on the wrong box still carries its TRUE parent in the database
+  // (fixed the instant it was generated), so comparing every scanned
+  // inner's real parentCode against this is what catches a mix-up, however
+  // it happened — a full swap, a half swap, doesn't matter, every inner is
+  // checked on its own. null when no outer with inner children is "open".
+  const activeOuterRef = useRef(null);
 
   // Refocus whenever the box becomes usable again — a lookup finishing (incl.
   // an error) or the bulk confirm finishing. The input is disabled while
@@ -128,15 +136,45 @@ export default function ScanStockIn() {
     setLooking(true);
     try {
       const res = await barcodeApi.lookup(scanned);
+      const kind = res.kind || 'outer';
       if (res.alreadyStocked) {
         queueCodesRef.current.add(scanned);
         addRow({
           code: scanned, status: 'already-stocked', productName: res.productName, qty: res.qty, photo: res.photo,
           message: `Already scanned on ${new Date(res.usedAt).toLocaleString('en-IN')} by ${res.usedBy}`,
         });
-      } else {
+      } else if (kind === 'outer') {
+        // Scanning a new outer switches which "box" is currently open — if
+        // the one before it still has inner children unscanned, that's not
+        // blocked (sequence isn't mandatory, see resetScan/queue notes), but
+        // it IS worth a heads-up, since the mismatch check below only
+        // protects the outer that's actively "open".
+        const prev = activeOuterRef.current;
+        if (prev) {
+          const prevRow = queue.find((r) => r.code === prev);
+          if (prevRow && prevRow.gotten < prevRow.expected) {
+            showToast(`Carton ${prev} was left incomplete (${prevRow.gotten}/${prevRow.expected} inner) — now scanning ${scanned}.`, 'err');
+          }
+        }
+        activeOuterRef.current = res.innerTotal > 0 ? scanned : null;
         queueCodesRef.current.add(scanned);
-        addRow({ code: scanned, status: 'ready', productName: res.productName, qty: res.qty, photo: res.photo });
+        addRow({ code: scanned, status: 'ready', kind: 'outer', productName: res.productName, qty: res.qty, photo: res.photo, expected: res.innerTotal || 0, gotten: 0 });
+      } else {
+        // An inner — verified against whichever outer is currently "open",
+        // using its TRUE parentCode from the database, never which box it
+        // physically happened to be found in.
+        const active = activeOuterRef.current;
+        if (active && res.parentCode === active) {
+          queueCodesRef.current.add(scanned);
+          addRow({ code: scanned, status: 'ready', kind: 'inner', parentCode: res.parentCode, productName: res.productName, qty: res.qty, photo: res.photo });
+          setQueue((q) => q.map((r) => (r.code === active ? { ...r, gotten: r.gotten + 1 } : r)));
+        } else {
+          queueCodesRef.current.add(scanned);
+          addRow({
+            code: scanned, status: 'wrong-carton', kind: 'inner', parentCode: res.parentCode, productName: res.productName, qty: res.qty, photo: res.photo,
+            message: active ? `Belongs to carton ${res.parentCode}, not ${active} — check the box` : `Belongs to carton ${res.parentCode} — scan that outer first`,
+          });
+        }
       }
     } catch (err) {
       // Not recognised / network error etc. — NOT added to queueCodesRef, so
@@ -157,7 +195,10 @@ export default function ScanStockIn() {
   function removeRow(id) {
     setQueue((q) => {
       const row = q.find((r) => r.id === id);
-      if (row) queueCodesRef.current.delete(row.code); // freed up so it can be rescanned if this was a mistaken entry
+      if (row) {
+        queueCodesRef.current.delete(row.code); // freed up so it can be rescanned if this was a mistaken entry
+        if (activeOuterRef.current === row.code) activeOuterRef.current = null; // its "open box" context goes with it
+      }
       return q.filter((r) => r.id !== id);
     });
   }
@@ -165,6 +206,7 @@ export default function ScanStockIn() {
   function clearQueue() {
     setQueue([]);
     queueCodesRef.current = new Set();
+    activeOuterRef.current = null;
   }
 
   // Confirms every 'ready' row, one at a time (matches how each carton is
@@ -290,6 +332,7 @@ export default function ScanStockIn() {
     ready: { text: 'Ready', color: 'var(--green)' },
     'already-stocked': { text: 'Already scanned', color: 'var(--red)' },
     'dup-in-list': { text: 'Duplicate scan', color: 'var(--red)' },
+    'wrong-carton': { text: 'Wrong carton', color: 'var(--red)' },
     error: { text: 'Not recognised', color: 'var(--red)' },
     added: { text: 'Added', color: 'var(--green)' },
   };
@@ -380,10 +423,20 @@ export default function ScanStockIn() {
                 <span className="muted mono" style={{ width: 24, textAlign: 'right', flexShrink: 0 }}>{i + 1}.</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {r.productName || <span className="mono">{r.code}</span>}
+                    {r.kind === 'inner' && '↳ '}{r.productName || <span className="mono">{r.code}</span>}
+                    {r.kind === 'outer' && <span className="muted" style={{ fontWeight: 400 }}> · OUTER</span>}
                   </div>
                   {r.productName && <div className="mono muted" style={{ fontSize: 10.5 }}>{r.code}</div>}
-                  {r.message && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>{r.message}</div>}
+                  {/* Live progress on an outer's own inner children — updates
+                      as each correctly-matched inner is scanned in, so it's
+                      obvious at a glance whether this carton's group is done. */}
+                  {r.kind === 'outer' && r.expected > 0 && (
+                    <div className="muted" style={{ fontSize: 10.5, marginTop: 1, color: r.gotten >= r.expected ? 'var(--green)' : undefined, fontWeight: r.gotten >= r.expected ? 600 : 400 }}>
+                      {r.gotten}/{r.expected} inner scanned{r.gotten >= r.expected ? ' ✓' : ''}
+                    </div>
+                  )}
+                  {r.kind === 'inner' && r.status === 'ready' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Part of carton {r.parentCode}</div>}
+                  {r.message && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, color: r.status === 'wrong-carton' ? 'var(--red)' : undefined, fontWeight: r.status === 'wrong-carton' ? 600 : 400 }}>{r.status === 'wrong-carton' ? '⚠ ' : ''}{r.message}</div>}
                 </div>
                 {r.qty != null && <span style={{ flexShrink: 0 }}>{r.qty} pcs</span>}
                 <span style={{ flexShrink: 0, fontWeight: 600, color: label.color, minWidth: 90, textAlign: 'right' }}>{label.text}</span>

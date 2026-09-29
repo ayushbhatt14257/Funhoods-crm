@@ -39,29 +39,77 @@ async function generateBatch(req, res) {
   const qty = qtyOverride ? +qtyOverride : product.cartonOuter;
   if (!qty || qty <= 0) return res.status(400).json({ message: `${product.name} has no carton size set — set it on the product first, or pass qtyOverride.` });
 
+  // If this product sells in inner units at all (cartonInner set on the
+  // product), every outer generated here gets its inner children generated
+  // and printed RIGHT NOW too — not later via a separate split action. Each
+  // inner's code is built from its own outer's code (e.g. MT-06-0E0A86-01),
+  // and its `parentCode` is fixed in the DB the instant it's created — this
+  // is what makes the later mismatch check possible (see confirmCarton's
+  // batch-scan usage): however a label physically ends up stuck on the
+  // wrong box, the code itself never stops pointing at its true parent.
+  // Same round-to-nearest-whole-unit math as splitCarton, since an outer's
+  // total pcs doesn't always divide evenly into its inner size.
+  const innerPerOuter = product.cartonInner > 0 ? Math.max(1, Math.round(qty / product.cartonInner)) : 0;
+
   const batchId = `B${Date.now().toString(36).toUpperCase()}${randomSuffix().slice(0, 4)}`;
-  const docs = Array.from({ length: count }, () => ({
-    code: `${product.code}-${randomSuffix()}`,
-    batchId,
-    product: product.code,
-    productName: product.name,
-    qty,
-    kind: 'outer',
-    status: 'pending',
-    createdBy: req.user.name,
-  }));
+  const docs = [];
+  for (let i = 0; i < count; i++) {
+    const outerCode = `${product.code}-${randomSuffix()}`;
+    docs.push({
+      code: outerCode, batchId, product: product.code, productName: product.name,
+      qty, kind: 'outer', status: 'pending', createdBy: req.user.name,
+    });
+    for (let j = 0; j < innerPerOuter; j++) {
+      docs.push({
+        code: `${outerCode}-${String(j + 1).padStart(2, '0')}`,
+        batchId, product: product.code, productName: product.name,
+        qty: product.cartonInner, kind: 'inner', parentCode: outerCode,
+        status: 'pending', createdBy: req.user.name,
+      });
+    }
+  }
 
   // ordered:false so one unlikely duplicate-key collision (essentially
   // never happens at this entropy level) doesn't abort the whole batch.
   const inserted = await CartonBarcode.insertMany(docs, { ordered: false });
-  res.status(201).json({ batchId, product: { code: product.code, name: product.name, photo: product.photo || '' }, qty, cartons: inserted });
+  // `cartons` here stays outer-only, same shape as before this change, for
+  // anything already relying on "one row per generated outer label" —
+  // getBatch is what returns the full grouped outer+inner set for printing.
+  res.status(201).json({
+    batchId, product: { code: product.code, name: product.name, photo: product.photo || '' },
+    qty, innerQty: product.cartonInner || 0, innerPerOuter,
+    cartons: inserted.filter((c) => (c.kind || 'outer') !== 'inner'),
+  });
 }
 
 // GET /api/inventory/stock-in-batches/:batchId — reprint an existing batch's labels
 async function getBatch(req, res) {
-  const cartons = await CartonBarcode.find({ batchId: req.params.batchId }).sort({ createdAt: 1 });
+  const cartons = await CartonBarcode.find({ batchId: req.params.batchId }).sort({ createdAt: 1, code: 1 });
   if (!cartons.length) return res.status(404).json({ message: 'Batch not found' });
-  res.json({ batchId: req.params.batchId, product: { code: cartons[0].product, name: cartons[0].productName }, qty: cartons[0].qty, cartons });
+
+  // Grouped print order: each outer immediately followed by its own inner
+  // children, every time — never all outers first and all inners after.
+  // That's what lets a printed sheet be cut/peeled top to bottom and still
+  // keep every carton's full label set physically together, which is the
+  // actual defence against labels getting mixed up between boxes at packing
+  // time. createdAt alone can't guarantee this ordering — many labels
+  // inserted together in one generateBatch call can share the exact same
+  // millisecond timestamp — so this arranges explicitly by parent/child
+  // relationship instead, which works whether the inner children were
+  // generated together with their outer (new batches) or added later via a
+  // split (old batches — a split's children share their parent's batchId).
+  const outers = cartons.filter((c) => (c.kind || 'outer') !== 'inner');
+  const innersByParent = {};
+  cartons.filter((c) => c.kind === 'inner').forEach((c) => {
+    (innersByParent[c.parentCode] = innersByParent[c.parentCode] || []).push(c);
+  });
+  const ordered = [];
+  outers.forEach((o) => {
+    ordered.push(o);
+    (innersByParent[o.code] || []).forEach((inner) => ordered.push(inner));
+  });
+
+  res.json({ batchId: req.params.batchId, product: { code: cartons[0].product, name: cartons[0].productName }, qty: cartons[0].qty, cartons: ordered });
 }
 
 // GET /api/inventory/carton/by-product/:code — admin/masterAdmin only.
@@ -231,8 +279,16 @@ async function lookupCarton(req, res) {
   const carton = await CartonBarcode.findOne({ code: req.params.code });
   if (!carton) return res.status(404).json({ message: 'Barcode not recognised — not one of ours, or mistyped.' });
   const product = await Product.findOne({ code: carton.product });
+  const kind = carton.kind || 'outer';
+  // For an outer: how many inner children it was generated with (if any) —
+  // lets a scanning UI show "0/2 inner scanned" progress for this carton's
+  // group. For an inner: its own parentCode, straight from the DB, is the
+  // one fact that can never be fooled by a label physically stuck on the
+  // wrong box — it's what the mismatch check below is built on.
+  const innerTotal = kind === 'outer' ? await CartonBarcode.countDocuments({ parentCode: carton.code }) : 0;
   res.json({
     code: carton.code, status: carton.status, qty: carton.qty, createdAt: carton.createdAt,
+    kind, parentCode: carton.parentCode || '', innerTotal,
     product: carton.product, productName: carton.productName, photo: product?.photo || '',
     usedBy: carton.usedBy, usedAt: carton.usedAt,
     dispatchedTo: carton.dispatchedTo, dispatchedAt: carton.dispatchedAt, dispatchedInvoice: carton.dispatchedInvoice,

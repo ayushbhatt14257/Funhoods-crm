@@ -258,8 +258,18 @@ export default function GenerateBarcodes() {
     setGenerating(true);
     try {
       const res = await barcodeApi.generateBatch(product.code, +cartonCount, qtyOverride ? +qtyOverride : undefined);
-      setBatch(res);
-      showToast(`Generated ${res.cartons.length} barcodes — printing…`, 'g');
+      // generateBatch's own response only carries the outer cartons (for
+      // backward compatibility with anything expecting one row per printed
+      // outer). If this product has inner children generated alongside them
+      // (see innerPerOuter), those still need to be fetched and printed —
+      // getBatch returns the whole batch already arranged in the grouped
+      // outer-then-its-own-inner order the print layout depends on.
+      const full = res.innerPerOuter > 0 ? await barcodeApi.getBatch(res.batchId) : res;
+      setBatch(full);
+      showToast(
+        `Generated ${res.cartons.length} outer${res.innerPerOuter > 0 ? ` + ${res.cartons.length * res.innerPerOuter} inner` : ''} barcode(s) — printing…`,
+        'g'
+      );
       loadRecentBatches(recentLimit); // so the new batch shows up in the history right away, keeping however many rows were already loaded
     } catch (err) { showToast(err.message, 'err'); }
     finally { setGenerating(false); }
@@ -518,15 +528,38 @@ export default function GenerateBarcodes() {
         // with no on-screen preview, from whichever tab you're on.
         <div id="print-area" className="silent-print">
           <div className="label-sheet">
-            {batch.cartons.map((c) => (
-              <div className="label" key={c.code}>
-                <div className="label-name">{batch.product.name}</div>
-                <div className="label-meta"><b>{batch.product.code}</b> · {c.qty ?? batch.qty} pcs</div>
-                <canvas id={`barcode-${c.code}`} className="label-barcode"></canvas>
-                <div className="label-code">{c.code}</div>
-                <div className="label-date">{new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-              </div>
-            ))}
+            {batch.cartons.map((c) => {
+              const isInner = c.kind === 'inner';
+              // Inner labels among this outer's siblings, printed together —
+              // "1 of 2" style, computed from the code's own numeric suffix
+              // (e.g. "...-02") rather than array position, so a single
+              // reprinted inner still shows its correct position within the set.
+              const innerIndex = isInner ? (c.code.match(/-(\d+)$/)?.[1] || '') : '';
+              const innerSiblingCount = isInner ? batch.cartons.filter((x) => x.kind === 'inner' && x.parentCode === c.parentCode).length : 0;
+              return (
+                <div className="label" key={c.code}>
+                  {/* OUTER (black) vs INNER (red) badge — colour alone tells
+                      them apart from across the room, before anyone even
+                      reads the text. An inner ALSO prints its real parent's
+                      code right under the badge, bold, so it can be visually
+                      matched against the outer box it's meant to go in
+                      before sticking it — no scanning needed for that quick
+                      sanity check (the scan-time check is the real
+                      guarantee; this is the fast human-eye first pass). */}
+                  <div className={`label-badge ${isInner ? 'inner' : 'outer'}`}>
+                    {isInner ? `INNER${innerIndex ? ` ${+innerIndex} of ${innerSiblingCount || '?'}` : ''}` : 'OUTER CARTON'}
+                  </div>
+                  {isInner && (
+                    <div className="label-parent">Belongs to outer <b>{c.parentCode}</b></div>
+                  )}
+                  <div className="label-name" style={isInner ? { fontSize: 18 } : undefined}>{batch.product.name}</div>
+                  <div className="label-meta"><b>{batch.product.code}</b> · {c.qty ?? batch.qty} pcs</div>
+                  <canvas id={`barcode-${c.code}`} className="label-barcode" style={isInner ? { height: '18mm' } : undefined}></canvas>
+                  <div className="label-code">{c.code}</div>
+                  <div className="label-date">{new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -809,6 +842,16 @@ export default function GenerateBarcodes() {
           align-items: center;
           overflow: hidden;
         }
+        /* Colour is the fast, no-reading-required signal (black = whole
+           carton, red = a piece of one) — text is the fallback for anyone
+           printing in black & white. Bold + letter-spacing + bigger size
+           than the rest of the label's small text, since this is the first
+           thing meant to catch the eye when matching labels to boxes. */
+        .label-badge { font-weight: 800; font-size: 15px; letter-spacing: 0.06em; color: #fff; padding: 2px 12px; border-radius: 4px; margin-bottom: 3px; }
+        .label-badge.outer { background: #111; }
+        .label-badge.inner { background: #b3261e; }
+        .label-parent { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+        .label-parent b { font-family: var(--mono); font-size: 13px; color: var(--ink); }
         .label-name { font-weight: 700; font-size: 22px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .label-meta { font-size: 14px; color: var(--muted); margin: 3px 0 8px; }
         .label-meta b { font-family: var(--mono); }
