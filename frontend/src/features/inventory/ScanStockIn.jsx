@@ -165,8 +165,14 @@ export default function ScanStockIn() {
         // physically happened to be found in.
         const active = activeOuterRef.current;
         if (active && res.parentCode === active) {
+          // 'verified' on purpose, NOT 'ready' — an inner still physically
+          // sealed inside its outer isn't separate stock yet (its pcs are
+          // already counted in the outer's own qty), so it's never
+          // confirmed/added on its own here — only checked that it truly
+          // belongs to the outer just scanned. Scanning it into stock for
+          // real happens later, whenever this carton is actually opened.
           queueCodesRef.current.add(scanned);
-          addRow({ code: scanned, status: 'ready', kind: 'inner', parentCode: res.parentCode, productName: res.productName, qty: res.qty, photo: res.photo });
+          addRow({ code: scanned, status: 'verified', kind: 'inner', parentCode: res.parentCode, productName: res.productName, qty: res.qty, photo: res.photo });
           setQueue((q) => q.map((r) => (r.code === active ? { ...r, gotten: r.gotten + 1 } : r)));
         } else {
           queueCodesRef.current.add(scanned);
@@ -230,7 +236,19 @@ export default function ScanStockIn() {
       }
     }
     const byId = new Map(results.map((r) => [r.id, r]));
-    setQueue((q) => q.map((r) => byId.get(r.id) || r).filter((r) => r.status !== 'added'));
+    const addedOuterCodes = new Set(results.filter((r) => r.status === 'added').map((r) => r.code));
+    setQueue((q) => q
+      .map((r) => byId.get(r.id) || r)
+      .filter((r) => {
+        if (r.status === 'added') return false; // cleared — now in "This session" below
+        // A verified inner's job here was purely to confirm it belongs to
+        // the outer that just got confirmed — once that outer's done, this
+        // row has nothing further to do (it was never separately added, its
+        // pcs are already inside the outer's own qty), so it clears too.
+        if (r.status === 'verified' && addedOuterCodes.has(r.parentCode)) return false;
+        return true;
+      })
+    );
 
     const added = results.filter((r) => r.status === 'added');
     const failed = results.length - added.length;
@@ -330,6 +348,7 @@ export default function ScanStockIn() {
 
   const STATUS_LABEL = {
     ready: { text: 'Ready', color: 'var(--green)' },
+    verified: { text: 'Verified ✓', color: 'var(--spruce)' },
     'already-stocked': { text: 'Already scanned', color: 'var(--red)' },
     'dup-in-list': { text: 'Duplicate scan', color: 'var(--red)' },
     'wrong-carton': { text: 'Wrong carton', color: 'var(--red)' },
@@ -435,10 +454,10 @@ export default function ScanStockIn() {
                       {r.gotten}/{r.expected} inner scanned{r.gotten >= r.expected ? ' ✓' : ''}
                     </div>
                   )}
-                  {r.kind === 'inner' && r.status === 'ready' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Part of carton {r.parentCode}</div>}
+                  {r.kind === 'inner' && r.status === 'verified' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Part of carton {r.parentCode} — pcs already counted in its outer</div>}
                   {r.message && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, color: r.status === 'wrong-carton' ? 'var(--red)' : undefined, fontWeight: r.status === 'wrong-carton' ? 600 : 400 }}>{r.status === 'wrong-carton' ? '⚠ ' : ''}{r.message}</div>}
                 </div>
-                {r.qty != null && <span style={{ flexShrink: 0 }}>{r.qty} pcs</span>}
+                {r.qty != null && <span className={r.status === 'verified' ? 'muted' : undefined} style={{ flexShrink: 0 }}>{r.qty} pcs</span>}
                 <span style={{ flexShrink: 0, fontWeight: 600, color: label.color, minWidth: 90, textAlign: 'right' }}>{label.text}</span>
                 <button
                   type="button" className="btn o sm rd" disabled={confirmingAll}
