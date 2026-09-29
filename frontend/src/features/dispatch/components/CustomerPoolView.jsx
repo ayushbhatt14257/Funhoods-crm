@@ -90,13 +90,23 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         const override = selection[key];
         const checked = !!override;
         const avail = available[it.code] || { outer: 0, inner: 0 };
-        const canScan = avail.outer > 0 || avail.inner > 0;
-        // Stock-aware from the start (see stockAwareDefault above) — shown
-        // as the bold default before this row is checked, AND used as the
-        // actual selection the moment it IS checked, so ticking the box
-        // never lands on an impossible combination that then blocks out
-        // the other kind entirely.
-        const suggested = stockAwareDefault(it.pendingPcs, it.cartonOuter, it.cartonInner, avail);
+        // The scan button (a real physical carton must exist to be found by
+        // its code) still needs the real tracked count — that's canScanPhysical.
+        const canScanPhysical = avail.outer > 0 || avail.inner > 0;
+        // The checkbox/manual-quantity path, on the other hand, is NOT
+        // gated on tracked stock right now — the carton-tracking counts are
+        // known to be unreliable/incomplete while stock is being migrated
+        // onto the scan system, even though the warehouse physically has
+        // stock of most things. So any row with a real order behind it can
+        // be selected and dispatched manually (typing outer/inner), without
+        // waiting for that stock to be scanned in first. Scanning itself is
+        // untouched — it still only works against real, tracked cartons.
+        const canSelect = it.pendingPcs > 0 && (it.cartonOuter > 0 || it.cartonInner > 0);
+        // Bold default before the row is checked: since manual selection no
+        // longer depends on tracked stock, show the real ordered split
+        // (outer-first, unlimited) rather than a stock-capped guess that
+        // would read as "0" for anything not yet scanned in.
+        const suggested = defaultSplit(it.pendingPcs, it.cartonOuter, it.cartonInner);
         // The dealer's actual ordered split, WITHOUT the stock cap —
         // separate from `suggested` above on purpose. `suggested` (and the
         // bold Outer/Inner numbers it feeds) answers "how much CAN I
@@ -115,17 +125,16 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         const currentOuters = checked ? override.outers : 0;
         const currentInners = checked ? override.inners : 0;
         const pcsMax = roomFor(it.pendingPcs, it.cartonOuter, it.cartonInner, currentOuters, currentInners);
-        // Manual typing has no scan behind it to verify a carton actually
-        // exists, so it's additionally capped by the real physical count
-        // (avail) on top of the order's own pcs budget — never possible to
-        // manually type more than what's genuinely in stock, even without
-        // scanning each one. Scanning itself is separately, independently
-        // safe regardless of this cap (forDispatch always checks the real
-        // carton server-side).
-        const max = { outers: Math.min(pcsMax.outers, avail.outer), inners: Math.min(pcsMax.inners, avail.inner) };
+        // Manual typing is capped only by the order's own pcs budget for
+        // now, NOT by tracked physical stock (see canSelect above) — the
+        // warehouse has real stock the scan system doesn't know about yet.
+        // A scan is still separately, independently safe regardless of this
+        // (forDispatch always checks the real carton server-side), so
+        // nothing here weakens scan-based dispatch.
+        const max = pcsMax;
         const outers = checked ? Math.min(currentOuters, max.outers) : Math.min(suggested.outers, max.outers);
         const inners = checked ? Math.min(currentInners, max.inners) : Math.min(suggested.inners, max.inners);
-        return { item: it, key, max, suggested, ordered, outers, inners, checked, avail, canScan };
+        return { item: it, key, max, suggested, ordered, outers, inners, checked, avail, canScanPhysical, canSelect };
       });
   }, [pool, q, selection, available]);
 
@@ -342,25 +351,26 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 const gross = r.item.rate + (r.item.rate * r.item.gstPct) / 100;
                 const lineTotal = gross * pcs;
                 const avail = r.avail;
-                const canScan = r.canScan;
+                const canScan = r.canScanPhysical;
                 return (
                   <tr key={r.key}>
                     <td>
                       {/* A real, native checkbox — clickable whenever this
-                          product has QR stock available, disabled
-                          otherwise. Checking it stages a manual selection
-                          (no scan required) capped at real physical stock
-                          (row.max already factors this in); the Scan
-                          button below is still there too, for whoever
-                          prefers to scan instead — the two aren't
-                          mutually exclusive, scanning just adds to
-                          whatever count is already staged. */}
+                          product has a real order behind it, regardless of
+                          tracked stock (see canSelect above; the barcode
+                          stock counts are unreliable while stock is being
+                          migrated onto scanning). Checking it stages a
+                          manual selection (no scan required), capped only
+                          by the order's own pcs budget (row.max). The Scan
+                          button below still requires a real tracked carton
+                          — the two aren't mutually exclusive, scanning just
+                          adds to whatever count is already staged. */}
                       <input
                         type="checkbox"
                         checked={r.checked}
-                        disabled={!canScan}
+                        disabled={!r.canSelect}
                         onChange={() => toggle(r)}
-                        title={!canScan ? 'No QR stock available for this product' : r.checked ? 'Uncheck to clear this row' : 'Check to select this row'}
+                        title={!r.canSelect ? 'Nothing ordered for this product' : r.checked ? 'Uncheck to clear this row' : 'Check to select this row'}
                       />
                     </td>
                     <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
@@ -391,20 +401,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           onChange={(e) => setOuters(r, e.target.value)}
                           style={{ width: 60 }}
                         />
-                      ) : r.suggested.outers < r.ordered.outers ? (
-                        // Compared per-column against the real order, not the
-                        // row's overall canScan — a product can have outer
-                        // stock but zero inner (or vice versa), so a
-                        // row-level flag alone missed a shortfall in just one
-                        // column (e.g. 17 outer in stock but the order needs
-                        // an inner, which has 0). Whenever what's actually
-                        // available (suggested) falls short of what was
-                        // ordered, show the real ordered count in red instead
-                        // of the stock-capped number, so a shortfall in
-                        // EITHER column is always visible, not just a total
-                        // stockout.
-                        <b style={{ color: 'var(--red)' }} title="Ordered but not enough in stock">{r.ordered.outers}</b>
-                      ) : <b>{r.suggested.outers}</b>}
+                      ) : (
+                        // Suggested now always equals the real ordered split
+                        // (see defaultSplit above) since manual selection is
+                        // no longer stock-capped — just show it plainly.
+                        <b>{r.suggested.outers}</b>
+                      )}
                       {r.item.cartonOuter > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
                           {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
@@ -418,9 +420,9 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           onChange={(e) => setInners(r, e.target.value)}
                           style={{ width: 60 }}
                         />
-                      ) : r.suggested.inners < r.ordered.inners ? (
-                        <b style={{ color: 'var(--red)' }} title="Ordered but not enough in stock">{r.ordered.inners}</b>
-                      ) : <b>{r.suggested.inners}</b>}
+                      ) : (
+                        <b>{r.suggested.inners}</b>
+                      )}
                       {r.item.cartonInner > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
                           {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
