@@ -240,17 +240,19 @@ export default function GenerateBarcodes() {
           });
           // As with the old QR canvas, jsbarcode sets canvas.style.width/height
           // inline to match its native pixel size — that would override our
-          // own sizing. Clearing width lets the browser scale from the
-          // canvas's native aspect ratio (bars never stretch unevenly), but
-          // height has to be set EXPLICITLY here, not cleared to '' — an
-          // inner label has 2 extra lines above the barcode (its badge +
-          // "Belongs to outer X") that an outer label doesn't, so it needs a
-          // shorter barcode to still fit inside the same fixed 70mm label;
-          // clearing to '' fell back to the CSS class's one shared height
-          // for both, which is what was pushing inner labels' content past
-          // the label's edge and overlapping.
-          canvas.style.width = '';
-          canvas.style.height = (c.kind === 'inner') ? '18mm' : '22mm';
+          // own sizing. We fix WIDTH and let height scale from the canvas's
+          // native aspect ratio (not the other way around): CODE128's native
+          // width grows with the code's character count while its height
+          // stays constant, so scaling from a fixed HEIGHT (the old approach)
+          // let long codes render wider than the 100mm label and get cut off
+          // left/right. Fixing width instead guarantees the barcode never
+          // exceeds the label's width regardless of code length; height comes
+          // out small (well inside the label) since the native aspect ratio
+          // is very wide. Inner gets a narrower width since it also carries 2
+          // extra lines above the barcode (its badge + "Belongs to outer X")
+          // that outer doesn't, so it needs more vertical room to spare.
+          canvas.style.height = '';
+          canvas.style.width = (c.kind === 'inner') ? '78mm' : '86mm';
         }
       });
       printLabels();
@@ -559,7 +561,7 @@ export default function GenerateBarcodes() {
                   )}
                   <div className="label-name" style={isInner ? { fontSize: 18 } : undefined}>{batch.product.name}</div>
                   <div className="label-meta"><b>{batch.product.code}</b> · {c.qty ?? batch.qty} pcs</div>
-                  <canvas id={`barcode-${c.code}`} className="label-barcode" style={isInner ? { height: '18mm' } : undefined}></canvas>
+                  <canvas id={`barcode-${c.code}`} className="label-barcode" style={isInner ? { width: '78mm' } : undefined}></canvas>
                   <div className="label-code">{c.code}</div>
                   <div className="label-date">{new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
                 </div>
@@ -860,10 +862,12 @@ export default function GenerateBarcodes() {
         .label-name { font-weight: 700; font-size: 22px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
         .label-meta { font-size: 14px; color: var(--muted); margin: 3px 0 8px; }
         .label-meta b { font-family: var(--mono); }
-        /* Only height is fixed — width is left to the browser so it scales
-           from the canvas's native aspect ratio instead of being stretched
-           to a fixed square like the old QR code was. */
-        .label-barcode { height: 22mm; width: auto; display: block; margin: 0 auto; }
+        /* Only width is fixed (86mm, safely inside the 100mm label) — height
+           is left to the browser so it scales from the canvas's native
+           aspect ratio instead of being stretched to a fixed square like the
+           old QR code was. Fixing width (not height) guarantees the barcode
+           never prints wider than the label regardless of code length. */
+        .label-barcode { width: 86mm; height: auto; display: block; margin: 0 auto; }
         {/* Code on its own line, bold and 10px larger than the old combined
             .label-footer (11px -> 21px) for on-shelf legibility — split from
             the date/time so the bigger text doesn't risk overflowing the
