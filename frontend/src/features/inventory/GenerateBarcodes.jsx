@@ -239,13 +239,18 @@ export default function GenerateBarcodes() {
             displayValue: false, // the code is already printed big below (.label-code) — a second copy under the bars would be redundant and eats vertical space
           });
           // As with the old QR canvas, jsbarcode sets canvas.style.width/height
-          // inline to match its native pixel size — that would override
-          // .label-barcode's CSS sizing. Clearing width only (keeping height
-          // auto via CSS) lets the browser scale the barcode to the label's
-          // fixed height while preserving its native aspect ratio, so bars
-          // don't get stretched unevenly and stay reliably scannable.
+          // inline to match its native pixel size — that would override our
+          // own sizing. Clearing width lets the browser scale from the
+          // canvas's native aspect ratio (bars never stretch unevenly), but
+          // height has to be set EXPLICITLY here, not cleared to '' — an
+          // inner label has 2 extra lines above the barcode (its badge +
+          // "Belongs to outer X") that an outer label doesn't, so it needs a
+          // shorter barcode to still fit inside the same fixed 70mm label;
+          // clearing to '' fell back to the CSS class's one shared height
+          // for both, which is what was pushing inner labels' content past
+          // the label's edge and overlapping.
           canvas.style.width = '';
-          canvas.style.height = '';
+          canvas.style.height = (c.kind === 'inner') ? '18mm' : '22mm';
         }
       });
       printLabels();
