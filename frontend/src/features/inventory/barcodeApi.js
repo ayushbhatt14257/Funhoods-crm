@@ -25,4 +25,11 @@ export const barcodeApi = {
   split: (code) => api.post(`/inventory/carton/${encodeURIComponent(code)}/split`),
   deleteCarton: (code) => api.del(`/inventory/carton/${encodeURIComponent(code)}`),
   manualDispatch: (code, dealerCode) => api.post(`/inventory/carton/${encodeURIComponent(code)}/manual-dispatch`, { dealerCode }),
+  movements: (code, from, to) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return api.get(`/inventory/carton/movements/${encodeURIComponent(code)}${qs ? `?${qs}` : ''}`);
+  },
 };

@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
 import Loading from '../../components/Loading';
 import { piApi } from '../pi/api';
+import { barcodeApi } from './barcodeApi';
 
 // Only Confirmed (and Partial Dispatched, which is a Confirmed PI that's
 // been part-shipped) actually reserve stock — see pi/controller.js's
@@ -22,6 +23,7 @@ export default function Inventory() {
   const [val, setVal] = useState('');
   const [openPIs, setOpenPIs] = useState(null); // lazy-loaded on first "who's waiting" click
   const [pendingFor, setPendingFor] = useState(null); // { code, name } | null
+  const [movementsFor, setMovementsFor] = useState(null); // { code, name } | null — today's/range's in vs out for one product
   const [plan, setPlan] = useState(null); // null = not loaded yet
   const [exporting, setExporting] = useState(false);
 
@@ -86,7 +88,20 @@ export default function Inventory() {
               <tbody>
                 {filtered.map((r) => (
                   <tr key={r.code}>
-                    <td className="mono">{r.code}</td><td>{r.name}</td>
+                    {/* Clicking the code or name opens today's (or any
+                        chosen range's) in-vs-out movement for this one
+                        product — computed live from actual scan events
+                        (Stock In / Dispatch), not a separate tracked number. */}
+                    <td
+                      className="mono" style={{ cursor: 'pointer' }}
+                      onClick={() => setMovementsFor({ code: r.code, name: r.name })}
+                      title="Click to see today's stock-in / dispatch for this product"
+                    >{r.code}</td>
+                    <td
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setMovementsFor({ code: r.code, name: r.name })}
+                      title="Click to see today's stock-in / dispatch for this product"
+                    >{r.name}</td>
                     <td>{editingCode === r.code ? <input type="number" style={{ width: 90 }} value={val} onChange={(e) => setVal(e.target.value)} /> : r.physical}</td>
                     <td>
                       {r.reserved > 0 ? (
@@ -154,7 +169,123 @@ export default function Inventory() {
           onClose={() => setPendingFor(null)}
         />
       )}
+
+      {movementsFor && (
+        <MovementsModal
+          code={movementsFor.code}
+          name={movementsFor.name}
+          onClose={() => setMovementsFor(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// YYYY-MM-DD in the BROWSER's own local day — never toISOString().slice(0,10),
+// which is UTC and would silently shift "today" by the IST offset (a scan
+// made after ~5:30pm IST would land on tomorrow's UTC date and disappear
+// from "today"'s range near the day boundary).
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const PRESETS = {
+  today: () => { const d = new Date(); return { from: localDateStr(d), to: localDateStr(d) }; },
+  week: () => { const to = new Date(); const from = new Date(); from.setDate(from.getDate() - 6); return { from: localDateStr(from), to: localDateStr(to) }; },
+  month: () => { const to = new Date(); const from = new Date(to.getFullYear(), to.getMonth(), 1); return { from: localDateStr(from), to: localDateStr(to) }; },
+};
+
+// Product-wise stock movement — how much of this product was scanned IN
+// (Stock In) and OUT (Dispatch) in a chosen range, computed live from the
+// same carton-level events the scanners already record (usedAt/dispatchedAt)
+// rather than any separately-tracked daily count, so it can never drift out
+// of sync with what actually happened.
+function MovementsModal({ code, name, onClose }) {
+  const [preset, setPreset] = useState('today');
+  const [range, setRange] = useState(PRESETS.today());
+  const [data, setData] = useState(null); // null = loading
+
+  useEffect(() => {
+    setData(null);
+    barcodeApi.movements(code, range.from, range.to).then(setData).catch(() => setData({ error: true }));
+  }, [code, range]);
+
+  function applyPreset(p) {
+    setPreset(p);
+    setRange(PRESETS[p]());
+  }
+
+  const fmtTime = (iso) => new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const kindLabel = (c) => (c.outer > 0 || c.inner > 0) ? [c.outer > 0 && `${c.outer} outer`, c.inner > 0 && `${c.inner} inner`].filter(Boolean).join(', ') : '0';
+
+  return (
+    <Modal title={`Stock movement — ${name}`} onClose={onClose}>
+      <div className="btnrow" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
+        <button className={`btn sm${preset === 'today' ? '' : ' o'}`} onClick={() => applyPreset('today')}>Today</button>
+        <button className={`btn sm${preset === 'week' ? '' : ' o'}`} onClick={() => applyPreset('week')}>Last 7 days</button>
+        <button className={`btn sm${preset === 'month' ? '' : ' o'}`} onClick={() => applyPreset('month')}>This month</button>
+        <span className="muted" style={{ fontSize: 12, alignSelf: 'center', marginLeft: 4 }}>or custom:</span>
+        <input
+          type="date" value={range.from} max={range.to}
+          onChange={(e) => { setPreset('custom'); setRange((r) => ({ ...r, from: e.target.value })); }}
+          style={{ width: 140 }}
+        />
+        <span className="muted" style={{ alignSelf: 'center' }}>–</span>
+        <input
+          type="date" value={range.to} min={range.from} max={localDateStr(new Date())}
+          onChange={(e) => { setPreset('custom'); setRange((r) => ({ ...r, to: e.target.value })); }}
+          style={{ width: 140 }}
+        />
+      </div>
+
+      {data === null ? (
+        <div className="empty">Loading…</div>
+      ) : data.error ? (
+        <div className="empty">Couldn't load movement for this product.</div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div className="card" style={{ flex: 1, margin: 0, padding: 12, textAlign: 'center' }}>
+              <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Stocked IN</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--green)' }}>{data.in.pcs}</div>
+              <div className="muted" style={{ fontSize: 11 }}>pcs · {kindLabel(data.in.cartons)}</div>
+            </div>
+            <div className="card" style={{ flex: 1, margin: 0, padding: 12, textAlign: 'center' }}>
+              <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Dispatched OUT</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--red)' }}>{data.out.pcs}</div>
+              <div className="muted" style={{ fontSize: 11 }}>pcs · {kindLabel(data.out.cartons)}</div>
+            </div>
+          </div>
+
+          {(data.in.events.length > 0 || data.out.events.length > 0) ? (
+            <div className="tblwrap" style={{ maxHeight: 280, overflowY: 'auto' }}>
+              <table className="dt">
+                <thead><tr><th>Code</th><th>Kind</th><th>Pcs</th><th>Direction</th><th>When</th><th>Details</th></tr></thead>
+                <tbody>
+                  {[
+                    ...data.in.events.map((e) => ({ ...e, dir: 'IN' })),
+                    ...data.out.events.map((e) => ({ ...e, dir: 'OUT' })),
+                  ]
+                    .sort((a, b) => new Date(b.at) - new Date(a.at))
+                    .map((e, i) => (
+                      <tr key={`${e.dir}-${e.code}-${i}`}>
+                        <td className="mono" style={{ fontSize: 11 }}>{e.code}</td>
+                        <td style={{ fontSize: 11.5 }}>{e.kind}</td>
+                        <td>{e.qty}</td>
+                        <td style={{ color: e.dir === 'IN' ? 'var(--green)' : 'var(--red)', fontWeight: 700, fontSize: 11.5 }}>{e.dir}</td>
+                        <td className="muted" style={{ fontSize: 11 }}>{fmtTime(e.at)}</td>
+                        <td className="muted" style={{ fontSize: 11 }}>{e.dir === 'IN' ? (e.by || '') : (e.to ? `${e.to}${e.invoice ? ` · ${e.invoice}` : ''}` : '')}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty">No stock-in or dispatch activity for this product in this range.</div>
+          )}
+        </>
+      )}
+    </Modal>
   );
 }
 

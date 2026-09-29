@@ -538,6 +538,44 @@ async function migrateOutward(req, res) {
   });
 }
 
+// GET /api/inventory/carton/movements/:code?from=YYYY-MM-DD&to=YYYY-MM-DD —
+// how many cartons/pcs of this product were stocked IN (usedAt in range) and
+// dispatched OUT (dispatchedAt in range), plus the individual carton-level
+// events so a specific day's activity can be audited, not just totalled.
+// Defaults to "today" (in the browser's own local day, passed as from/to by
+// the frontend) when no range is given — deliberately NOT computed here in
+// server time, since the warehouse's "today" is IST and the server's isn't
+// guaranteed to be.
+async function productMovements(req, res) {
+  const code = req.params.code.toUpperCase();
+  const now = new Date();
+  const from = req.query.from ? new Date(`${req.query.from}T00:00:00.000Z`) : new Date(now.toISOString().slice(0, 10) + 'T00:00:00.000Z');
+  const to = req.query.to ? new Date(`${req.query.to}T23:59:59.999Z`) : new Date(now.toISOString().slice(0, 10) + 'T23:59:59.999Z');
+
+  const [inCartons, outCartons] = await Promise.all([
+    CartonBarcode.find({ product: code, usedAt: { $gte: from, $lte: to } }).sort({ usedAt: -1 }).lean(),
+    CartonBarcode.find({ product: code, dispatchedAt: { $gte: from, $lte: to } }).sort({ dispatchedAt: -1 }).lean(),
+  ]);
+
+  const sumQty = (list) => list.reduce((s, c) => s + c.qty, 0);
+  const byKind = (list) => ({
+    outer: list.filter((c) => (c.kind || 'outer') === 'outer').length,
+    inner: list.filter((c) => c.kind === 'inner').length,
+  });
+
+  res.json({
+    from: from.toISOString(), to: to.toISOString(),
+    in: {
+      cartons: byKind(inCartons), pcs: sumQty(inCartons),
+      events: inCartons.map((c) => ({ code: c.code, kind: c.kind || 'outer', qty: c.qty, at: c.usedAt, by: c.usedBy })),
+    },
+    out: {
+      cartons: byKind(outCartons), pcs: sumQty(outCartons),
+      events: outCartons.map((c) => ({ code: c.code, kind: c.kind || 'outer', qty: c.qty, at: c.dispatchedAt, by: c.dispatchedBy, to: c.dispatchedTo, invoice: c.dispatchedInvoice })),
+    },
+  });
+}
+
 // DELETE /api/inventory/carton/all — admin/masterAdmin only. Wipes every
 // generated carton QR/barcode record (used, unused, and split alike) so a
 // batch of test/practice codes can be cleared out before switching to real
@@ -606,4 +644,5 @@ async function deleteBatch(req, res) {
 module.exports = {
   generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, searchCartons, confirmCarton,
   splitCarton, deleteCarton, forDispatchScan, availableCounts, manualDispatchCarton, migrateOutward, clearAll, deleteBatch,
+  productMovements,
 };

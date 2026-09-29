@@ -27,6 +27,7 @@ router.get('/carton/by-product/:code', allow('admin', 'masterAdmin', 'inward'), 
 router.get('/carton/recent-batches', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getRecentBatches);
 router.get('/carton/search', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.searchCartons);
 router.get('/carton/available-counts', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), barcodeCtrl.availableCounts);
+router.get('/carton/movements/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.productMovements);
 router.delete('/carton/all', allow('masterAdmin'), barcodeCtrl.clearAll);
 router.post('/carton/migrate-outward', allow('masterAdmin'), barcodeCtrl.migrateOutward);
 router.get('/carton/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'), barcodeCtrl.lookupCarton);

@@ -309,7 +309,43 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     setSplitting(true);
     try {
       const res = await barcodeApi.split(splitTarget.code);
-      showToast(res.message, 'g');
+      const row = rows.find((r) => r.key === splitTarget.rowKey);
+      // splitCarton on the backend already creates real, verified,
+      // in_stock inner CartonBarcode records for every child — a rescan of
+      // one would only ever confirm exactly what the split response
+      // already told us. So instead of making the warehouse print a fresh
+      // label and scan it right back in for the very same order that
+      // caused the split, apply as many of the new inners as THIS row
+      // still needs straight into the dispatch, no reprint/rescan needed.
+      // Any leftover (this order didn't need all of them) is left as
+      // ordinary in-stock inventory — still fine to print/scan normally
+      // whenever it's actually used later.
+      if (row && res.children?.length) {
+        const current = selection[row.key] || { outers: 0, inners: 0 };
+        const roomLeft = Math.max(0, row.max.inners - current.inners);
+        const toApply = res.children.slice(0, roomLeft);
+        const leftover = res.children.length - toApply.length;
+        if (toApply.length) {
+          onSelectionChange({ ...selection, [row.key]: { outers: current.outers, inners: current.inners + toApply.length } });
+          onScannedCodesChange([...scannedCodes, ...toApply.map((c) => ({ code: c.code, ownerKey: row.key, kind: 'inner' }))]);
+        }
+        // The split outer itself is no longer available stock (status is
+        // now 'split'), and any leftover inners it produced ARE now
+        // available — reflect both without waiting for a full pool reload.
+        setAvailable((a) => ({
+          ...a,
+          [row.item.code]: {
+            outer: Math.max(0, (a[row.item.code]?.outer || 0) - 1),
+            inner: (a[row.item.code]?.inner || 0) + leftover,
+          },
+        }));
+        showToast(
+          `${res.message}${toApply.length ? ` — ${toApply.length} applied straight to this dispatch, no rescan needed` : ''}${leftover ? `, ${leftover} left in stock` : ''}`,
+          'g'
+        );
+      } else {
+        showToast(res.message, 'g');
+      }
       setSplitTarget(null);
     } catch (err) { showToast(err.message, 'err'); }
     finally { setSplitting(false); }
