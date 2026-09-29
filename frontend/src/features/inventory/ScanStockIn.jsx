@@ -51,6 +51,7 @@ export default function ScanStockIn() {
   const lookingRef = useRef(false); // synchronous mirror of `looking`, so a queued auto-submit never double-fires while a lookup is already in flight
   const lastSubmittedRef = useRef(''); // the exact code string a lookup has already been fired for (auto OR Enter/click) — stops the debounce timer from re-firing a second, stale lookup for a scan that's already been handled
   const queueCodesRef = useRef(new Set()); // codes already in `queue` (synchronous, so two scans arriving a few ms apart can't both slip past the in-list-duplicate check before either has committed its state update)
+  const queueRef = useRef([]); // synchronous mirror of `queue` itself (not just its codes) — needed to look up an existing row's current fields (e.g. an outer's gotten/expected) without waiting on a state update
   // The outer whose box is currently "open" in this scanning session — the
   // one you scan an outer's own inner labels against. A label physically
   // stuck on the wrong box still carries its TRUE parent in the database
@@ -114,7 +115,22 @@ export default function ScanStockIn() {
   }
 
   function addRow(row) {
-    setQueue((q) => [...q, { id: makeRowId(), ...row }]);
+    setQueue((q) => {
+      const next = [...q, { id: makeRowId(), ...row }];
+      queueRef.current = next;
+      return next;
+    });
+  }
+
+  // Some updates change existing rows rather than adding one (e.g. bumping
+  // an outer's `gotten` count) — this keeps queueRef in sync for those too,
+  // same as addRow does for a fresh row.
+  function updateQueue(updater) {
+    setQueue((q) => {
+      const next = updater(q);
+      queueRef.current = next;
+      return next;
+    });
   }
 
   async function scanCode(rawCode) {
@@ -123,10 +139,22 @@ export default function ScanStockIn() {
     if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; } // this scan is being handled now — don't let a stale debounce fire again for it later
     lastSubmittedRef.current = scanned;
 
-    // Already sitting in this batch (scanned twice before you've clicked
-    // "Add all") — show it again so the repeat scan isn't silently ignored,
-    // but don't hit the API a second time or create a second addable row.
-    if (queueCodesRef.current.has(scanned)) {
+    // Already sitting in this batch. Usually that's a genuine repeat scan to
+    // flag (see the dup-in-list row below) — EXCEPT when it's an outer
+    // that's still an incomplete carton (fewer inner scanned than it should
+    // have): rescanning that exact outer is how you RESUME it as the
+    // "active" carton, e.g. after having scanned a different outer in
+    // between. That doesn't add a new row (it's already there) or need the
+    // API again — it just moves the active-carton pointer back to it, so its
+    // own inner labels verify correctly again from here on.
+    const existing = queueRef.current.find((r) => r.code === scanned);
+    if (existing) {
+      if (existing.kind === 'outer' && existing.gotten < existing.expected) {
+        activeOuterRef.current = scanned;
+        showToast(`Resumed carton ${scanned} (${existing.gotten}/${existing.expected} inner so far) — scan its remaining inner now.`, 'g');
+        resetScan();
+        return;
+      }
       addRow({ code: scanned, status: 'dup-in-list', message: 'Already in this list' });
       resetScan();
       return;
@@ -151,7 +179,7 @@ export default function ScanStockIn() {
         // protects the outer that's actively "open".
         const prev = activeOuterRef.current;
         if (prev) {
-          const prevRow = queue.find((r) => r.code === prev);
+          const prevRow = queueRef.current.find((r) => r.code === prev);
           if (prevRow && prevRow.gotten < prevRow.expected) {
             showToast(`Carton ${prev} was left incomplete (${prevRow.gotten}/${prevRow.expected} inner) — now scanning ${scanned}.`, 'err');
           }
@@ -173,7 +201,7 @@ export default function ScanStockIn() {
           // real happens later, whenever this carton is actually opened.
           queueCodesRef.current.add(scanned);
           addRow({ code: scanned, status: 'verified', kind: 'inner', parentCode: res.parentCode, productName: res.productName, qty: res.qty, photo: res.photo });
-          setQueue((q) => q.map((r) => (r.code === active ? { ...r, gotten: r.gotten + 1 } : r)));
+          updateQueue((q) => q.map((r) => (r.code === active ? { ...r, gotten: r.gotten + 1 } : r)));
         } else {
           queueCodesRef.current.add(scanned);
           addRow({
@@ -199,7 +227,7 @@ export default function ScanStockIn() {
   }
 
   function removeRow(id) {
-    setQueue((q) => {
+    updateQueue((q) => {
       const row = q.find((r) => r.id === id);
       if (row) {
         queueCodesRef.current.delete(row.code); // freed up so it can be rescanned if this was a mistaken entry
@@ -210,7 +238,7 @@ export default function ScanStockIn() {
   }
 
   function clearQueue() {
-    setQueue([]);
+    updateQueue(() => []);
     queueCodesRef.current = new Set();
     activeOuterRef.current = null;
   }
@@ -222,7 +250,7 @@ export default function ScanStockIn() {
   // race with someone else stocking the same carton in the last few
   // seconds) stays in the list as an error row instead of vanishing.
   async function confirmAll() {
-    const readyRows = queue.filter((r) => r.status === 'ready');
+    const readyRows = queueRef.current.filter((r) => r.status === 'ready');
     if (!readyRows.length || confirmingAll) return;
     setConfirmingAll(true);
     const results = [];
@@ -237,7 +265,8 @@ export default function ScanStockIn() {
     }
     const byId = new Map(results.map((r) => [r.id, r]));
     const addedOuterCodes = new Set(results.filter((r) => r.status === 'added').map((r) => r.code));
-    setQueue((q) => q
+    if (activeOuterRef.current && addedOuterCodes.has(activeOuterRef.current)) activeOuterRef.current = null;
+    updateQueue((q) => q
       .map((r) => byId.get(r.id) || r)
       .filter((r) => {
         if (r.status === 'added') return false; // cleared — now in "This session" below

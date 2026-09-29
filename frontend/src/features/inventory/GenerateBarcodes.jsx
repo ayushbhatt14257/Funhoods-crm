@@ -31,7 +31,7 @@ function statusBadge(status) {
 }
 //
 // PRINT LAYOUT NOTES (for whoever tunes this next time the label stock changes):
-// Straight landscape slip, 100mm wide x 70mm tall, one per page, no rotation
+// Straight landscape slip, 100mm wide x 76mm tall, one per page, no rotation
 // needed — the roll feeds this shape directly. Content top to bottom: product
 // name, product code, quantity, QR code, then the readable carton code. All
 // the tunable numbers live in the CSS custom properties at the top of the
@@ -827,7 +827,7 @@ export default function GenerateBarcodes() {
       <style>{`
         .label-sheet {
           --label-w: 100mm;   /* landscape, straight — no rotation needed since the roll now feeds this way directly */
-          --label-h: 70mm;
+          --label-h: 76mm;    /* matches the 100x76mm label roll actually in use — was 70mm, which made the browser shrink the whole label (barcode bars included) to fit the real 76mm-tall sticker, producing bars too thin for the scanner to read */
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -884,7 +884,7 @@ export default function GenerateBarcodes() {
              properties (var(...)) inside @page, so this must stay hardcoded.
              100mm x 70mm, landscape, one slip per page. If the roll size
              changes, update this line AND --label-w/--label-h above together. */
-          @page { size: 100mm 70mm; margin: 0; }
+          @page { size: 100mm 76mm; margin: 0; }
           /* The 16px on-screen gap between labels, AND the 16px top margin
              on .label-sheet, are both fine for the preview but break print:
              each label already fills a full page exactly (100x70mm) with
