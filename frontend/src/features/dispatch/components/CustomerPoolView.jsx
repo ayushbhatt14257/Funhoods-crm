@@ -95,6 +95,13 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   const [globalScanValue, setGlobalScanValue] = useState('');
   const [globalCameraOn, setGlobalCameraOn] = useState(false);
   const [scanLog, setScanLog] = useState([]); // most-recent-first feed of every scan attempt, matched or not
+  // Which row a successful scan just landed on — briefly highlighted and
+  // scrolled into view, so on a long confirmed-items list (dozens of rows,
+  // this order's own row often well below the fold) it's obvious at a
+  // glance which product just got ticked off without hunting for it.
+  const [flashRowKey, setFlashRowKey] = useState(null);
+  const flashTimerRef = useRef(null);
+  const rowElsRef = useRef({}); // rowKey -> <tr> DOM node, set via ref callback below
 
   // Fast-scan queueing — same pattern as Stock In's ScanStockIn.jsx: never
   // block/disable the input while a lookup is in flight (a scanner gun's
@@ -114,6 +121,29 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   // Clean up any pending debounce timer on unmount so it never fires after
   // this screen's been navigated away from.
   useEffect(() => () => { if (autoTimerRef.current) clearTimeout(autoTimerRef.current); }, []);
+  useEffect(() => () => { if (flashTimerRef.current) clearTimeout(flashTimerRef.current); }, []);
+
+  // Scrolls the matched row into view and briefly highlights it. Search
+  // (q) must never hide a row a scan just matched — if the current search
+  // text would filter it out, clear the search so the row (and the
+  // highlight) actually appear.
+  function flashRow(key) {
+    const row = rowsRef.current.find((r) => r.key === key); // rowsRef holds allRows (unfiltered)
+    if (row) {
+      const needle = q.toLowerCase();
+      const matchesSearch = !q || row.item.name.toLowerCase().includes(needle) || row.item.code.toLowerCase().includes(needle);
+      if (!matchesSearch) setQ('');
+    }
+    setFlashRowKey(key);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashRowKey((k) => (k === key ? null : k)), 1800);
+    // Deferred to the next tick so the row is guaranteed to already be in
+    // the DOM (React commits the checkbox/qty update from this same scan,
+    // and any search-clearing re-render above, before this runs).
+    setTimeout(() => {
+      rowElsRef.current[key]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+  }
 
   // allRows = every pending row regardless of the search box — this is
   // what the global scan box matches a scanned carton against, since
@@ -339,6 +369,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     // from nowhere right after a dispatch.
     const nextPcs = nextOuters * row.item.cartonOuter + nextInners * row.item.cartonInner;
     pushLog({ code, status: 'ok', message: `${row.item.name} — ${nextPcs}/${row.item.pendingPcs} pcs now staged`, productName: res.productName });
+    flashRow(row.key);
   }
 
   function onGlobalScanKeyDown() {
@@ -489,7 +520,11 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 const avail = r.avail;
                 const canScan = r.canScanPhysical;
                 return (
-                  <tr key={r.key}>
+                  <tr
+                    key={r.key}
+                    ref={(el) => { if (el) rowElsRef.current[r.key] = el; else delete rowElsRef.current[r.key]; }}
+                    style={r.key === flashRowKey ? { background: 'rgba(240,200,60,0.35)', transition: 'background 0.3s' } : undefined}
+                  >
                     <td>
                       {/* A real, native checkbox — clickable whenever this
                           product has a real order behind it, regardless of
