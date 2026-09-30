@@ -513,7 +513,26 @@ async function forDispatchScan(req, res) {
   if (carton.status === 'split') {
     return res.status(409).json({ message: 'This carton was split into inner cartons — scan one of its inner labels instead.' });
   }
-  if (NOT_STOCKED.includes(carton.status)) {
+  // A pre-generated inner (born alongside its outer at generateBatch time —
+  // see barcodeController's generateBatch) that was only ever VERIFIED at
+  // Stock In, never separately confirmed into stock: its pcs are still
+  // counted inside its sealed parent outer's own qty (see ScanStockIn's
+  // 'verified' status). Scanning it here for dispatch means that box is
+  // being opened right now to fulfil a partial/inner order — allowed, but
+  // ONLY if its parent outer is still genuinely in stock (never opened or
+  // dispatched itself yet). The actual "open the box" write (retiring the
+  // outer, activating its other siblings) happens at commit time in
+  // dispatch/controller.js, not here — this is still read-only, same as
+  // every other check in this function.
+  const kind = carton.kind || 'outer';
+  const isUnconfirmedInner = kind === 'inner' && carton.parentCode && NOT_STOCKED.includes(carton.status);
+  if (isUnconfirmedInner) {
+    const parent = await CartonBarcode.findOne({ code: carton.parentCode }).lean();
+    if (!parent || !AVAILABLE_FOR_DISPATCH.includes(parent.status)) {
+      return res.status(409).json({ message: `${carton.code}'s outer carton (${carton.parentCode}) isn't in stock to open — it may already be dispatched or opened.` });
+    }
+    // falls through to the product/dealer checks below, same as a normal carton
+  } else if (NOT_STOCKED.includes(carton.status)) {
     return res.status(409).json({ message: `This QR hasn't been scanned IN yet (still ${carton.status}) — do a Stock In scan first, then it can be scanned for dispatch OUT.` });
   }
   if (expectedProduct && carton.product !== expectedProduct) {
@@ -545,16 +564,25 @@ async function forDispatchScan(req, res) {
   // FIFO guidance only — find the oldest available carton of the same kind
   // for this product. Never blocks; just tells the caller if they scanned
   // something other than the oldest, so the UI can show a friendly note.
-  // Same missing-kind-on-old-records fix as splitCarton above.
-  const kind = carton.kind || 'outer';
-  const oldest = await CartonBarcode.findOne({ product: carton.product, kind, status: { $in: AVAILABLE_FOR_DISPATCH } }).sort({ createdAt: 1 }).select('code createdAt').lean();
-  const fifoNote = oldest && oldest.code !== carton.code
-    ? `There's an older carton still in stock (${oldest.code}, generated ${new Date(oldest.createdAt).toLocaleDateString('en-IN')}) — consider using that one first.`
-    : null;
+  // Same missing-kind-on-old-records fix as splitCarton above. Skipped for
+  // an unconfirmed inner about to trigger a cascade — it isn't "in stock"
+  // yet in the normal sense, so comparing it against already-in-stock
+  // cartons of the same kind would just produce a confusing, irrelevant note.
+  const fifoNote = isUnconfirmedInner ? null : await (async () => {
+    const oldest = await CartonBarcode.findOne({ product: carton.product, kind, status: { $in: AVAILABLE_FOR_DISPATCH } }).sort({ createdAt: 1 }).select('code createdAt').lean();
+    return oldest && oldest.code !== carton.code
+      ? `There's an older carton still in stock (${oldest.code}, generated ${new Date(oldest.createdAt).toLocaleDateString('en-IN')}) — consider using that one first.`
+      : null;
+  })();
 
   res.json({
     code: carton.code, product: carton.product, productName: carton.productName, qty: carton.qty, kind,
     fifoNote,
+    // Tells the frontend this scan will open a sealed outer at commit time
+    // (retiring it, activating its other pending inner siblings into real
+    // in_stock units) rather than just dispatching an already-stocked unit —
+    // the scan-log UI shows a distinct "opening box" message for this.
+    parentActivation: isUnconfirmedInner ? { parentCode: carton.parentCode } : null,
   });
 }
 

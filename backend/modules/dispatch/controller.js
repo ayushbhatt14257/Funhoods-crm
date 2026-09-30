@@ -8,6 +8,7 @@ const Ledger = require('../ledger/model');
 const Notification = require('../notifications/model');
 
 const AVAILABLE_FOR_DISPATCH = ['in_stock', 'used']; // same grouping as barcodeController — physically in the warehouse, not yet gone
+const NOT_STOCKED = ['pending', 'unused']; // same grouping as barcodeController — never confirmed into stock at all
 
 function todayISODate() {
   return new Date();
@@ -364,10 +365,30 @@ async function dispatchFromPool(req, res) {
     // dispatched happens only after the invoice is successfully created below.
     const scannedCodes = Array.isArray(req.body.scannedCartonCodes) ? req.body.scannedCartonCodes : [];
     const scannedCartons = [];
+    // codes (not docs — cheap membership check) of every scanned carton that
+    // is itself a pending-inner-to-be-activated, so the same-dispatch
+    // exclusion below (a sibling ALSO scanned in this dispatch skips the
+    // auto-activate-to-in_stock step, since it's about to go straight to
+    // 'dispatched' instead) can be computed after this loop finishes.
+    const scannedPendingInnerParents = new Map(); // parentCode -> parent carton doc, one entry per distinct outer being opened
     for (const code of scannedCodes) {
       const carton = await CartonBarcode.findOne({ code });
       if (!carton) return res.status(400).json({ message: `Scanned carton ${code} not found` });
-      if (!AVAILABLE_FOR_DISPATCH.includes(carton.status)) {
+      const kind = carton.kind || 'outer';
+      // Mirrors the read-only cascade-eligibility check in
+      // barcodeController.forDispatchScan: a pre-generated inner that was
+      // only ever verified (never separately confirmed) at Stock In is still
+      // NOT_STOCKED in the DB, but scanning it here means its sealed parent
+      // outer is being opened right now — allowed only if that parent is
+      // still genuinely in stock.
+      const isUnconfirmedInner = kind === 'inner' && carton.parentCode && NOT_STOCKED.includes(carton.status);
+      if (isUnconfirmedInner) {
+        const parent = await CartonBarcode.findOne({ code: carton.parentCode });
+        if (!parent || !AVAILABLE_FOR_DISPATCH.includes(parent.status)) {
+          return res.status(409).json({ message: `${code}'s outer carton (${carton.parentCode}) isn't in stock to open — it may already be dispatched or opened. Rescan and try again.` });
+        }
+        scannedPendingInnerParents.set(parent.code, parent);
+      } else if (!AVAILABLE_FOR_DISPATCH.includes(carton.status)) {
         return res.status(409).json({ message: `${code} is no longer available (${carton.status}) — someone may have just dispatched it. Rescan and try again.` });
       }
       scannedCartons.push(carton);
@@ -424,6 +445,25 @@ async function dispatchFromPool(req, res) {
     // existing, risking a duplicate dispatch attempt if they assumed it
     // hadn't gone through and tried again.
     try {
+      const scannedCodeSet = new Set(scannedCartons.map((c) => c.code));
+      // Implicit-split cascade — "open the box now" for every distinct
+      // parent outer identified above. Retires the outer (status 'split',
+      // reusing splitCarton's existing status semantics) and activates all
+      // its OTHER pending inner siblings into real in_stock units — except
+      // any sibling that was ALSO scanned in this very dispatch, which skips
+      // straight to 'dispatched' below instead of pointlessly becoming
+      // in_stock for a moment first. Done once per distinct parent even if
+      // more than one of its siblings was scanned together.
+      for (const parent of scannedPendingInnerParents.values()) {
+        parent.status = 'split';
+        parent.splitAt = todayISODate();
+        parent.splitBy = req.user.name;
+        await parent.save();
+        await CartonBarcode.updateMany(
+          { parentCode: parent.code, status: { $in: NOT_STOCKED }, code: { $nin: [...scannedCodeSet] } },
+          { $set: { status: 'in_stock' } }
+        );
+      }
       for (const carton of scannedCartons) {
         carton.status = 'dispatched';
         carton.dispatchedTo = dealer.code;
@@ -433,7 +473,7 @@ async function dispatchFromPool(req, res) {
         await carton.save();
       }
     } catch (err) {
-      console.error(`Dispatch ${invoice.no} succeeded, but marking a scanned carton dispatched failed (traceability only, not the dispatch itself):`, err);
+      console.error(`Dispatch ${invoice.no} succeeded, but marking a scanned carton dispatched (or opening its parent outer) failed (traceability only, not the dispatch itself):`, err);
     }
 
     // reserved is no longer a stored counter to decrement here — it's

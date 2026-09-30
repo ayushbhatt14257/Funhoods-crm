@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../../../context/ToastContext';
 import { barcodeApi } from '../../inventory/barcodeApi';
 import CameraScanner from '../../../components/CameraScanner';
@@ -75,16 +75,39 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   const { showToast } = useToast();
   const [q, setQ] = useState('');
   const [available, setAvailable] = useState({}); // product code -> { outer, inner } in_stock counts
-  const [scanRow, setScanRow] = useState(null); // rowKey currently showing its scan input
-  const [scanValue, setScanValue] = useState('');
-  const [scanningRow, setScanningRow] = useState(null);
-  const [cameraRow, setCameraRow] = useState(null); // rowKey currently showing the camera view (mutually exclusive with typing — one or the other)
+
+  // ONE continuous scan box for the whole party — replaces the old
+  // per-row "open a scanner for this line" flow. Any carton scanned here
+  // (outer or inner, any product in the order) is looked up without a
+  // product filter and auto-matched against whichever pending row it
+  // belongs to; the manual checkbox/typed-qty path below is untouched and
+  // still available as a fallback for stock the scan system doesn't know about.
+  const [globalScanValue, setGlobalScanValue] = useState('');
+  const [globalCameraOn, setGlobalCameraOn] = useState(false);
+  const [scanLog, setScanLog] = useState([]); // most-recent-first feed of every scan attempt, matched or not
   const [splitTarget, setSplitTarget] = useState(null); // { rowKey, code } — last scanned outer, offered for splitting
   const [splitting, setSplitting] = useState(false);
 
-  const rows = useMemo(() => {
+  // Fast-scan queueing — same pattern as Stock In's ScanStockIn.jsx: never
+  // block/disable the input while a lookup is in flight (a scanner gun's
+  // next keystrokes would otherwise be silently dropped), just push every
+  // scan into a queue and drain it one at a time so lookups never race.
+  const pendingScansRef = useRef([]);
+  const processingRef = useRef(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const lastSubmittedRef = useRef('');
+  const rowsRef = useRef([]); // kept in sync below — processQueue reads the latest rows without needing them in its closure
+  const selectionRef = useRef(selection);
+  const scannedCodesRef = useRef(scannedCodes);
+  useEffect(() => { selectionRef.current = selection; }, [selection]);
+  useEffect(() => { scannedCodesRef.current = scannedCodes; }, [scannedCodes]);
+
+  // allRows = every pending row regardless of the search box — this is
+  // what the global scan box matches a scanned carton against, since
+  // typing something into search shouldn't make a row un-scannable.
+  // rows (below) is the filtered, on-screen subset for the table itself.
+  const allRows = useMemo(() => {
     return (pool?.items || [])
-      .filter((it) => !q || it.name.toLowerCase().includes(q.toLowerCase()) || it.code.toLowerCase().includes(q.toLowerCase()))
       .map((it) => {
         const key = rowKey(it);
         const override = selection[key];
@@ -136,7 +159,13 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         const inners = checked ? Math.min(currentInners, max.inners) : Math.min(suggested.inners, max.inners);
         return { item: it, key, max, suggested, ordered, outers, inners, checked, avail, canScanPhysical, canSelect };
       });
-  }, [pool, q, selection, available]);
+  }, [pool, selection, available]);
+  const rows = useMemo(() => {
+    if (!q) return allRows;
+    const needle = q.toLowerCase();
+    return allRows.filter((r) => r.item.name.toLowerCase().includes(needle) || r.item.code.toLowerCase().includes(needle));
+  }, [allRows, q]);
+  useEffect(() => { rowsRef.current = allRows; }, [allRows]);
 
   // Fetched once per pool load — how many in_stock outer/inner cartons
   // actually exist for each product here, so a row with genuinely nothing
@@ -199,32 +228,13 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
-  // Opens the scan sheet for this row. This used to also release every
-  // carton already scanned into the row back to "available" and uncheck the
-  // row outright — a deliberate "always start fresh" reset — but that meant
-  // clicking Scan a SECOND time on a row you'd already scanned some into
-  // (e.g. scanning 2 inners, closing the sheet, then reopening it to scan a
-  // 3rd) silently threw away the earlier scans: the row would flip back to
-  // unchecked/0 the instant the sheet reopened, and whatever you scanned
-  // next became the ONLY thing recorded, not an addition to what was there.
-  // Reopening the sheet on progress already made should resume it, not
-  // discard it — the sheet already shows "X / Y pcs scanned" from
-  // activeRowScans and lets you remove entries one at a time, so there's
-  // nothing left for a destructive reset to protect against.
-  function openScan(row) {
-    setScanRow(row.key);
-    setScanValue('');
-    setCameraRow(null);
-  }
-  function closeScan() { setScanRow(null); setScanValue(''); setCameraRow(null); }
-
   // Undoes exactly one scanned carton: drops the row's count by one (of
   // whichever kind that carton was), puts it back as available, and
   // removes it from the scanned list — the mirror image of a successful scan.
-  function removeScannedEntry(row, entry) {
+  function removeScannedEntry(entry) {
     onScannedCodesChange(scannedCodes.filter((s) => s !== entry));
-    setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [entry.kind]: (a[row.item.code]?.[entry.kind] || 0) + 1 } }));
-    const current = selection[row.key] || { outers: 0, inners: 0 };
+    setAvailable((a) => ({ ...a, [entry.productCode]: { ...a[entry.productCode], [entry.kind]: (a[entry.productCode]?.[entry.kind] || 0) + 1 } }));
+    const current = selection[entry.ownerKey] || { outers: 0, inners: 0 };
     const outers = entry.kind === 'outer' ? Math.max(0, current.outers - 1) : current.outers;
     const inners = entry.kind === 'inner' ? Math.max(0, current.inners - 1) : current.inners;
     if (outers === 0 && inners === 0) {
@@ -232,72 +242,110 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       // {outers:0, inners:0} override, which would show as checked-but-
       // sending-nothing (the exact confusing state fixed once already).
       const next = { ...selection };
-      delete next[row.key];
+      delete next[entry.ownerKey];
       onSelectionChange(next);
     } else {
-      onSelectionChange({ ...selection, [row.key]: { outers, inners } });
+      onSelectionChange({ ...selection, [entry.ownerKey]: { outers, inners } });
     }
   }
 
-  // Scanning increments THIS row's outer/inner count by one (capped at max,
-  // same rule typing a number already follows) — it's an alternative input
-  // method for the same field, never a separate mechanism. Passing this
-  // row's product code to the backend means a carton scanned for the wrong
-  // product gets rejected with a precise "that's X, not Y" message, rather
-  // than silently applying to whichever row happened to match.
-  // Takes the code directly (not read from state) so it works identically
-  // whether it came from the typed input's submit or the camera's onScan —
-  // one scan (by either method) is always exactly one carton, handled here once.
-  // scannedCodes entries carry an ownerKey (this row) so unchecking the row
-  // later can release exactly these codes back to being scannable, without
-  // touching anything scanned into a different row.
-  async function submitScan(row, code) {
-    if (!code) return;
-    if (scannedCodes.some((s) => s.code === code)) { showToast('Already scanned into this dispatch', 'err'); return; }
-    setScanningRow(row.key);
+  function pushLog(entry) {
+    setScanLog((log) => [{ id: `${Date.now()}-${Math.random()}`, ...entry }, ...log].slice(0, 60));
+  }
+
+  // Auto-matches a looked-up carton to the one pending row it belongs to.
+  // A product can appear as more than one row (two different negotiated
+  // rates), so ties are broken FIFO — whichever row's order was confirmed
+  // earliest gets first claim — and a row that's already at its shared
+  // outer/inner budget (room 0 for this carton's kind) is skipped in favor
+  // of one that still has room, rather than blocking the scan on a
+  // technicality the dispatcher can't see from the carton itself.
+  function matchRow(productCode, kind) {
+    const candidates = rowsRef.current
+      .filter((r) => r.item.code === productCode)
+      .sort((a, b) => new Date(a.item.lastConfirmedAt) - new Date(b.item.lastConfirmedAt));
+    if (!candidates.length) return null;
+    const withRoom = candidates.find((r) => {
+      const current = selectionRef.current[r.key] || { outers: 0, inners: 0 };
+      return kind === 'outer' ? current.outers < r.max.outers : current.inners < r.max.inners;
+    });
+    return withRoom || candidates[0];
+  }
+
+  // The actual per-scan work, run one at a time by processQueue below.
+  // Mirrors the old per-row submitScan, but the row is auto-matched from
+  // the carton's own product instead of being passed in, and every
+  // outcome (matched, wrong product, duplicate, overscan, box-opened) is
+  // appended to the running scan log rather than a one-off toast, since
+  // several scans can land faster than a toast can be read.
+  async function processOneScan(code) {
+    if (scannedCodesRef.current.some((s) => s.code === code)) {
+      pushLog({ code, status: 'err', message: 'Already scanned into this dispatch' });
+      return;
+    }
+    let res;
     try {
-      const res = await barcodeApi.forDispatch(code, pool.dealer.code, { product: row.item.code });
-      const current = selection[row.key] || { outers: 0, inners: 0 };
-      let nextOuters = current.outers, nextInners = current.inners;
-      if (res.kind === 'outer') {
-        if (current.outers >= row.max.outers) {
-          // This exact outer doesn't fit what's left — but it might if
-          // split into inners, so offer that right here instead of just
-          // refusing. Whether it's ACTUALLY splittable (a whole outer
-          // carton, not itself an inner) is checked server-side when the
-          // split button is used.
-          showToast(`This outer is too big for what's left on ${row.item.name} — split it into inners instead.`, 'err');
-          setSplitTarget({ rowKey: row.key, code: res.code });
-          return;
-        }
-        nextOuters = current.outers + 1;
+      res = await barcodeApi.forDispatch(code, pool.dealer.code);
+    } catch (err) {
+      pushLog({ code, status: 'err', message: err.message });
+      return;
+    }
+    const row = matchRow(res.product, res.kind);
+    if (!row) {
+      pushLog({ code, status: 'err', message: `${res.productName} isn't part of this party's pending order (or is already fully covered).` });
+      return;
+    }
+    const current = selectionRef.current[row.key] || { outers: 0, inners: 0 };
+    let nextOuters = current.outers, nextInners = current.inners;
+    if (res.kind === 'outer') {
+      if (current.outers >= row.max.outers) {
+        // This exact outer doesn't fit what's left — but it might if split
+        // into inners, so offer that right here instead of just refusing.
+        pushLog({ code, status: 'err', message: `Too big for what's left on ${row.item.name} — split it into inners instead.`, productName: res.productName });
         setSplitTarget({ rowKey: row.key, code: res.code });
-      } else {
-        if (current.inners >= row.max.inners) { showToast(`Already at the max inner count for ${row.item.name}`, 'err'); return; }
-        nextInners = current.inners + 1;
+        return;
       }
-      onSelectionChange({ ...selection, [row.key]: { outers: nextOuters, inners: nextInners } });
-      onScannedCodesChange([...scannedCodes, { code: res.code, ownerKey: row.key, kind: res.kind }]);
-      // Available count just dropped by one for this product/kind — reflect
-      // it immediately rather than waiting for a full pool reload.
-      setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [res.kind]: Math.max(0, (a[row.item.code]?.[res.kind] || 0) - 1) } }));
-      showToast(`Scanned ${res.code} — ${res.productName}`, 'g');
-      // FIFO guidance from the backend (res.fifoNote) is deliberately not
-      // surfaced here anymore — it was a non-blocking suggestion, but it
-      // showed up too often to be useful in practice and just added noise.
-      // Auto-close ONLY the camera once this row's full pending pcs is
-      // reached — the sheet itself stays open (closed manually), but
-      // there's no more scanning left to do for this row, so the camera
-      // stops itself rather than sitting there uselessly running. Checked
-      // in pcs, not outer/inner counts, since either kind (or a mix) can
-      // complete the order now — an outer/inner-count check would be wrong
-      // as soon as the two share one budget instead of each having a fixed target.
-      const nextPcs = nextOuters * row.item.cartonOuter + nextInners * row.item.cartonInner;
-      if (nextPcs >= row.item.pendingPcs) {
-        setCameraRow((c) => (c === row.key ? null : c));
+      nextOuters = current.outers + 1;
+      setSplitTarget({ rowKey: row.key, code: res.code });
+    } else {
+      if (current.inners >= row.max.inners) {
+        pushLog({ code, status: 'err', message: `Already at the max inner count for ${row.item.name}`, productName: res.productName });
+        return;
       }
-    } catch (err) { showToast(err.message, 'err'); }
-    finally { setScanningRow(null); }
+      nextInners = current.inners + 1;
+    }
+    onSelectionChange({ ...selectionRef.current, [row.key]: { outers: nextOuters, inners: nextInners } });
+    onScannedCodesChange([...scannedCodesRef.current, { code: res.code, ownerKey: row.key, kind: res.kind, productCode: row.item.code }]);
+    setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [res.kind]: Math.max(0, (a[row.item.code]?.[res.kind] || 0) - 1) } }));
+    const nextPcs = nextOuters * row.item.cartonOuter + nextInners * row.item.cartonInner;
+    pushLog({
+      code, status: res.parentActivation ? 'cascade' : 'ok',
+      message: res.parentActivation
+        ? `${row.item.name} — opened outer ${res.parentActivation.parentCode}, its other inner units are now in stock too`
+        : `${row.item.name} — ${nextPcs}/${row.item.pendingPcs} pcs now staged`,
+      productName: res.productName,
+    });
+  }
+
+  function scanCode(rawCode) {
+    const scanned = String(rawCode || '').trim();
+    if (!scanned) return;
+    lastSubmittedRef.current = scanned;
+    setTimeout(() => { if (lastSubmittedRef.current === scanned) lastSubmittedRef.current = ''; }, 0);
+    setGlobalScanValue('');
+    pendingScansRef.current.push(scanned);
+    setPendingCount(pendingScansRef.current.length);
+    if (!processingRef.current) processQueue();
+  }
+  async function processQueue() {
+    processingRef.current = true;
+    while (pendingScansRef.current.length) {
+      const next = pendingScansRef.current[0];
+      await processOneScan(next);
+      pendingScansRef.current.shift();
+      setPendingCount(pendingScansRef.current.length);
+    }
+    processingRef.current = false;
   }
 
   async function splitCarton() {
@@ -309,7 +357,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     setSplitting(true);
     try {
       const res = await barcodeApi.split(splitTarget.code);
-      const row = rows.find((r) => r.key === splitTarget.rowKey);
+      const row = rowsRef.current.find((r) => r.key === splitTarget.rowKey);
       // splitCarton on the backend already creates real, verified,
       // in_stock inner CartonBarcode records for every child — a rescan of
       // one would only ever confirm exactly what the split response
@@ -327,7 +375,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         const leftover = res.children.length - toApply.length;
         if (toApply.length) {
           onSelectionChange({ ...selection, [row.key]: { outers: current.outers, inners: current.inners + toApply.length } });
-          onScannedCodesChange([...scannedCodes, ...toApply.map((c) => ({ code: c.code, ownerKey: row.key, kind: 'inner' }))]);
+          onScannedCodesChange([...scannedCodes, ...toApply.map((c) => ({ code: c.code, ownerKey: row.key, kind: 'inner', productCode: row.item.code }))]);
         }
         // The split outer itself is no longer available stock (status is
         // now 'split'), and any leftover inners it produced ARE now
@@ -358,14 +406,74 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     return sum + gross * pcs;
   }, 0);
   const anySelected = rows.some((r) => r.checked);
-  const activeScanRow = rows.find((r) => r.key === scanRow) || null; // the one row (of many) currently showing the fixed scan sheet — see below
-  const activeRowScans = activeScanRow ? scannedCodes.filter((s) => s.ownerKey === activeScanRow.key) : []; // this row's scanned cartons, each individually removable in the sheet
+  // scannedCodes is shared with GiftingStep (gift scans use ownerKey
+  // `gift:<id>`, never a real rowKey) — this view only owns/displays the
+  // entries it actually scanned in, against a real pending row.
+  const rowKeySet = new Set(allRows.map((r) => r.key));
+  const rowScannedCodes = scannedCodes.filter((s) => rowKeySet.has(s.ownerKey));
 
   return (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
         <h3 style={{ margin: 0 }}>Confirmed items — {pool.dealer.name}</h3>
         <input placeholder="Search item" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 220 }} />
+      </div>
+
+      {/* ONE continuous scan box for the whole party — scan any carton
+          (outer or inner, any product on this order) and it's auto-matched
+          against the row it belongs to below. No per-row scanner to open. */}
+      <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12, marginBottom: 14, background: 'var(--paper-d)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>📷 Scan cartons for this dispatch</div>
+          {pendingCount > 0 && <div className="muted" style={{ fontSize: 12 }}>Looking up… {pendingCount} more queued</div>}
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); scanCode(globalScanValue); }} className="btnrow" style={{ flexWrap: 'wrap' }}>
+          <input
+            autoFocus placeholder="Scan or type any carton code — any product on this order"
+            value={globalScanValue} onChange={(e) => setGlobalScanValue(e.target.value)}
+            disabled={globalCameraOn}
+            style={{ minWidth: 240, flex: 1 }}
+          />
+          <button type="submit" className="btn sm" disabled={globalCameraOn}>Add scan</button>
+          {globalCameraOn ? (
+            <button type="button" className="btn o sm rd" onClick={() => setGlobalCameraOn(false)}>Stop camera</button>
+          ) : (
+            <button type="button" className="btn o sm" onClick={() => setGlobalCameraOn(true)}>📷 Open camera</button>
+          )}
+          {splitTarget && (
+            <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
+              {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
+            </button>
+          )}
+        </form>
+        {globalCameraOn && (
+          <div style={{ maxWidth: 300, margin: '10px auto 0' }}>
+            <CameraScanner
+              onScan={(code) => scanCode(code)}
+              onError={(msg) => { showToast(msg, 'err'); setGlobalCameraOn(false); }}
+              onClose={() => setGlobalCameraOn(false)}
+            />
+          </div>
+        )}
+        {scanLog.length > 0 && (
+          <div style={{ marginTop: 10, maxHeight: 160, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--white)' }}>
+            {scanLog.map((entry, i) => (
+              <div
+                key={entry.id}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                  padding: '6px 10px', borderBottom: i < scanLog.length - 1 ? '1px solid var(--line)' : 'none',
+                  background: entry.status === 'err' ? 'rgba(220,50,50,0.06)' : entry.status === 'cascade' ? 'rgba(240,170,20,0.1)' : 'transparent',
+                }}
+              >
+                <span style={{ fontSize: 12 }}>
+                  <span className="mono">{entry.code}</span>{' '}
+                  {entry.status === 'err' ? '✕' : entry.status === 'cascade' ? '📦' : '✓'} {entry.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {!rows.length ? (
@@ -468,18 +576,11 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     <td>{r.item.rate}</td>
                     <td>{r.item.gstPct}</td>
                     <td>{Math.round(lineTotal).toLocaleString('en-IN')}</td>
-                    <td>
-                      <button
-                        type="button" className="btn o sm"
-                        disabled={!canScan}
-                        title={canScan ? `${avail.outer} outer / ${avail.inner} inner in stock` : 'No tracked cartons in stock for this product'}
-                        onClick={() => openScan(r)}
-                      >
-                        {/* Outer and inner are never blended into one merged
-                            number here — shown as separate counts, only
-                            including whichever kind actually has stock. */}
-                        📷 {canScan ? `Scan (${availLabel(avail)} in stock)` : 'No stock to scan'}
-                      </button>
+                    <td className="muted" style={{ fontSize: 11 }}>
+                      {/* Purely informational now — scanning happens in the
+                          one global box above, not per row. Outer/inner are
+                          never blended into one merged number here. */}
+                      {canScan ? `${availLabel(avail)} in stock` : 'No tracked stock'}
                     </td>
                   </tr>
                 );
@@ -489,90 +590,32 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         </div>
       )}
 
-      {scannedCodes.length > 0 && (
-        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>{scannedCodes.length} carton(s) scanned so far in this dispatch.</div>
+      {/* Every carton scanned into a pending ROW so far (gift scans are a
+          separate list, owned and shown by GiftingStep below — scannedCodes
+          is shared state, but only row-owned entries are ours to remove
+          here), each individually removable — the global-box equivalent of
+          the old per-row "scanned into this row" list. */}
+      {rowScannedCodes.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{rowScannedCodes.length} carton(s) scanned into this dispatch:</div>
+          <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+            {rowScannedCodes.map((entry, i) => (
+              <div
+                key={entry.code}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: i < rowScannedCodes.length - 1 ? '1px solid var(--line)' : 'none' }}
+              >
+                <span className="mono" style={{ fontSize: 12 }}>{entry.code} <span className="muted" style={{ fontSize: 10 }}>({entry.kind} · {entry.productCode})</span></span>
+                <button type="button" className="btn o sm rd" onClick={() => removeScannedEntry(entry)}>✕ Remove</button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {anySelected && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, fontSize: 15, fontWeight: 700 }}>
           Grand Total: ₹{Math.round(grandTotal).toLocaleString('en-IN')}
         </div>
-      )}
-
-      {/* Fixed bottom sheet, not an inline table row — this is the whole
-          fix for the mobile layout problem: a wide table row that expands
-          inline scrolls out of view (or off to the side on a narrow phone
-          screen) the moment you scroll or the camera opens, so it's easy to
-          lose track of which product you're even scanning for. Anchoring
-          this to the bottom of the viewport means it never moves, and the
-          product name/code stays visible at the top of it at all times.
-          Backdrop + rounded top corners + a drag-handle bar so it reads as
-          a proper sheet rather than a flat bar glued to the screen edge. */}
-      {activeScanRow && (
-        <>
-          <div onClick={closeScan} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 999 }} />
-          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 1000, background: 'var(--paper)', borderRadius: '16px 16px 0 0', boxShadow: '0 -8px 24px rgba(0,0,0,0.2)', maxHeight: '85vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 0' }}>
-              <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--line)' }} />
-            </div>
-            <div style={{ padding: '10px 16px 16px', maxWidth: 560, margin: '0 auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div>
-                  <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.03em' }}>Scanning for</div>
-                  <div style={{ fontWeight: 700, fontSize: 16 }}>{activeScanRow.item.name} <span className="mono muted" style={{ fontSize: 11, fontWeight: 400 }}>{activeScanRow.item.code}</span></div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--spruce)', marginTop: 2 }}>
-                    {activeRowScans.reduce((sum, s) => sum + (s.kind === 'outer' ? activeScanRow.item.cartonOuter : activeScanRow.item.cartonInner), 0)} / {activeScanRow.item.pendingPcs} pcs scanned
-                  </div>
-                </div>
-                <button type="button" className="btn o sm" onClick={closeScan}>✕ Close</button>
-              </div>
-              <form onSubmit={(e) => { e.preventDefault(); submitScan(activeScanRow, scanValue.trim()); }} className="btnrow" style={{ flexWrap: 'wrap' }}>
-                <input
-                  autoFocus placeholder={`Type a carton code for ${activeScanRow.item.name}`}
-                  value={scanValue} onChange={(e) => setScanValue(e.target.value)}
-                  disabled={cameraRow === activeScanRow.key}
-                  style={{ minWidth: 220, flex: 1 }}
-                />
-                <button type="submit" className="btn sm" disabled={scanningRow === activeScanRow.key || cameraRow === activeScanRow.key}>{scanningRow === activeScanRow.key ? 'Checking…' : 'Add scan'}</button>
-                {cameraRow === activeScanRow.key ? (
-                  <button type="button" className="btn o sm rd" onClick={() => setCameraRow(null)}>Stop camera</button>
-                ) : (
-                  <button type="button" className="btn o sm" onClick={() => setCameraRow(activeScanRow.key)}>📷 Open camera</button>
-                )}
-                {splitTarget?.rowKey === activeScanRow.key && (
-                  <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
-                    {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
-                  </button>
-                )}
-              </form>
-              {cameraRow === activeScanRow.key && (
-                <div style={{ maxWidth: 300, margin: '0 auto' }}>
-                  <CameraScanner
-                    onScan={(code) => submitScan(activeScanRow, code)}
-                    onError={(msg) => { showToast(msg, 'err'); setCameraRow(null); }}
-                    onClose={() => setCameraRow(null)}
-                  />
-                </div>
-              )}
-              {/* Every carton scanned into THIS row, each individually
-                  removable — a fixed-height scrollable box so the sheet
-                  itself never grows taller as more get scanned. */}
-              {activeRowScans.length > 0 && (
-                <div style={{ marginTop: 10, maxHeight: 110, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
-                  {activeRowScans.map((entry, i) => (
-                    <div
-                      key={entry.code}
-                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: i < activeRowScans.length - 1 ? '1px solid var(--line)' : 'none' }}
-                    >
-                      <span className="mono" style={{ fontSize: 12 }}>{entry.code} <span className="muted" style={{ fontSize: 10 }}>({entry.kind})</span></span>
-                      <button type="button" className="btn o sm rd" onClick={() => removeScannedEntry(activeScanRow, entry)}>✕ Remove</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </>
       )}
     </div>
   );
