@@ -60,6 +60,13 @@ export default function ScanStockIn() {
   // it happened — a full swap, a half swap, doesn't matter, every inner is
   // checked on its own. null when no outer with inner children is "open".
   const activeOuterRef = useRef(null);
+  // Scans that arrived while a previous one was still being looked up on the
+  // server — processed one at a time, in the order they came in, instead of
+  // being silently dropped (the input used to get disabled during a lookup,
+  // which just swallowed a scanner gun's next keystrokes entirely).
+  const pendingScansRef = useRef([]);
+  const processingRef = useRef(false); // the queue drain loop is currently running
+  const [pendingCount, setPendingCount] = useState(0); // for the "N queued" indicator
 
   // Refocus whenever the box becomes usable again — a lookup finishing (incl.
   // an error) or the bulk confirm finishing. The input is disabled while
@@ -87,11 +94,14 @@ export default function ScanStockIn() {
   function maybeAutoSubmit(val) {
     const trimmed = val.trim();
     const times = keyTimesRef.current;
-    // Skip if: too short/too few keystrokes to judge speed from; a lookup is
-    // already in flight; or this exact code string already had a lookup
-    // fired for it (covers the case where Enter fired first, already
-    // resolved, and this timer is just a late echo for the same scan).
-    if (trimmed.length < 4 || times.length < 4 || lookingRef.current || trimmed === lastSubmittedRef.current) return;
+    // Skip if: too short/too few keystrokes to judge speed from; or this
+    // exact code string already had a scan fired for it (covers the case
+    // where Enter fired first, already queued, and this timer is just a
+    // late echo for the same physical scan). NOT gated on a lookup being in
+    // flight — that used to block the very next scan while a previous one
+    // was still being looked up on the server, which is what silently
+    // dropped fast back-to-back scans; scanCode() now always queues.
+    if (trimmed.length < 4 || times.length < 4 || trimmed === lastSubmittedRef.current) return;
     const recentTimes = times.slice(-trimmed.length);
     let totalGap = 0, gaps = 0;
     for (let i = 1; i < recentTimes.length; i++) { totalGap += recentTimes[i] - recentTimes[i - 1]; gaps++; }
@@ -101,17 +111,6 @@ export default function ScanStockIn() {
       scanCode(val);
     }
     // Slower than that = real typing; leave it for Enter / the Look up button.
-  }
-
-  // Clears the scan box AND everything tracking "this scan's already been
-  // handled" — keystroke timings, and the last-submitted code string — so
-  // the very next scan (even of the same code, e.g. testing a duplicate) is
-  // free to trigger a fresh lookup, while a stale debounce echo of the scan
-  // JUST handled still can't.
-  function resetScan() {
-    setCode('');
-    keyTimesRef.current = [];
-    lastSubmittedRef.current = '';
   }
 
   function addRow(row) {
@@ -133,12 +132,53 @@ export default function ScanStockIn() {
     });
   }
 
-  async function scanCode(rawCode) {
+  // Entry point for every scan (Enter, the Look up button, or auto-submit).
+  // This used to run the lookup itself, with the input disabled for the
+  // duration — which meant a scanner gun's NEXT code, fired a moment later,
+  // either got typed into a disabled field (swallowed entirely) or landed on
+  // top of stale text still sitting in the box. Now it only ever clears the
+  // box and queues the code; the box is free again immediately, so scanning
+  // fast and back-to-back never loses a carton. processQueue() below drains
+  // the queue one at a time, in the order scanned.
+  function scanCode(rawCode) {
     const scanned = rawCode.trim();
-    if (!scanned || lookingRef.current) return;
+    if (!scanned) return;
     if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; } // this scan is being handled now — don't let a stale debounce fire again for it later
+    // Marks this exact code string as "already submitted" so a late debounce
+    // echo for the SAME physical scan (e.g. Enter fired first, then the
+    // pause-timer fires a moment later for the same now-cleared text) can't
+    // queue it a second time. Cleared again right after, on the next tick —
+    // not held for the whole time this scan sits in the queue — so
+    // intentionally rescanning the same code moments later (e.g. resuming an
+    // incomplete outer) is never blocked by it.
     lastSubmittedRef.current = scanned;
+    setTimeout(() => { if (lastSubmittedRef.current === scanned) lastSubmittedRef.current = ''; }, 0);
+    setCode('');
+    keyTimesRef.current = [];
+    pendingScansRef.current.push(scanned);
+    setPendingCount(pendingScansRef.current.length);
+    if (!processingRef.current) processQueue();
+  }
 
+  // Drains pendingScansRef one code at a time — never two lookups in flight
+  // together, so every result lands against the queue state it actually saw
+  // (no race between two scans both reading "not a duplicate yet").
+  async function processQueue() {
+    processingRef.current = true;
+    lookingRef.current = true;
+    setLooking(true);
+    while (pendingScansRef.current.length) {
+      const next = pendingScansRef.current[0];
+      await processScan(next);
+      pendingScansRef.current.shift();
+      setPendingCount(pendingScansRef.current.length);
+    }
+    lookingRef.current = false;
+    setLooking(false);
+    processingRef.current = false;
+  }
+
+  async function processScan(scanned) {
     // Already sitting in this batch. Usually that's a genuine repeat scan to
     // flag (see the dup-in-list row below) — EXCEPT when it's an outer
     // that's still an incomplete carton (fewer inner scanned than it should
@@ -152,16 +192,12 @@ export default function ScanStockIn() {
       if (existing.kind === 'outer' && existing.gotten < existing.expected) {
         activeOuterRef.current = scanned;
         showToast(`Resumed carton ${scanned} (${existing.gotten}/${existing.expected} inner so far) — scan its remaining inner now.`, 'g');
-        resetScan();
         return;
       }
       addRow({ code: scanned, status: 'dup-in-list', message: 'Already in this list' });
-      resetScan();
       return;
     }
 
-    lookingRef.current = true;
-    setLooking(true);
     try {
       const res = await barcodeApi.lookup(scanned);
       const kind = res.kind || 'outer';
@@ -214,10 +250,6 @@ export default function ScanStockIn() {
       // Not recognised / network error etc. — NOT added to queueCodesRef, so
       // a mistyped or misread code can be corrected and rescanned freely.
       addRow({ code: scanned, status: 'error', message: err.message });
-    } finally {
-      lookingRef.current = false;
-      setLooking(false);
-      resetScan();
     }
   }
 
@@ -401,11 +433,17 @@ export default function ScanStockIn() {
               onKeyDown={onCodeKeyDown}
               placeholder="Point scanner here and scan…"
               autoFocus
-              disabled={looking || confirmingAll}
+              disabled={confirmingAll}
             />
+            {/* Never disabled while a lookup is in flight (only while the
+                bulk confirm below is running) — scanning fast and
+                back-to-back must never get swallowed by a disabled field. */}
+            {pendingCount > 0 && (
+              <div style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>Looking up… {pendingCount} more queued</div>
+            )}
           </div>
           <div className="btnrow">
-            <button className="btn" disabled={looking || confirmingAll}>{looking ? 'Looking up…' : 'Look up'}</button>
+            <button className="btn" disabled={confirmingAll}>{looking ? 'Looking up…' : 'Look up'}</button>
             {!cameraOn ? (
               <button type="button" className="btn o" onClick={startCamera}>📷 Use camera instead</button>
             ) : (
