@@ -223,6 +223,14 @@ export default function ScanStockIn() {
         activeOuterRef.current = res.innerTotal > 0 ? scanned : null;
         queueCodesRef.current.add(scanned);
         addRow({ code: scanned, status: 'ready', kind: 'outer', productName: res.productName, qty: res.qty, photo: res.photo, expected: res.innerTotal || 0, gotten: 0 });
+      } else if (!res.parentCode) {
+        // A LOOSE inner — no outer at all (generated standalone for old
+        // stock that's already sitting as separated inner cartons, see
+        // GenerateBarcodes' "Loose inner only" mode). Nothing to verify it
+        // against, so unlike a normal inner it's directly confirmable on its
+        // own qty, exactly like an outer.
+        queueCodesRef.current.add(scanned);
+        addRow({ code: scanned, status: 'ready', kind: 'inner', productName: res.productName, qty: res.qty, photo: res.photo });
       } else {
         // An inner — verified against whichever outer is currently "open",
         // using its TRUE parentCode from the database, never which box it
@@ -522,6 +530,7 @@ export default function ScanStockIn() {
                     </div>
                   )}
                   {r.kind === 'inner' && r.status === 'verified' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Part of carton {r.parentCode} — pcs already counted in its outer</div>}
+                  {r.kind === 'inner' && r.status === 'ready' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Loose inner — no outer, stocks in on its own</div>}
                   {r.message && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, color: r.status === 'wrong-carton' ? 'var(--red)' : undefined, fontWeight: r.status === 'wrong-carton' ? 600 : 400 }}>{r.status === 'wrong-carton' ? '⚠ ' : ''}{r.message}</div>}
                 </div>
                 {r.qty != null && <span className={r.status === 'verified' ? 'muted' : undefined} style={{ flexShrink: 0 }}>{r.qty} pcs</span>}

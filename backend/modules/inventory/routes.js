@@ -19,6 +19,9 @@ router.post('/bulk-set', allow('mhead', 'accounts', 'admin', 'masterAdmin'), ctr
 // actual warehouse scan-and-confirm is open to whoever handles physical
 // stock day to day, same role set as manually adjusting inventory, plus inward.
 router.post('/stock-in-batches', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.generateBatch);
+// Standalone inner-only codes — for OLD stock that's already loose inner
+// cartons with no real outer left to pair them with (see generateInnerBatch).
+router.post('/stock-in-inner-batches', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.generateInnerBatch);
 router.get('/stock-in-batches/:batchId', allow('admin', 'masterAdmin', 'inward'), barcodeCtrl.getBatch);
 router.delete('/stock-in-batches/:batchId', allow('masterAdmin'), barcodeCtrl.deleteBatch);
 // Must come before '/carton/:code' below — otherwise Express matches

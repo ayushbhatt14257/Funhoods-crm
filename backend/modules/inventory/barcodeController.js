@@ -82,6 +82,40 @@ async function generateBatch(req, res) {
   });
 }
 
+// POST /api/inventory/stock-in-inner-batches  { code, innerCount }
+// admin/masterAdmin/inward only. For OLD stock that already exists as loose,
+// standalone inner cartons — separated from their outer well before this
+// barcode system existed, so there's no real outer left to generate one
+// alongside (generateBatch above always pairs an outer with its inner
+// children; this is the opposite case, inner with no outer at all). Each
+// generated code has `parentCode` left blank on purpose — that's what tells
+// lookupCarton/confirm this is a standalone unit, confirmable on its own
+// qty straight away, never needing an "active outer" to verify against.
+async function generateInnerBatch(req, res) {
+  const { code, innerCount } = req.body;
+  const product = await Product.findOne({ code: String(code || '').toUpperCase() });
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+  if (!product.cartonInner || product.cartonInner <= 0) {
+    return res.status(400).json({ message: `${product.name} has no inner carton size set — set it on the product first.` });
+  }
+
+  const count = Math.max(1, Math.min(2000, +innerCount || 0));
+  if (!count) return res.status(400).json({ message: 'innerCount must be at least 1' });
+
+  const batchId = `BI${Date.now().toString(36).toUpperCase()}${randomSuffix().slice(0, 4)}`;
+  const docs = Array.from({ length: count }, () => ({
+    code: `${product.code}-I${randomSuffix()}`,
+    batchId, product: product.code, productName: product.name,
+    qty: product.cartonInner, kind: 'inner', parentCode: '', status: 'pending', createdBy: req.user.name,
+  }));
+
+  const inserted = await CartonBarcode.insertMany(docs, { ordered: false });
+  res.status(201).json({
+    batchId, product: { code: product.code, name: product.name, photo: product.photo || '' },
+    qty: product.cartonInner, cartons: inserted,
+  });
+}
+
 // GET /api/inventory/stock-in-batches/:batchId — reprint an existing batch's labels
 async function getBatch(req, res) {
   const cartons = await CartonBarcode.find({ batchId: req.params.batchId }).sort({ createdAt: 1, code: 1 });
@@ -108,6 +142,13 @@ async function getBatch(req, res) {
     ordered.push(o);
     (innersByParent[o.code] || []).forEach((inner) => ordered.push(inner));
   });
+  // A generateInnerBatch batch has no outers at all — every carton in it is
+  // a standalone inner with a blank parentCode, so the loop above never adds
+  // them (nothing in `outers` to hang them off). Append anything left over
+  // (i.e. `''` or any parentCode that isn't one of this batch's own outers)
+  // so a standalone-inner batch still prints/reprints correctly.
+  const orderedCodes = new Set(ordered.map((c) => c.code));
+  cartons.forEach((c) => { if (!orderedCodes.has(c.code)) ordered.push(c); });
 
   res.json({ batchId: req.params.batchId, product: { code: cartons[0].product, name: cartons[0].productName }, qty: cartons[0].qty, cartons: ordered });
 }
@@ -698,7 +739,7 @@ async function deleteBatch(req, res) {
 }
 
 module.exports = {
-  generateBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, searchCartons, confirmCarton,
+  generateBatch, generateInnerBatch, getBatch, getByProduct, getRecentBatches, lookupCarton, searchCartons, confirmCarton,
   splitCarton, deleteCarton, forDispatchScan, availableCounts, manualDispatchCarton, migrateOutward, clearAll, deleteBatch,
   productMovements,
 };

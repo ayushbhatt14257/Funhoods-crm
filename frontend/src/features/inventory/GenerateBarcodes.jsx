@@ -55,6 +55,12 @@ export default function GenerateBarcodes() {
   const [product, setProduct] = useState(null);
   const [cartonCount, setCartonCount] = useState(50);
   const [qtyOverride, setQtyOverride] = useState('');
+  // 'outer' (default): normal outer+its-own-inner generation, for new
+  // production. 'looseInner': standalone inner-only codes with no outer at
+  // all — for OLD stock that's already sitting as loose inner cartons with
+  // no real outer left to pair a code with.
+  const [genMode, setGenMode] = useState('outer');
+  const [innerCount, setInnerCount] = useState(20);
   const [batch, setBatch] = useState(null); // { batchId, product, qty, cartons }
   const [generating, setGenerating] = useState(false);
   const [recentBatches, setRecentBatches] = useState(null); // null = loading
@@ -278,6 +284,22 @@ export default function GenerateBarcodes() {
         'g'
       );
       loadRecentBatches(recentLimit); // so the new batch shows up in the history right away, keeping however many rows were already loaded
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setGenerating(false); }
+  }
+
+  // For OLD stock: standalone inner-only codes, no outer at all. Each one
+  // stocks in on its own qty straight away (see ScanStockIn) — there's no
+  // "active outer" to verify against since there isn't one.
+  async function generateLooseInner() {
+    if (!product) return showToast('Pick a product', 'err');
+    if (!innerCount || innerCount < 1) return showToast('Enter how many inner cartons', 'err');
+    setGenerating(true);
+    try {
+      const res = await barcodeApi.generateInnerBatch(product.code, +innerCount);
+      setBatch({ ...res, cartons: res.cartons.map((c) => ({ ...c, kind: 'inner' })) });
+      showToast(`Generated ${res.cartons.length} loose inner barcode(s) — printing…`, 'g');
+      loadRecentBatches(recentLimit);
     } catch (err) { showToast(err.message, 'err'); }
     finally { setGenerating(false); }
   }
@@ -537,12 +559,13 @@ export default function GenerateBarcodes() {
           <div className="label-sheet">
             {batch.cartons.map((c) => {
               const isInner = c.kind === 'inner';
+              const isLoose = isInner && !c.parentCode; // standalone inner, no outer at all — see generateInnerBatch
               // Inner labels among this outer's siblings, printed together —
               // "1 of 2" style, computed from the code's own numeric suffix
               // (e.g. "...-02") rather than array position, so a single
               // reprinted inner still shows its correct position within the set.
-              const innerIndex = isInner ? (c.code.match(/-(\d+)$/)?.[1] || '') : '';
-              const innerSiblingCount = isInner ? batch.cartons.filter((x) => x.kind === 'inner' && x.parentCode === c.parentCode).length : 0;
+              const innerIndex = isInner && !isLoose ? (c.code.match(/-(\d+)$/)?.[1] || '') : '';
+              const innerSiblingCount = isInner && !isLoose ? batch.cartons.filter((x) => x.kind === 'inner' && x.parentCode === c.parentCode).length : 0;
               return (
                 <div className="label" key={c.code}>
                   {/* OUTER (black) vs INNER (red) badge — colour alone tells
@@ -552,11 +575,13 @@ export default function GenerateBarcodes() {
                       matched against the outer box it's meant to go in
                       before sticking it — no scanning needed for that quick
                       sanity check (the scan-time check is the real
-                      guarantee; this is the fast human-eye first pass). */}
+                      guarantee; this is the fast human-eye first pass). A
+                      LOOSE inner (no outer at all — old stock) skips that
+                      line entirely, since there's no outer to match it to. */}
                   <div className={`label-badge ${isInner ? 'inner' : 'outer'}`}>
-                    {isInner ? `INNER${innerIndex ? ` ${+innerIndex} of ${innerSiblingCount || '?'}` : ''}` : 'OUTER CARTON'}
+                    {isLoose ? 'INNER (loose)' : isInner ? `INNER${innerIndex ? ` ${+innerIndex} of ${innerSiblingCount || '?'}` : ''}` : 'OUTER CARTON'}
                   </div>
-                  {isInner && (
+                  {isInner && !isLoose && (
                     <div className="label-parent">Belongs to outer <b>{c.parentCode}</b></div>
                   )}
                   <div className="label-name" style={isInner ? { fontSize: 18 } : undefined}>{batch.product.name}</div>
@@ -585,14 +610,37 @@ export default function GenerateBarcodes() {
                 <button className="btn o" onClick={() => setShowPicker(true)}>+ Pick product</button>
               )}
             </div>
-            <div className="row2">
-              <div className="fg"><label>How many cartons?</label><input type="number" value={cartonCount} onChange={(e) => setCartonCount(e.target.value)} /></div>
-              <div className="fg">
-                <label>Pcs per carton {product && <span className="muted" style={{ fontWeight: 400, fontSize: 10.5 }}>(default {product.cartonOuter})</span>}</label>
-                <input type="number" placeholder={product ? String(product.cartonOuter) : ''} value={qtyOverride} onChange={(e) => setQtyOverride(e.target.value)} />
+            <div className="fg">
+              <label>What are you generating?</label>
+              <div className="btnrow">
+                <button type="button" className={genMode === 'outer' ? 'btn sm' : 'btn o sm'} onClick={() => setGenMode('outer')}>Outer + its inner (new stock)</button>
+                <button type="button" className={genMode === 'looseInner' ? 'btn sm' : 'btn o sm'} onClick={() => setGenMode('looseInner')}>Loose inner only (old stock)</button>
               </div>
             </div>
-            <button className="btn" disabled={generating} onClick={generate}>{generating ? 'Generating…' : 'Generate batch'}</button>
+
+            {genMode === 'outer' ? (
+              <>
+                <div className="row2">
+                  <div className="fg"><label>How many cartons?</label><input type="number" value={cartonCount} onChange={(e) => setCartonCount(e.target.value)} /></div>
+                  <div className="fg">
+                    <label>Pcs per carton {product && <span className="muted" style={{ fontWeight: 400, fontSize: 10.5 }}>(default {product.cartonOuter})</span>}</label>
+                    <input type="number" placeholder={product ? String(product.cartonOuter) : ''} value={qtyOverride} onChange={(e) => setQtyOverride(e.target.value)} />
+                  </div>
+                </div>
+                <button className="btn" disabled={generating} onClick={generate}>{generating ? 'Generating…' : 'Generate batch'}</button>
+              </>
+            ) : (
+              <>
+                <p className="muted" style={{ fontSize: 12.5, marginTop: -4 }}>
+                  For old stock that's already sitting as loose inner cartons with no outer left — each code is standalone, no outer needed, and stocks in on its own at {product ? product.cartonInner : '—'} pcs.
+                </p>
+                <div className="fg">
+                  <label>How many loose inner cartons?</label>
+                  <input type="number" value={innerCount} onChange={(e) => setInnerCount(e.target.value)} />
+                </div>
+                <button className="btn" disabled={generating} onClick={generateLooseInner}>{generating ? 'Generating…' : 'Generate loose inner labels'}</button>
+              </>
+            )}
           </div>
 
           {recentBatches !== null && (

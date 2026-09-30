@@ -2,6 +2,7 @@ import { api } from '../../api/client';
 
 export const barcodeApi = {
   generateBatch: (code, cartonCount, qtyOverride) => api.post('/inventory/stock-in-batches', { code, cartonCount, qtyOverride }),
+  generateInnerBatch: (code, innerCount) => api.post('/inventory/stock-in-inner-batches', { code, innerCount }),
   getBatch: (batchId) => api.get(`/inventory/stock-in-batches/${batchId}`),
   getByProduct: (code) => api.get(`/inventory/carton/by-product/${code}`),
   getRecentBatches: (limit = 10) => api.get(`/inventory/carton/recent-batches?limit=${limit}`),
