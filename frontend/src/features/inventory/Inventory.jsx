@@ -26,6 +26,8 @@ export default function Inventory() {
   const [movementsFor, setMovementsFor] = useState(null); // { code, name } | null — today's/range's in vs out for one product
   const [plan, setPlan] = useState(null); // null = not loaded yet
   const [exporting, setExporting] = useState(false);
+  const [showZeroConfirm, setShowZeroConfirm] = useState(false); // Danger zone — masterAdmin only, see zeroAllStock below
+  const [zeroing, setZeroing] = useState(false);
 
   async function load() { setRows(await api.get('/inventory')); }
   useEffect(() => { load(); }, []);
@@ -64,6 +66,20 @@ export default function Inventory() {
 
   const canSeeProductionPlanning = ['admin', 'masterAdmin'].includes(user.role);
 
+  // Danger zone — sets EVERY product's Physical to 0 in one go, for a
+  // deliberate fresh-start reset. Irreversible, so gated behind typing
+  // "ZERO ALL" in the confirm modal, not just a click — see ZeroAllModal.
+  async function zeroAllStock() {
+    setZeroing(true);
+    try {
+      const res = await api.post('/inventory/zero-all');
+      showToast(res.message, 'g');
+      setShowZeroConfirm(false);
+      load();
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setZeroing(false); }
+  }
+
   return (
     <div>
       <div className="ph"><div className="eyebrow">Physical stock</div><h2>Inventory</h2>
@@ -78,7 +94,12 @@ export default function Inventory() {
 
       {tab === 'stock' ? (
         <>
-          <input placeholder="Search product" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280, marginBottom: 14 }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <input placeholder="Search product" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280, margin: 0 }} />
+            {user.role === 'masterAdmin' && (
+              <button className="btn o rd sm" onClick={() => setShowZeroConfirm(true)}>⚠ Zero all stock</button>
+            )}
+          </div>
           {rows === null ? (
             <Loading label="Loading inventory…" />
           ) : (
@@ -177,7 +198,34 @@ export default function Inventory() {
           onClose={() => setMovementsFor(null)}
         />
       )}
+
+      {showZeroConfirm && (
+        <ZeroAllModal zeroing={zeroing} onConfirm={zeroAllStock} onClose={() => setShowZeroConfirm(false)} />
+      )}
     </div>
+  );
+}
+
+// Types-to-confirm gate for a one-click-away, irreversible, all-products
+// action — a plain "Are you sure?" is too easy to click through by reflex
+// for something this destructive.
+function ZeroAllModal({ zeroing, onConfirm, onClose }) {
+  const [typed, setTyped] = useState('');
+  return (
+    <Modal title="⚠ Zero all stock" onClose={onClose}>
+      <p>This sets <b>every single product's</b> Physical stock to <b>0</b> — not just barcode-tracked ones, all of them. This cannot be undone.</p>
+      <p className="muted" style={{ fontSize: 12.5 }}>Reserved (demand from open PIs) is untouched — only Physical is zeroed.</p>
+      <div className="fg">
+        <label>Type <b>ZERO ALL</b> to confirm</label>
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+      </div>
+      <div className="btnrow">
+        <button className="btn rd" disabled={typed !== 'ZERO ALL' || zeroing} onClick={onConfirm}>
+          {zeroing ? 'Zeroing…' : 'Zero all stock'}
+        </button>
+        <button className="btn o" onClick={onClose}>Cancel</button>
+      </div>
+    </Modal>
   );
 }
 

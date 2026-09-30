@@ -12,6 +12,8 @@ router.get('/production-planning', allow('admin', 'masterAdmin'), ctrl.productio
 router.get('/production-planning/export', allow('admin', 'masterAdmin'), ctrl.exportProductionPlanning);
 router.patch('/:code', allow('mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'), ctrl.adjust);
 router.post('/bulk-set', allow('mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.bulkSet);
+// Danger zone — wipes EVERY product's Physical stock to 0. masterAdmin only.
+router.post('/zero-all', allow('masterAdmin'), ctrl.zeroAllStock);
 
 // Barcode stock-in — generating batches is an admin/masterAdmin/inward call
 // (that's the "master sets the carton size and prints labels" part, plus

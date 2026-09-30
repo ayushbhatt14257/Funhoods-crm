@@ -106,6 +106,18 @@ async function adjust(req, res) {
   res.json(item);
 }
 
+// POST /api/inventory/zero-all — masterAdmin only. Sets EVERY product's
+// Physical stock to 0 in one go, for a deliberate fresh-start reset (e.g.
+// switching over to barcode-tracked stock-in and wanting a clean slate
+// rather than whatever the old, untracked numbers happened to say). Does
+// NOT touch Reserved (that's always computed live from open PIs, never
+// stored — see getLiveReservedMap above) and does NOT touch any carton/
+// barcode records — pair with barcodeCtrl.clearAll if those need wiping too.
+async function zeroAllStock(req, res) {
+  const result = await Inventory.updateMany({}, { $set: { physical: 0 } });
+  res.json({ message: `Zeroed Physical stock for ${result.modifiedCount} product(s).`, modifiedCount: result.modifiedCount });
+}
+
 // POST /api/inventory/bulk-set  { rows: [{code, physical}] } — for the opening-stock Excel import
 async function bulkSet(req, res) {
   const { rows } = req.body;
@@ -127,4 +139,4 @@ async function bulkSet(req, res) {
   res.json({ results });
 }
 
-module.exports = { list, adjust, bulkSet, productionPlanning, exportProductionPlanning };
+module.exports = { list, adjust, bulkSet, zeroAllStock, productionPlanning, exportProductionPlanning };

@@ -3,6 +3,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/client';
 import ProductPickerModal from '../pi/components/ProductPickerModal';
+import Modal from '../../components/Modal';
 import { barcodeApi } from './barcodeApi';
 
 // admin/masterAdmin only. qrcode is loaded lazily (dynamic import) so it
@@ -68,6 +69,8 @@ export default function GenerateBarcodes() {
   const [recentHasMore, setRecentHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [deletingBatch, setDeletingBatch] = useState(null); // batchId currently being deleted
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false); // Danger zone — masterAdmin only
+  const [clearingAll, setClearingAll] = useState(false);
 
   // --- Track tab ---
   const [showTrackPicker, setShowTrackPicker] = useState(false);
@@ -302,6 +305,23 @@ export default function GenerateBarcodes() {
       loadRecentBatches(recentLimit);
     } catch (err) { showToast(err.message, 'err'); }
     finally { setGenerating(false); }
+  }
+
+  // Danger zone — wipes EVERY generated barcode/carton record ever created,
+  // any product, any status (pending, in_stock, dispatched, split — all of
+  // it). Does NOT touch Inventory.physical (see clearAll's own backend
+  // comment) — pair with Inventory's "Zero all stock" if that needs
+  // resetting too. Irreversible, so gated behind typing to confirm.
+  async function clearAllBarcodes() {
+    setClearingAll(true);
+    try {
+      const res = await barcodeApi.clearAll();
+      showToast(res.message, 'g');
+      setShowClearAllConfirm(false);
+      setBatch(null);
+      loadRecentBatches(recentLimit);
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setClearingAll(false); }
   }
 
   // Renders off-screen always (see .silent-print) — nothing here is ever
@@ -541,9 +561,14 @@ export default function GenerateBarcodes() {
       <div className="ph"><div className="eyebrow">Stock-in setup</div><h2>Generate Barcodes</h2>
         <p>Each carton gets its own unique, one-time-use barcode — scanning it twice by mistake is blocked automatically. Print and stick one on every carton before it leaves the production floor.</p></div>
 
-      <div className="btnrow no-print" style={{ marginBottom: 14 }}>
-        <button className={tab === 'generate' ? 'btn sm' : 'btn o sm'} onClick={() => setTab('generate')}>🏷️ Generate</button>
-        <button className={tab === 'track' ? 'btn sm' : 'btn o sm'} onClick={() => setTab('track')}>📊 Track</button>
+      <div className="btnrow no-print" style={{ marginBottom: 14, justifyContent: 'space-between' }}>
+        <div className="btnrow" style={{ margin: 0 }}>
+          <button className={tab === 'generate' ? 'btn sm' : 'btn o sm'} onClick={() => setTab('generate')}>🏷️ Generate</button>
+          <button className={tab === 'track' ? 'btn sm' : 'btn o sm'} onClick={() => setTab('track')}>📊 Track</button>
+        </div>
+        {user.role === 'masterAdmin' && (
+          <button className="btn o rd sm" onClick={() => setShowClearAllConfirm(true)}>⚠ Clear all barcodes</button>
+        )}
       </div>
 
       {batch && (
@@ -960,6 +985,32 @@ export default function GenerateBarcodes() {
           .label:last-child { page-break-after: auto; }
         }
       `}</style>
+
+      {showClearAllConfirm && (
+        <ClearAllBarcodesModal clearingAll={clearingAll} onConfirm={clearAllBarcodes} onClose={() => setShowClearAllConfirm(false)} />
+      )}
     </div>
+  );
+}
+
+// Types-to-confirm gate for a one-click-away, irreversible, everything-wipe
+// action — same pattern as Inventory's "Zero all stock".
+function ClearAllBarcodesModal({ clearingAll, onConfirm, onClose }) {
+  const [typed, setTyped] = useState('');
+  return (
+    <Modal title="⚠ Clear all barcodes" onClose={onClose}>
+      <p>This permanently deletes <b>every generated barcode/carton record</b> — any product, any status (pending, in stock, dispatched, split). This cannot be undone.</p>
+      <p className="muted" style={{ fontSize: 12.5 }}>Doesn't touch Inventory's Physical stock numbers, and doesn't touch past invoices/dispatch history — only the QR/barcode tracking records themselves.</p>
+      <div className="fg">
+        <label>Type <b>CLEAR ALL</b> to confirm</label>
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
+      </div>
+      <div className="btnrow">
+        <button className="btn rd" disabled={typed !== 'CLEAR ALL' || clearingAll} onClick={onConfirm}>
+          {clearingAll ? 'Clearing…' : 'Clear all barcodes'}
+        </button>
+        <button className="btn o" onClick={onClose}>Cancel</button>
+      </div>
+    </Modal>
   );
 }
