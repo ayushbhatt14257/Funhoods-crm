@@ -67,6 +67,16 @@ function availLabel(avail) {
 // separate, independently selectable rows (they'll be separate invoice lines).
 function rowKey(item) { return `${item.code}|${item.rate}`; }
 
+// Same scan-speed heuristic as Stock In's ScanStockIn.jsx — a hardware
+// scanner "types" a whole code in a handful of milliseconds, far faster
+// than anyone can type by hand, so once the average gap between the last
+// several keystrokes drops under SCAN_SPEED_MS this is almost certainly a
+// finished scan and gets auto-submitted the moment typing pauses, with no
+// Enter or button click needed. Genuine manual typing (slower gaps) is
+// left alone and still needs Enter / the Add scan button.
+const SCAN_SPEED_MS = 30;
+const AUTO_SUBMIT_DEBOUNCE_MS = 120;
+
 // scannedCodes/onScannedCodesChange is lifted up to Dispatch.jsx (same way
 // selection is) so the raw list of scanned carton codes survives up to the
 // final dispatch submit — that's what actually gets locked in as
@@ -85,8 +95,6 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   const [globalScanValue, setGlobalScanValue] = useState('');
   const [globalCameraOn, setGlobalCameraOn] = useState(false);
   const [scanLog, setScanLog] = useState([]); // most-recent-first feed of every scan attempt, matched or not
-  const [splitTarget, setSplitTarget] = useState(null); // { rowKey, code } — last scanned outer, offered for splitting
-  const [splitting, setSplitting] = useState(false);
 
   // Fast-scan queueing — same pattern as Stock In's ScanStockIn.jsx: never
   // block/disable the input while a lookup is in flight (a scanner gun's
@@ -96,11 +104,16 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   const processingRef = useRef(false);
   const [pendingCount, setPendingCount] = useState(0);
   const lastSubmittedRef = useRef('');
+  const keyTimesRef = useRef([]); // recent keystroke timestamps, for scan-speed detection
+  const autoTimerRef = useRef(null); // debounce timer for the auto-submit-on-pause check
   const rowsRef = useRef([]); // kept in sync below — processQueue reads the latest rows without needing them in its closure
   const selectionRef = useRef(selection);
   const scannedCodesRef = useRef(scannedCodes);
   useEffect(() => { selectionRef.current = selection; }, [selection]);
   useEffect(() => { scannedCodesRef.current = scannedCodes; }, [scannedCodes]);
+  // Clean up any pending debounce timer on unmount so it never fires after
+  // this screen's been navigated away from.
+  useEffect(() => () => { if (autoTimerRef.current) clearTimeout(autoTimerRef.current); }, []);
 
   // allRows = every pending row regardless of the search box — this is
   // what the global scan box matches a scanned carton against, since
@@ -299,14 +312,15 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     let nextOuters = current.outers, nextInners = current.inners;
     if (res.kind === 'outer') {
       if (current.outers >= row.max.outers) {
-        // This exact outer doesn't fit what's left — but it might if split
-        // into inners, so offer that right here instead of just refusing.
-        pushLog({ code, status: 'err', message: `Too big for what's left on ${row.item.name} — split it into inners instead.`, productName: res.productName });
-        setSplitTarget({ rowKey: row.key, code: res.code });
+        // This exact outer doesn't fit what's left on this order — simply
+        // rejected, nothing more to do with it here (no split offered —
+        // splitting a sealed outer just to force-fit it isn't something
+        // this flow does anymore; scan an inner instead, or use the manual
+        // checkbox/typed-qty fallback below).
+        pushLog({ code, status: 'err', message: `${row.item.name} — this outer doesn't fit what's left on the order.`, productName: res.productName });
         return;
       }
       nextOuters = current.outers + 1;
-      setSplitTarget({ rowKey: row.key, code: res.code });
     } else {
       if (current.inners >= row.max.inners) {
         pushLog({ code, status: 'err', message: `Already at the max inner count for ${row.item.name}`, productName: res.productName });
@@ -317,22 +331,52 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onSelectionChange({ ...selectionRef.current, [row.key]: { outers: nextOuters, inners: nextInners } });
     onScannedCodesChange([...scannedCodesRef.current, { code: res.code, ownerKey: row.key, kind: res.kind, productCode: row.item.code }]);
     setAvailable((a) => ({ ...a, [row.item.code]: { ...a[row.item.code], [res.kind]: Math.max(0, (a[row.item.code]?.[res.kind] || 0) - 1) } }));
+    // The cascade (opening a sealed outer to fulfil a partial inner order)
+    // is a real thing that happens server-side when needed, but it's an
+    // implementation detail, not something the dispatcher needs to parse —
+    // every successful scan reads the same plain way regardless of whether
+    // it triggered one, so the log never sounds like stock is appearing
+    // from nowhere right after a dispatch.
     const nextPcs = nextOuters * row.item.cartonOuter + nextInners * row.item.cartonInner;
-    pushLog({
-      code, status: res.parentActivation ? 'cascade' : 'ok',
-      message: res.parentActivation
-        ? `${row.item.name} — opened outer ${res.parentActivation.parentCode}, its other inner units are now in stock too`
-        : `${row.item.name} — ${nextPcs}/${row.item.pendingPcs} pcs now staged`,
-      productName: res.productName,
-    });
+    pushLog({ code, status: 'ok', message: `${row.item.name} — ${nextPcs}/${row.item.pendingPcs} pcs now staged`, productName: res.productName });
+  }
+
+  function onGlobalScanKeyDown() {
+    keyTimesRef.current.push(performance.now());
+    if (keyTimesRef.current.length > 24) keyTimesRef.current.shift();
+  }
+  function onGlobalScanChange(e) {
+    const val = e.target.value;
+    setGlobalScanValue(val);
+    if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+    autoTimerRef.current = setTimeout(() => maybeAutoSubmit(val), AUTO_SUBMIT_DEBOUNCE_MS);
+  }
+  // Same heuristic as ScanStockIn.jsx: if the last several keystrokes came
+  // in far faster than anyone can type by hand, this is a finished scan —
+  // submit it the moment typing pauses, with no Enter or click needed.
+  function maybeAutoSubmit(val) {
+    const trimmed = val.trim();
+    const times = keyTimesRef.current;
+    if (trimmed.length < 4 || times.length < 4 || trimmed === lastSubmittedRef.current) return;
+    const recentTimes = times.slice(-trimmed.length);
+    let totalGap = 0, gaps = 0;
+    for (let i = 1; i < recentTimes.length; i++) { totalGap += recentTimes[i] - recentTimes[i - 1]; gaps++; }
+    const avgGap = gaps ? totalGap / gaps : Infinity;
+    if (avgGap <= SCAN_SPEED_MS) {
+      keyTimesRef.current = [];
+      scanCode(val);
+    }
+    // Slower than that = real typing; leave it for Enter / the Add scan button.
   }
 
   function scanCode(rawCode) {
     const scanned = String(rawCode || '').trim();
     if (!scanned) return;
+    if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; }
     lastSubmittedRef.current = scanned;
     setTimeout(() => { if (lastSubmittedRef.current === scanned) lastSubmittedRef.current = ''; }, 0);
     setGlobalScanValue('');
+    keyTimesRef.current = [];
     pendingScansRef.current.push(scanned);
     setPendingCount(pendingScansRef.current.length);
     if (!processingRef.current) processQueue();
@@ -346,57 +390,6 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       setPendingCount(pendingScansRef.current.length);
     }
     processingRef.current = false;
-  }
-
-  async function splitCarton() {
-    if (!splitTarget) return;
-    // Permanent and one-way — confirm explicitly, since this button sits
-    // right next to Add scan/Stop camera and an accidental tap previously
-    // split a carton nobody meant to split.
-    if (!confirm(`Split ${splitTarget.code} into inner cartons? This cannot be undone.`)) return;
-    setSplitting(true);
-    try {
-      const res = await barcodeApi.split(splitTarget.code);
-      const row = rowsRef.current.find((r) => r.key === splitTarget.rowKey);
-      // splitCarton on the backend already creates real, verified,
-      // in_stock inner CartonBarcode records for every child — a rescan of
-      // one would only ever confirm exactly what the split response
-      // already told us. So instead of making the warehouse print a fresh
-      // label and scan it right back in for the very same order that
-      // caused the split, apply as many of the new inners as THIS row
-      // still needs straight into the dispatch, no reprint/rescan needed.
-      // Any leftover (this order didn't need all of them) is left as
-      // ordinary in-stock inventory — still fine to print/scan normally
-      // whenever it's actually used later.
-      if (row && res.children?.length) {
-        const current = selection[row.key] || { outers: 0, inners: 0 };
-        const roomLeft = Math.max(0, row.max.inners - current.inners);
-        const toApply = res.children.slice(0, roomLeft);
-        const leftover = res.children.length - toApply.length;
-        if (toApply.length) {
-          onSelectionChange({ ...selection, [row.key]: { outers: current.outers, inners: current.inners + toApply.length } });
-          onScannedCodesChange([...scannedCodes, ...toApply.map((c) => ({ code: c.code, ownerKey: row.key, kind: 'inner', productCode: row.item.code }))]);
-        }
-        // The split outer itself is no longer available stock (status is
-        // now 'split'), and any leftover inners it produced ARE now
-        // available — reflect both without waiting for a full pool reload.
-        setAvailable((a) => ({
-          ...a,
-          [row.item.code]: {
-            outer: Math.max(0, (a[row.item.code]?.outer || 0) - 1),
-            inner: (a[row.item.code]?.inner || 0) + leftover,
-          },
-        }));
-        showToast(
-          `${res.message}${toApply.length ? ` — ${toApply.length} applied straight to this dispatch, no rescan needed` : ''}${leftover ? `, ${leftover} left in stock` : ''}`,
-          'g'
-        );
-      } else {
-        showToast(res.message, 'g');
-      }
-      setSplitTarget(null);
-    } catch (err) { showToast(err.message, 'err'); }
-    finally { setSplitting(false); }
   }
 
   const grandTotal = rows.reduce((sum, r) => {
@@ -427,10 +420,14 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
           <div style={{ fontWeight: 700, fontSize: 14 }}>📷 Scan cartons for this dispatch</div>
           {pendingCount > 0 && <div className="muted" style={{ fontSize: 12 }}>Looking up… {pendingCount} more queued</div>}
         </div>
+        {/* No submit button needed for a real scan — every scan lands and
+            processes itself the instant the scanner gun finishes "typing"
+            it (see maybeAutoSubmit). Enter/the Add scan button stay as the
+            fallback for someone typing a code in by hand. */}
         <form onSubmit={(e) => { e.preventDefault(); scanCode(globalScanValue); }} className="btnrow" style={{ flexWrap: 'wrap' }}>
           <input
             autoFocus placeholder="Scan or type any carton code — any product on this order"
-            value={globalScanValue} onChange={(e) => setGlobalScanValue(e.target.value)}
+            value={globalScanValue} onChange={onGlobalScanChange} onKeyDown={onGlobalScanKeyDown}
             disabled={globalCameraOn}
             style={{ minWidth: 240, flex: 1 }}
           />
@@ -439,11 +436,6 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
             <button type="button" className="btn o sm rd" onClick={() => setGlobalCameraOn(false)}>Stop camera</button>
           ) : (
             <button type="button" className="btn o sm" onClick={() => setGlobalCameraOn(true)}>📷 Open camera</button>
-          )}
-          {splitTarget && (
-            <button type="button" className="btn o sm" disabled={splitting} onClick={splitCarton}>
-              {splitting ? 'Splitting…' : `✂️ Split ${splitTarget.code} into inners`}
-            </button>
           )}
         </form>
         {globalCameraOn && (
@@ -463,12 +455,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
                   padding: '6px 10px', borderBottom: i < scanLog.length - 1 ? '1px solid var(--line)' : 'none',
-                  background: entry.status === 'err' ? 'rgba(220,50,50,0.06)' : entry.status === 'cascade' ? 'rgba(240,170,20,0.1)' : 'transparent',
+                  background: entry.status === 'err' ? 'rgba(220,50,50,0.06)' : 'transparent',
                 }}
               >
                 <span style={{ fontSize: 12 }}>
                   <span className="mono">{entry.code}</span>{' '}
-                  {entry.status === 'err' ? '✕' : entry.status === 'cascade' ? '📦' : '✓'} {entry.message}
+                  {entry.status === 'err' ? '✕' : '✓'} {entry.message}
                 </span>
               </div>
             ))}
