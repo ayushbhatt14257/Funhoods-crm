@@ -69,6 +69,13 @@ textarea{resize:vertical;min-height:70px}
 .btn.o{background:transparent;color:var(--spruce);border:1.5px solid var(--line)}
 .btn.rd{background:var(--red)}
 .btn.g{background:var(--green)}
+/* .o (outline) sets its own text color (spruce) and only .rd/.g set the
+   fill — combined as "btn o rd"/"btn o g" (every Remove/Delete/confirm
+   button across the app), the fill went solid but the text stayed spruce,
+   making it unreadable against red/green. These win on specificity (two
+   classes matched) and restore white text whenever .o is filled solid. */
+.btn.o.rd{background:var(--red);color:var(--paper);border-color:var(--red)}
+.btn.o.g{background:var(--green);color:var(--paper);border-color:var(--green)}
 .btn.sm{padding:6px 12px;font-size:12px}
 .btnrow{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
 .subtabs{display:flex;gap:6px;border-bottom:1px solid var(--line)}
