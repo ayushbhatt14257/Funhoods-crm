@@ -222,7 +222,15 @@ export default function ScanStockIn() {
         }
         activeOuterRef.current = res.innerTotal > 0 ? scanned : null;
         queueCodesRef.current.add(scanned);
-        addRow({ code: scanned, status: 'ready', kind: 'outer', productName: res.productName, qty: res.qty, photo: res.photo, expected: res.innerTotal || 0, gotten: 0 });
+        // Inner scanning is compulsory, not optional — an outer whose
+        // product actually has inner cartons (innerTotal > 0) starts life
+        // 'incomplete' and stays blocked from "Add to stock" until every
+        // one of its inner labels has been verified (see the gotten/
+        // expected bump below, which is what flips it to 'ready'). A
+        // product with no inner carton size set at all (innerTotal === 0)
+        // has nothing to verify, so it's ready immediately, same as before.
+        const expected = res.innerTotal || 0;
+        addRow({ code: scanned, status: expected > 0 ? 'incomplete' : 'ready', kind: 'outer', productName: res.productName, qty: res.qty, photo: res.photo, expected, gotten: 0 });
       } else if (!res.parentCode) {
         // A LOOSE inner — no outer at all (generated standalone for old
         // stock that's already sitting as separated inner cartons, see
@@ -245,7 +253,15 @@ export default function ScanStockIn() {
           // real happens later, whenever this carton is actually opened.
           queueCodesRef.current.add(scanned);
           addRow({ code: scanned, status: 'verified', kind: 'inner', parentCode: res.parentCode, productName: res.productName, qty: res.qty, photo: res.photo });
-          updateQueue((q) => q.map((r) => (r.code === active ? { ...r, gotten: r.gotten + 1 } : r)));
+          // The bump that can finally unblock the outer — once every one
+          // of its expected inner labels has been verified, its status
+          // flips from 'incomplete' to 'ready' right here, which is what
+          // actually makes it eligible for "Add to stock" below.
+          updateQueue((q) => q.map((r) => {
+            if (r.code !== active) return r;
+            const gotten = r.gotten + 1;
+            return { ...r, gotten, status: gotten >= r.expected ? 'ready' : 'incomplete' };
+          }));
         } else {
           queueCodesRef.current.add(scanned);
           addRow({
@@ -417,6 +433,7 @@ export default function ScanStockIn() {
 
   const STATUS_LABEL = {
     ready: { text: 'Ready', color: 'var(--green)' },
+    incomplete: { text: 'Incomplete', color: 'var(--red)' },
     verified: { text: 'Verified ✓', color: 'var(--spruce)' },
     'already-stocked': { text: 'Already scanned', color: 'var(--red)' },
     'dup-in-list': { text: 'Duplicate scan', color: 'var(--red)' },
@@ -507,38 +524,70 @@ export default function ScanStockIn() {
             <button type="button" className="btn o sm" disabled={confirmingAll} onClick={clearQueue}>Clear list</button>
           </div>
 
-          {queue.map((r, i) => {
-            const label = STATUS_LABEL[r.status] || { text: r.status, color: 'var(--muted)' };
+          {/* Grouped by product, in a separate mini-section each, instead of
+              one flat mixed list — scanning product A's cartons, then
+              switching to product B without finishing A's inner labels,
+              used to bury A's still-"incomplete" outer in the middle of a
+              long list where it was easy to miss. Grouping keeps every
+              product's own progress visually separate, so an incomplete
+              carton for ANY product stays obvious regardless of scan order.
+              Global scan order (the numbering) is preserved within each group. */}
+          {Object.entries(
+            queue.reduce((groups, r, i) => {
+              const key = r.productName || r.code;
+              (groups[key] = groups[key] || []).push({ ...r, n: i + 1 });
+              return groups;
+            }, {})
+          ).map(([productName, rowsForProduct], gi) => {
+            const groupIncomplete = rowsForProduct.some((r) => r.status === 'incomplete');
             return (
-              <div key={r.id} style={{
-                display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, padding: '6px 0',
-                borderTop: i > 0 ? '1px solid var(--line)' : 'none',
-              }}>
-                <span className="muted mono" style={{ width: 24, textAlign: 'right', flexShrink: 0 }}>{i + 1}.</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {r.kind === 'inner' && '↳ '}{r.productName || <span className="mono">{r.code}</span>}
-                    {r.kind === 'outer' && <span className="muted" style={{ fontWeight: 400 }}> · OUTER</span>}
-                  </div>
-                  {r.productName && <div className="mono muted" style={{ fontSize: 10.5 }}>{r.code}</div>}
-                  {/* Live progress on an outer's own inner children — updates
-                      as each correctly-matched inner is scanned in, so it's
-                      obvious at a glance whether this carton's group is done. */}
-                  {r.kind === 'outer' && r.expected > 0 && (
-                    <div className="muted" style={{ fontSize: 10.5, marginTop: 1, color: r.gotten >= r.expected ? 'var(--green)' : undefined, fontWeight: r.gotten >= r.expected ? 600 : 400 }}>
-                      {r.gotten}/{r.expected} inner scanned{r.gotten >= r.expected ? ' ✓' : ''}
-                    </div>
-                  )}
-                  {r.kind === 'inner' && r.status === 'verified' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Part of carton {r.parentCode} — pcs already counted in its outer</div>}
-                  {r.kind === 'inner' && r.status === 'ready' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Loose inner — no outer, stocks in on its own</div>}
-                  {r.message && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, color: r.status === 'wrong-carton' ? 'var(--red)' : undefined, fontWeight: r.status === 'wrong-carton' ? 600 : 400 }}>{r.status === 'wrong-carton' ? '⚠ ' : ''}{r.message}</div>}
+              <div key={productName} style={{ marginTop: gi > 0 ? 14 : 0, border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '6px 10px', background: groupIncomplete ? 'rgba(220,50,50,0.06)' : 'var(--paper-d)',
+                  fontSize: 12, fontWeight: 700,
+                }}>
+                  <span>{productName}</span>
+                  {groupIncomplete && <span style={{ color: 'var(--red)', fontWeight: 600, fontSize: 11 }}>⚠ Incomplete carton(s) — not addable yet</span>}
                 </div>
-                {r.qty != null && <span className={r.status === 'verified' ? 'muted' : undefined} style={{ flexShrink: 0 }}>{r.qty} pcs</span>}
-                <span style={{ flexShrink: 0, fontWeight: 600, color: label.color, minWidth: 90, textAlign: 'right' }}>{label.text}</span>
-                <button
-                  type="button" className="btn o sm rd" disabled={confirmingAll}
-                  onClick={() => removeRow(r.id)} title="Remove from this list" style={{ flexShrink: 0, padding: '2px 8px' }}
-                >✕</button>
+                {rowsForProduct.map((r, i) => {
+                  const label = STATUS_LABEL[r.status] || { text: r.status, color: 'var(--muted)' };
+                  return (
+                    <div key={r.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, padding: '6px 10px',
+                      borderTop: i > 0 ? '1px solid var(--line)' : 'none',
+                    }}>
+                      <span className="muted mono" style={{ width: 24, textAlign: 'right', flexShrink: 0 }}>{r.n}.</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.kind === 'inner' && '↳ '}{r.productName || <span className="mono">{r.code}</span>}
+                          {r.kind === 'outer' && <span className="muted" style={{ fontWeight: 400 }}> · OUTER</span>}
+                        </div>
+                        {r.productName && <div className="mono muted" style={{ fontSize: 10.5 }}>{r.code}</div>}
+                        {/* Live progress on an outer's own inner children —
+                            updates as each correctly-matched inner is
+                            scanned in, so it's obvious at a glance whether
+                            this carton's group is done — and, now that
+                            inner scanning is compulsory, whether it's even
+                            eligible to be added to stock yet. */}
+                        {r.kind === 'outer' && r.expected > 0 && (
+                          <div className="muted" style={{ fontSize: 10.5, marginTop: 1, color: r.gotten >= r.expected ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                            {r.gotten}/{r.expected} inner scanned{r.gotten >= r.expected ? ' ✓' : ' — scan the rest before this can be added'}
+                          </div>
+                        )}
+                        {r.kind === 'inner' && r.status === 'verified' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Part of carton {r.parentCode} — pcs already counted in its outer</div>}
+                        {r.kind === 'inner' && r.status === 'ready' && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>Loose inner — no outer, stocks in on its own</div>}
+                        {r.message && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, color: r.status === 'wrong-carton' ? 'var(--red)' : undefined, fontWeight: r.status === 'wrong-carton' ? 600 : 400 }}>{r.status === 'wrong-carton' ? '⚠ ' : ''}{r.message}</div>}
+                      </div>
+                      {r.qty != null && <span className={r.status === 'verified' ? 'muted' : undefined} style={{ flexShrink: 0 }}>{r.qty} pcs</span>}
+                      <span style={{ flexShrink: 0, fontWeight: 600, color: label.color, minWidth: 90, textAlign: 'right' }}>{label.text}</span>
+                      <button
+                        type="button" className="btn o sm rd" disabled={confirmingAll}
+                        onClick={() => removeRow(r.id)} title="Remove from this list" style={{ flexShrink: 0, padding: '2px 8px' }}
+                      >✕</button>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
