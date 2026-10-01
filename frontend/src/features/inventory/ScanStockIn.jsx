@@ -285,11 +285,25 @@ export default function ScanStockIn() {
   function removeRow(id) {
     updateQueue((q) => {
       const row = q.find((r) => r.id === id);
-      if (row) {
-        queueCodesRef.current.delete(row.code); // freed up so it can be rescanned if this was a mistaken entry
-        if (activeOuterRef.current === row.code) activeOuterRef.current = null; // its "open box" context goes with it
+      if (!row) return q;
+      queueCodesRef.current.delete(row.code); // freed up so it can be rescanned if this was a mistaken entry
+      if (activeOuterRef.current === row.code) activeOuterRef.current = null; // its "open box" context goes with it
+      const remaining = q.filter((r) => r.id !== id);
+      // Removing a verified inner has to give its count back to the outer
+      // it was verified against — otherwise the outer's gotten/expected
+      // (and therefore its 'ready'/'incomplete' status) goes stale: it
+      // would keep reading "2/2 scanned ✓ · Ready" after one of those two
+      // inner rows was removed, when really only 1 of 2 is left scanned,
+      // and the outer should drop back to 'incomplete' (blocking Add to
+      // stock) until the removed inner is scanned again for real.
+      if (row.kind === 'inner' && row.status === 'verified' && row.parentCode) {
+        return remaining.map((r) => {
+          if (r.code !== row.parentCode) return r;
+          const gotten = Math.max(0, r.gotten - 1);
+          return { ...r, gotten, status: gotten >= r.expected ? 'ready' : 'incomplete' };
+        });
       }
-      return q.filter((r) => r.id !== id);
+      return remaining;
     });
   }
 
