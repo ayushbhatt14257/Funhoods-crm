@@ -243,14 +243,26 @@ export default function ScanStockIn() {
         // An inner — verified against whichever outer is currently "open",
         // using its TRUE parentCode from the database, never which box it
         // physically happened to be found in.
-        const active = activeOuterRef.current;
-        if (active && res.parentCode === active) {
+        // Matched against its TRUE parent outer (res.parentCode, straight
+        // from the database) wherever THAT outer currently sits in this
+        // batch — not only the single most-recently-scanned "active" one.
+        // Switching between products mid-scan (outer A, 1 inner, outer B,
+        // both of B's inner, then back to A's last leftover inner) used to
+        // mark that leftover as "wrong carton" the moment a different
+        // outer became active, even though it genuinely belonged to A —
+        // the active-outer gate was never actually needed for correctness
+        // (the database parentCode is already unambiguous), only for the
+        // friendly "resume" nudge, which this keeps by re-activating
+        // whichever outer a verified inner turns out to belong to.
+        const parentRow = queueRef.current.find((r) => r.kind === 'outer' && r.code === res.parentCode);
+        if (parentRow) {
           // 'verified' on purpose, NOT 'ready' — an inner still physically
           // sealed inside its outer isn't separate stock yet (its pcs are
           // already counted in the outer's own qty), so it's never
           // confirmed/added on its own here — only checked that it truly
           // belongs to the outer just scanned. Scanning it into stock for
           // real happens later, whenever this carton is actually opened.
+          activeOuterRef.current = res.parentCode;
           queueCodesRef.current.add(scanned);
           addRow({ code: scanned, status: 'verified', kind: 'inner', parentCode: res.parentCode, productName: res.productName, qty: res.qty, photo: res.photo });
           // The bump that can finally unblock the outer — once every one
@@ -258,15 +270,16 @@ export default function ScanStockIn() {
           // flips from 'incomplete' to 'ready' right here, which is what
           // actually makes it eligible for "Add to stock" below.
           updateQueue((q) => q.map((r) => {
-            if (r.code !== active) return r;
+            if (r.code !== res.parentCode) return r;
             const gotten = r.gotten + 1;
             return { ...r, gotten, status: gotten >= r.expected ? 'ready' : 'incomplete' };
           }));
         } else {
+          // Its real outer genuinely isn't in this batch at all yet.
           queueCodesRef.current.add(scanned);
           addRow({
             code: scanned, status: 'wrong-carton', kind: 'inner', parentCode: res.parentCode, productName: res.productName, qty: res.qty, photo: res.photo,
-            message: active ? `Belongs to carton ${res.parentCode}, not ${active} — check the box` : `Belongs to carton ${res.parentCode} — scan that outer first`,
+            message: `Belongs to carton ${res.parentCode} — scan that outer first`,
           });
         }
       }
