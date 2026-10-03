@@ -24,6 +24,21 @@ function everStockedIn(status) { return status === 'in_stock' || status === 'use
 // inner children in the batch detail table. This gives it its own label and
 // color so the parent row reads as "Split" and the table below can tell
 // parents and children apart at a glance.
+// Skips printing an inner's label when it carries the exact same pcs as its
+// own outer parent (e.g. outer=36pcs, 1 inner of 36pcs — the inner is just
+// the whole carton under a different code, so its label would say "1 of 1"
+// at the same qty as the outer right above it on the sheet: pure duplicate
+// paper). Only applies to a REAL inner (has a parentCode) — a loose inner
+// (no outer at all, see generateInnerBatch) always prints, since there's no
+// outer label standing in for it. A genuine multi-inner split (e.g. 3x12
+// inside a 36pc outer) still prints every inner as before, since those
+// carry real, different information (which 1-of-3 slice this is).
+function innerDuplicatesParent(c, allCartons) {
+  if (c.kind !== 'inner' || !c.parentCode) return false;
+  const parent = allCartons.find((x) => x.code === c.parentCode);
+  return !!parent && parent.qty === c.qty;
+}
+
 function statusBadge(status) {
   if (status === 'split') return { label: 'Split', cls: 'p' };
   if (status === 'dispatched') return { label: 'Dispatched', cls: 'r' };
@@ -237,7 +252,7 @@ export default function GenerateBarcodes() {
     if (!batch) return;
     (async () => {
       const JsBarcode = (await import('jsbarcode')).default;
-      batch.cartons.forEach((c) => {
+      batch.cartons.filter((c) => !innerDuplicatesParent(c, batch.cartons)).forEach((c) => {
         const canvas = document.getElementById(`barcode-${c.code}`);
         if (canvas) {
           JsBarcode(canvas, c.code, {
@@ -582,7 +597,7 @@ export default function GenerateBarcodes() {
         // with no on-screen preview, from whichever tab you're on.
         <div id="print-area" className="silent-print">
           <div className="label-sheet">
-            {batch.cartons.map((c) => {
+            {batch.cartons.filter((c) => !innerDuplicatesParent(c, batch.cartons)).map((c) => {
               const isInner = c.kind === 'inner';
               const isLoose = isInner && !c.parentCode; // standalone inner, no outer at all — see generateInnerBatch
               // Inner labels among this outer's siblings, printed together —
