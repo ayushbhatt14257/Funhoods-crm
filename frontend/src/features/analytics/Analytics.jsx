@@ -368,6 +368,27 @@ function NumberStepper({ value, onChange, min = 0, step = 1, width = 90 }) {
 
 let forecastRowId = 0;
 const emptyAccessory = () => ({ id: ++forecastRowId, name: '', ordered: 0, perUnit: 1 });
+const emptyCalc = () => ({ accessories: [emptyAccessory()], mouldQty: 0, price: '' });
+
+// A product is identified by its catalog code, or by its own local id when
+// it's an upcoming/typed one — this is the key every product's calculator
+// state is stored and resumed under (see calcByKey below).
+function keyOf(p) { return p.upcoming ? `up-${p.id}` : `cat-${p.code}`; }
+
+// Pure function so both the open calculator AND the upcoming-products list
+// (which shows each one's forecast total inline, without opening it) can
+// compute the same numbers from a stored calc state.
+function computeForecast(calc) {
+  const results = calc.accessories.map((r) => ({
+    ...r,
+    buildable: r.perUnit > 0 ? Math.floor((Number(r.ordered) || 0) / r.perUnit) : 0,
+  }));
+  const candidateCaps = [...results.map((r) => r.buildable), Number(calc.mouldQty) || 0];
+  const finalUnits = candidateCaps.length ? Math.min(...candidateCaps) : 0;
+  const leftovers = results.map((r) => ({ ...r, leftover: (Number(r.ordered) || 0) - finalUnits * r.perUnit }));
+  const forecastRevenue = finalUnits * (Number(calc.price) || 0);
+  return { results, finalUnits, leftovers, forecastRevenue };
+}
 
 function ForecastSection() {
   const [catalog, setCatalog] = useState(null); // null = loading
@@ -376,17 +397,17 @@ function ForecastSection() {
   const [extraProducts, setExtraProducts] = useState([]); // locally-typed "upcoming" products — forecast-only, never saved
   const [selected, setSelected] = useState(null); // { code, name } or { name } for a typed one
 
-  const [accessories, setAccessories] = useState([emptyAccessory()]);
-  const [mouldQty, setMouldQty] = useState(0);
-  const [price, setPrice] = useState('');
+  // Each product (catalog or upcoming) keeps its OWN accessories/mould/price
+  // state here, keyed by keyOf(product) — so switching products and coming
+  // back resumes exactly where it was left, instead of resetting every time.
+  const [calcByKey, setCalcByKey] = useState({});
 
   useEffect(() => { productsApi.list().then(setCatalog).catch(() => setCatalog([])); }, []);
 
   function pick(product) {
     setSelected(product);
-    setAccessories([emptyAccessory()]);
-    setMouldQty(0);
-    setPrice('');
+    const k = keyOf(product);
+    setCalcByKey((m) => (m[k] ? m : { ...m, [k]: emptyCalc() }));
   }
 
   function addUpcoming() {
@@ -401,28 +422,37 @@ function ForecastSection() {
   function removeUpcoming(id) {
     setExtraProducts((list) => list.filter((p) => p.id !== id));
     setSelected((s) => (s?.id === id ? null : s));
+    setCalcByKey((m) => { const { [`up-${id}`]: _, ...rest } = m; return rest; });
   }
 
   function resetUpcoming() {
     setExtraProducts([]);
     setSelected((s) => (s?.upcoming ? null : s));
+    setCalcByKey((m) => Object.fromEntries(Object.entries(m).filter(([k]) => !k.startsWith('up-'))));
   }
 
+  const selectedKey = selected ? keyOf(selected) : null;
+  const calc = (selectedKey && calcByKey[selectedKey]) || emptyCalc();
+
+  // Patches just this one selected product's stored calc state — every
+  // field editor below goes through this, so edits always land on the
+  // right product even after switching back and forth.
+  function patchCalc(patch) {
+    if (!selectedKey) return;
+    setCalcByKey((m) => ({ ...m, [selectedKey]: { ...(m[selectedKey] || emptyCalc()), ...patch } }));
+  }
   function updateAccessory(id, patch) {
-    setAccessories((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    patchCalc({ accessories: calc.accessories.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
   }
   function removeAccessory(id) {
-    setAccessories((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== id) : rows));
+    if (calc.accessories.length <= 1) return;
+    patchCalc({ accessories: calc.accessories.filter((r) => r.id !== id) });
   }
 
-  const results = accessories.map((r) => ({
-    ...r,
-    buildable: r.perUnit > 0 ? Math.floor((Number(r.ordered) || 0) / r.perUnit) : 0,
-  }));
-  const candidateCaps = [...results.map((r) => r.buildable), Number(mouldQty) || 0];
-  const finalUnits = candidateCaps.length ? Math.min(...candidateCaps) : 0;
-  const leftovers = results.map((r) => ({ ...r, leftover: (Number(r.ordered) || 0) - finalUnits * r.perUnit }));
-  const forecastRevenue = finalUnits * (Number(price) || 0);
+  const { results, finalUnits, leftovers, forecastRevenue } = computeForecast(calc);
+  const price = calc.price;
+  const mouldQty = calc.mouldQty;
+  const accessories = calc.accessories;
 
   const visibleCatalog = catalog ? catalog.filter((p) => !search.trim() || p.name.toLowerCase().includes(search.trim().toLowerCase()) || p.code.toLowerCase().includes(search.trim().toLowerCase())) : [];
 
@@ -457,16 +487,23 @@ function ForecastSection() {
           </div>
           <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 6, marginBottom: 10 }}>
             {extraProducts.length === 0 && <div className="empty" style={{ padding: 10, fontSize: 12 }}>None added yet</div>}
-            {extraProducts.map((p) => (
-              <div
-                key={p.id}
-                onClick={() => pick(p)}
-                style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, background: selected?.id === p.id ? 'var(--paper-d)' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}
-              >
-                <span>🆕 {p.name}</span>
-                <button type="button" className="btn o rd sm" style={{ padding: '1px 7px' }} onClick={(e) => { e.stopPropagation(); removeUpcoming(p.id); }}>✕</button>
-              </div>
-            ))}
+            {extraProducts.map((p) => {
+              const pCalc = calcByKey[keyOf(p)];
+              const pForecast = pCalc ? computeForecast(pCalc).forecastRevenue : 0;
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => pick(p)}
+                  style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, background: selected?.id === p.id ? 'var(--paper-d)' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}
+                >
+                  <div>
+                    <div>🆕 {p.name}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{inr(pForecast)}</div>
+                  </div>
+                  <button type="button" className="btn o rd sm" style={{ padding: '1px 7px' }} onClick={(e) => { e.stopPropagation(); removeUpcoming(p.id); }}>✕</button>
+                </div>
+              );
+            })}
           </div>
           <div className="btnrow">
             <input placeholder="Upcoming product name" value={customName} onChange={(e) => setCustomName(e.target.value)} />
@@ -512,16 +549,16 @@ function ForecastSection() {
                   </div>
                 );
               })}
-              <button type="button" className="btn o sm" onClick={() => setAccessories((rows) => [...rows, emptyAccessory()])}>+ Add accessory</button>
+              <button type="button" className="btn o sm" onClick={() => patchCalc({ accessories: [...accessories, emptyAccessory()] })}>+ Add accessory</button>
 
               <div style={{ display: 'flex', gap: 24, marginTop: 20, flexWrap: 'wrap' }}>
                 <div>
                   <div className="muted" style={{ fontSize: 10 }}>Total pc to be made</div>
-                  <NumberStepper value={mouldQty} onChange={setMouldQty} />
+                  <NumberStepper value={mouldQty} onChange={(v) => patchCalc({ mouldQty: v })} />
                 </div>
                 <div>
                   <div className="muted" style={{ fontSize: 10 }}>Approx selling price/pc (₹)</div>
-                  <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" style={{ width: 110 }} />
+                  <input type="number" value={price} onChange={(e) => patchCalc({ price: e.target.value })} placeholder="0" style={{ width: 110 }} />
                 </div>
               </div>
 
