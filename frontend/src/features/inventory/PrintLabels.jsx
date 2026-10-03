@@ -11,12 +11,12 @@ import { useEffect, useState } from 'react';
 //     "Green"), for tagging a batch by color/category rather than a number.
 //
 // LABEL SIZE/LAYOUT: matches the actual physical roll in use — each printed
-// page is 100mm wide x 70mm tall (same width as Generate Barcodes' roll),
-// holding TWO labels stacked one above the other, each 100mm wide x 35mm
-// tall. Labels fill top-then-bottom, page by page — e.g. numbering 1 to 4
-// prints 2 pages: page 1 has 1 on top / 2 on bottom, page 2 has 3 on top /
-// 4 on bottom. An odd final count leaves the last slot blank rather than
-// wrapping to a new number sequence.
+// page is 100mm wide x 75mm tall (same width as Generate Barcodes' roll),
+// holding TWO labels SIDE BY SIDE (left/right, not stacked), each 50mm wide
+// x 75mm tall. Labels fill left-then-right, page by page — e.g. numbering 1
+// to 4 prints 2 pages: page 1 has 1 on the left / 2 on the right, page 2 has
+// 3 on the left / 4 on the right. An odd final count leaves the last slot
+// blank rather than wrapping to a new number sequence.
 export default function PrintLabels() {
   const [tab, setTab] = useState('numbering'); // 'numbering' | 'text'
 
@@ -59,15 +59,15 @@ export default function PrintLabels() {
       {labels && (
         <div id="print-area" className="silent-print">
           <div className="pl-sheet">
-            {/* Two labels per physical page, stacked — chunk the flat list
-                into pairs so each pair renders as one .pl-page. */}
+            {/* Two labels per physical page, side by side — chunk the flat
+                list into pairs so each pair renders as one .pl-page. */}
             {Array.from({ length: Math.ceil(labels.length / 2) }, (_, pageIdx) => {
-              const top = labels[pageIdx * 2];
-              const bottom = labels[pageIdx * 2 + 1];
+              const left = labels[pageIdx * 2];
+              const right = labels[pageIdx * 2 + 1];
               return (
                 <div className="pl-page" key={pageIdx}>
-                  <div className="pl-label"><div className="pl-text">{top}</div></div>
-                  <div className="pl-label">{bottom !== undefined && <div className="pl-text">{bottom}</div>}</div>
+                  <div className="pl-label"><div className="pl-text">{left}</div></div>
+                  <div className="pl-label">{right !== undefined && <div className="pl-text">{right}</div>}</div>
                 </div>
               );
             })}
@@ -103,8 +103,8 @@ export default function PrintLabels() {
       <style>{`
         .pl-sheet {
           --page-w: 100mm;   /* same roll width as Generate Barcodes */
-          --page-h: 70mm;    /* one physical page = 2 stacked labels */
-          --label-h: 35mm;   /* each label's own height — page-h / 2 */
+          --page-h: 75mm;    /* one physical page = 2 side-by-side labels */
+          --label-w: 50mm;   /* each label's own width — page-w / 2 */
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -117,26 +117,26 @@ export default function PrintLabels() {
           box-sizing: border-box;
           border: 1px dashed var(--line);
           display: flex;
-          flex-direction: column;
+          flex-direction: row;
         }
         .pl-label {
-          width: 100%;
-          height: var(--label-h);
+          width: var(--label-w);
+          height: 100%;
           box-sizing: border-box;
-          border-bottom: 1px dashed var(--line);
+          border-right: 1px dashed var(--line);
           display: flex;
           justify-content: center;
           align-items: center;
           overflow: hidden;
         }
-        .pl-label:last-child { border-bottom: none; }
+        .pl-label:last-child { border-right: none; }
         .pl-text {
           font-weight: 800;
-          font-size: 32px;
-          line-height: 1.15;
+          font-size: 60px;
+          line-height: 1.1;
           text-align: center;
           word-break: break-word;
-          padding: 0 6px;
+          padding: 0 4px;
           max-width: 100%;
         }
         .silent-print { position: fixed; left: -9999px; top: 0; }
@@ -145,11 +145,11 @@ export default function PrintLabels() {
           .no-print { display: none !important; }
           /* Literal values only, same reasoning as Generate Barcodes — Chrome
              doesn't reliably read CSS custom properties inside @page. */
-          @page { size: 100mm 70mm; margin: 0; }
+          @page { size: 100mm 75mm; margin: 0; }
           .pl-sheet { gap: 0; margin-top: 0; display: block; }
           .pl-page { border: none; page-break-after: always; }
           .pl-page:last-child { page-break-after: auto; }
-          .pl-label { border-bottom: none; } /* dashed guide line was only for the on-screen/Save-as-PDF preview */
+          .pl-label { border-right: none; } /* dashed guide line was only for the on-screen/Save-as-PDF preview */
         }
       `}</style>
     </div>
