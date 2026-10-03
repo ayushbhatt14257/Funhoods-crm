@@ -4,6 +4,7 @@ import { firebaseAuth } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { analyticsApi, getAnalyticsSession, clearAnalyticsSession } from './analyticsApi';
+import { productsApi } from '../products/api';
 
 // Not a real security boundary by itself — the backend enforces this same
 // check on every request (see analytics/routes.js) regardless of what this
@@ -346,12 +347,182 @@ function OpsSection() {
   );
 }
 
+// Small +/- stepper used for every quantity field in Sales Forecast. Plain
+// number input otherwise (no stepper) — used for the selling-price field,
+// since price is typed directly rather than nudged one unit at a time.
+function NumberStepper({ value, onChange, min = 0, step = 1, width = 90 }) {
+  function set(v) { onChange(Math.max(min, v)); }
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <button type="button" className="btn o sm" style={{ padding: '2px 8px' }} onClick={() => set((Number(value) || 0) - step)}>−</button>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => set(e.target.value === '' ? 0 : Number(e.target.value))}
+        style={{ width, textAlign: 'center' }}
+      />
+      <button type="button" className="btn o sm" style={{ padding: '2px 8px' }} onClick={() => set((Number(value) || 0) + step)}>+</button>
+    </div>
+  );
+}
+
+let forecastRowId = 0;
+const emptyAccessory = () => ({ id: ++forecastRowId, name: '', ordered: 0, perUnit: 1 });
+
+function ForecastSection() {
+  const [catalog, setCatalog] = useState(null); // null = loading
+  const [search, setSearch] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [extraProducts, setExtraProducts] = useState([]); // locally-typed "upcoming" products — forecast-only, never saved
+  const [selected, setSelected] = useState(null); // { code, name } or { name } for a typed one
+
+  const [accessories, setAccessories] = useState([emptyAccessory()]);
+  const [mouldQty, setMouldQty] = useState(0);
+  const [price, setPrice] = useState('');
+
+  useEffect(() => { productsApi.list().then(setCatalog).catch(() => setCatalog([])); }, []);
+
+  function pick(product) {
+    setSelected(product);
+    setAccessories([emptyAccessory()]);
+    setMouldQty(0);
+    setPrice('');
+  }
+
+  function addUpcoming() {
+    const name = customName.trim();
+    if (!name) return;
+    const p = { name, upcoming: true };
+    setExtraProducts((list) => [...list, p]);
+    setCustomName('');
+    pick(p);
+  }
+
+  function updateAccessory(id, patch) {
+    setAccessories((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+  function removeAccessory(id) {
+    setAccessories((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== id) : rows));
+  }
+
+  const results = accessories.map((r) => ({
+    ...r,
+    buildable: r.perUnit > 0 ? Math.floor((Number(r.ordered) || 0) / r.perUnit) : 0,
+  }));
+  const candidateCaps = [...results.map((r) => r.buildable), Number(mouldQty) || 0];
+  const finalUnits = candidateCaps.length ? Math.min(...candidateCaps) : 0;
+  const leftovers = results.map((r) => ({ ...r, leftover: (Number(r.ordered) || 0) - finalUnits * r.perUnit }));
+  const forecastRevenue = finalUnits * (Number(price) || 0);
+
+  const visibleCatalog = catalog ? catalog.filter((p) => !search.trim() || p.name.toLowerCase().includes(search.trim().toLowerCase()) || p.code.toLowerCase().includes(search.trim().toLowerCase())) : [];
+
+  return (
+    <div>
+      <p className="muted" style={{ fontSize: 12 }}>
+        Live calculator only — nothing here is saved. Pick a product (or type an upcoming one that isn't in the catalog yet), enter its accessories/parts, mould qty and selling price, and see the buildable units, leftover parts, and forecast revenue update instantly.
+      </p>
+
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 260, flex: '0 0 280px' }}>
+          <input placeholder="Search products…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 8, width: '100%' }} />
+          <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 6 }}>
+            {catalog === null && <div className="empty" style={{ padding: 10 }}>Loading…</div>}
+            {catalog !== null && visibleCatalog.length === 0 && extraProducts.length === 0 && <div className="empty" style={{ padding: 10 }}>No products</div>}
+            {visibleCatalog.map((p) => (
+              <div
+                key={p.code}
+                onClick={() => pick(p)}
+                style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, background: selected?.code === p.code ? 'var(--paper-d)' : 'transparent' }}
+              >
+                <span className="mono" style={{ marginRight: 6 }}>{p.code}</span>{p.name}
+              </div>
+            ))}
+            {extraProducts.map((p) => (
+              <div
+                key={`x-${p.name}`}
+                onClick={() => pick(p)}
+                style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, background: selected === p ? 'var(--paper-d)' : 'transparent' }}
+              >
+                🆕 {p.name} <span className="muted" style={{ fontSize: 11 }}>(upcoming)</span>
+              </div>
+            ))}
+          </div>
+          <div className="btnrow" style={{ marginTop: 10 }}>
+            <input placeholder="Or type an upcoming product name" value={customName} onChange={(e) => setCustomName(e.target.value)} />
+            <button type="button" className="btn sm" onClick={addUpcoming}>+ Add</button>
+          </div>
+        </div>
+
+        <div style={{ flex: '1 1 420px', minWidth: 320 }}>
+          {!selected && <div className="empty">Select or add a product to forecast</div>}
+          {selected && (
+            <div className="card">
+              <h3 style={{ marginTop: 0 }}>{selected.name}{selected.upcoming && <span className="muted" style={{ fontSize: 12, marginLeft: 6 }}>(upcoming)</span>}</h3>
+
+              <h4 style={{ marginBottom: 6 }}>Accessories / parts</h4>
+              {accessories.map((row) => {
+                const r = results.find((x) => x.id === row.id);
+                const lo = leftovers.find((x) => x.id === row.id);
+                return (
+                  <div key={row.id} style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                    <input
+                      placeholder="Accessory name"
+                      value={row.name}
+                      onChange={(e) => updateAccessory(row.id, { name: e.target.value })}
+                      style={{ width: 160 }}
+                    />
+                    <div>
+                      <div className="muted" style={{ fontSize: 10 }}>Ordered qty</div>
+                      <NumberStepper value={row.ordered} onChange={(v) => updateAccessory(row.id, { ordered: v })} />
+                    </div>
+                    <div>
+                      <div className="muted" style={{ fontSize: 10 }}>Qty per unit</div>
+                      <NumberStepper value={row.perUnit} onChange={(v) => updateAccessory(row.id, { perUnit: Math.max(1, v) })} min={1} />
+                    </div>
+                    <div style={{ fontSize: 12 }}>
+                      <div className="muted" style={{ fontSize: 10 }}>Buildable</div>
+                      <b>{r?.buildable ?? 0}</b>
+                    </div>
+                    <div style={{ fontSize: 12 }}>
+                      <div className="muted" style={{ fontSize: 10 }}>Leftover</div>
+                      <b style={{ color: (lo?.leftover ?? 0) > 0 ? 'var(--spruce)' : 'inherit' }}>{lo?.leftover ?? 0}</b>
+                    </div>
+                    <button type="button" className="btn o rd sm" onClick={() => removeAccessory(row.id)}>✕</button>
+                  </div>
+                );
+              })}
+              <button type="button" className="btn o sm" onClick={() => setAccessories((rows) => [...rows, emptyAccessory()])}>+ Add accessory</button>
+
+              <div style={{ display: 'flex', gap: 24, marginTop: 20, flexWrap: 'wrap' }}>
+                <div>
+                  <div className="muted" style={{ fontSize: 10 }}>Mould quantity</div>
+                  <NumberStepper value={mouldQty} onChange={setMouldQty} />
+                </div>
+                <div>
+                  <div className="muted" style={{ fontSize: 10 }}>Approx selling price/pc (₹)</div>
+                  <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" style={{ width: 110 }} />
+                </div>
+              </div>
+
+              <div className="btnrow" style={{ marginTop: 20, gap: 24 }}>
+                <Stat label="Final buildable units" value={finalUnits.toLocaleString('en-IN')} sub="min of every accessory + mould qty" />
+                <Stat label="Sales forecast" value={inr(forecastRevenue)} sub={`${finalUnits.toLocaleString('en-IN')} pcs × ₹${price || 0}`} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const SECTIONS = [
   { key: 'sales', label: 'A · Sales Patterns', Comp: SalesSection },
   { key: 'dealers', label: 'B · Dealer Intelligence', Comp: DealerSection },
   { key: 'inventory', label: 'C · Inventory & Batch', Comp: InventorySection },
   { key: 'financial', label: 'D · Financial', Comp: FinancialSection },
   { key: 'ops', label: 'E · Ops & Dispatch', Comp: OpsSection },
+  { key: 'forecast', label: 'F · Sales Forecast', Comp: ForecastSection },
 ];
 
 export default function Analytics() {
