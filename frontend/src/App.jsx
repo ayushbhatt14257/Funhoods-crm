@@ -19,6 +19,7 @@ import Invoices from './features/invoices/Invoices';
 import InvoiceDetail from './features/invoices/InvoiceDetail';
 import Inventory from './features/inventory/Inventory';
 import GenerateBarcodes from './features/inventory/GenerateBarcodes';
+import PrintLabels from './features/inventory/PrintLabels';
 import ScanStockIn from './features/inventory/ScanStockIn';
 import Outstanding from './features/ledger/Outstanding';
 import SettingsPage from './features/settings/Settings';
@@ -73,6 +74,7 @@ function AppRoutes() {
         <Route path="aliases" element={<Aliases />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="generate-barcodes" element={<GenerateBarcodes />} />
+        <Route path="print-labels" element={<PrintLabels />} />
         <Route path="stock-in" element={<ScanStockIn />} />
         <Route path="outstanding" element={<Outstanding />} />
         <Route path="import" element={<Import />} />

@@ -22,6 +22,7 @@ const NAV = [
   { to: '/inventory', label: 'Inventory', icon: '📊', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
   { to: '/stock-in', label: 'Stock In (Scan)', icon: '📷', roles: ['mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin', 'inward'] },
   { to: '/generate-barcodes', label: 'Generate Barcodes', icon: '🏷️', roles: ['admin', 'masterAdmin', 'inward'] },
+  { to: '/print-labels', label: 'Print Labels', icon: '🔖', roles: ['admin', 'masterAdmin', 'inward'] },
   { group: 'Setup' },
   { to: '/import', label: 'Bulk Import', icon: '⬆️', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/settings', label: 'Company Settings', icon: '⚙️', roles: ['admin', 'masterAdmin'] },
