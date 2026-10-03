@@ -392,10 +392,20 @@ function ForecastSection() {
   function addUpcoming() {
     const name = customName.trim();
     if (!name) return;
-    const p = { name, upcoming: true };
+    const p = { id: ++forecastRowId, name, upcoming: true };
     setExtraProducts((list) => [...list, p]);
     setCustomName('');
     pick(p);
+  }
+
+  function removeUpcoming(id) {
+    setExtraProducts((list) => list.filter((p) => p.id !== id));
+    setSelected((s) => (s?.id === id ? null : s));
+  }
+
+  function resetUpcoming() {
+    setExtraProducts([]);
+    setSelected((s) => (s?.upcoming ? null : s));
   }
 
   function updateAccessory(id, patch) {
@@ -419,7 +429,7 @@ function ForecastSection() {
   return (
     <div>
       <p className="muted" style={{ fontSize: 12 }}>
-        Live calculator only — nothing here is saved. Pick a product (or type an upcoming one that isn't in the catalog yet), enter its accessories/parts, mould qty and selling price, and see the buildable units, leftover parts, and forecast revenue update instantly.
+        Live calculator only — nothing here is saved. Pick a product (or add an upcoming one that isn't in the catalog yet), enter its accessories/parts, total pc to be made and selling price, and see the buildable units, leftover parts, and forecast revenue update instantly.
       </p>
 
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -427,7 +437,7 @@ function ForecastSection() {
           <input placeholder="Search products…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 8, width: '100%' }} />
           <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 6 }}>
             {catalog === null && <div className="empty" style={{ padding: 10 }}>Loading…</div>}
-            {catalog !== null && visibleCatalog.length === 0 && extraProducts.length === 0 && <div className="empty" style={{ padding: 10 }}>No products</div>}
+            {catalog !== null && visibleCatalog.length === 0 && <div className="empty" style={{ padding: 10 }}>No products</div>}
             {visibleCatalog.map((p) => (
               <div
                 key={p.code}
@@ -437,18 +447,29 @@ function ForecastSection() {
                 <span className="mono" style={{ marginRight: 6 }}>{p.code}</span>{p.name}
               </div>
             ))}
+          </div>
+        </div>
+
+        <div style={{ minWidth: 220, flex: '0 0 240px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+            <b style={{ fontSize: 13 }}>Upcoming products</b>
+            {extraProducts.length > 0 && <button type="button" className="btn o rd sm" onClick={resetUpcoming}>Reset all</button>}
+          </div>
+          <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 6, marginBottom: 10 }}>
+            {extraProducts.length === 0 && <div className="empty" style={{ padding: 10, fontSize: 12 }}>None added yet</div>}
             {extraProducts.map((p) => (
               <div
-                key={`x-${p.name}`}
+                key={p.id}
                 onClick={() => pick(p)}
-                style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, background: selected === p ? 'var(--paper-d)' : 'transparent' }}
+                style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, background: selected?.id === p.id ? 'var(--paper-d)' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}
               >
-                🆕 {p.name} <span className="muted" style={{ fontSize: 11 }}>(upcoming)</span>
+                <span>🆕 {p.name}</span>
+                <button type="button" className="btn o rd sm" style={{ padding: '1px 7px' }} onClick={(e) => { e.stopPropagation(); removeUpcoming(p.id); }}>✕</button>
               </div>
             ))}
           </div>
-          <div className="btnrow" style={{ marginTop: 10 }}>
-            <input placeholder="Or type an upcoming product name" value={customName} onChange={(e) => setCustomName(e.target.value)} />
+          <div className="btnrow">
+            <input placeholder="Upcoming product name" value={customName} onChange={(e) => setCustomName(e.target.value)} />
             <button type="button" className="btn sm" onClick={addUpcoming}>+ Add</button>
           </div>
         </div>
@@ -495,7 +516,7 @@ function ForecastSection() {
 
               <div style={{ display: 'flex', gap: 24, marginTop: 20, flexWrap: 'wrap' }}>
                 <div>
-                  <div className="muted" style={{ fontSize: 10 }}>Mould quantity</div>
+                  <div className="muted" style={{ fontSize: 10 }}>Total pc to be made</div>
                   <NumberStepper value={mouldQty} onChange={setMouldQty} />
                 </div>
                 <div>
@@ -505,7 +526,7 @@ function ForecastSection() {
               </div>
 
               <div className="btnrow" style={{ marginTop: 20, gap: 24 }}>
-                <Stat label="Final buildable units" value={finalUnits.toLocaleString('en-IN')} sub="min of every accessory + mould qty" />
+                <Stat label="Final buildable units" value={finalUnits.toLocaleString('en-IN')} sub="min of every accessory + total pc to be made" />
                 <Stat label="Sales forecast" value={inr(forecastRevenue)} sub={`${finalUnits.toLocaleString('en-IN')} pcs × ₹${price || 0}`} />
               </div>
             </div>
