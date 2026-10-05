@@ -323,10 +323,26 @@ async function lookupCarton(req, res) {
   const kind = carton.kind || 'outer';
   // For an outer: how many inner children it was generated with (if any) —
   // lets a scanning UI show "0/2 inner scanned" progress for this carton's
-  // group. For an inner: its own parentCode, straight from the DB, is the
-  // one fact that can never be fooled by a label physically stuck on the
-  // wrong box — it's what the mismatch check below is built on.
-  const innerTotal = kind === 'outer' ? await CartonBarcode.countDocuments({ parentCode: carton.code }) : 0;
+  // group, and (on the Stock In screen) makes scanning that many inner
+  // labels COMPULSORY before the outer itself can be added to stock. For an
+  // inner: its own parentCode, straight from the DB, is the one fact that
+  // can never be fooled by a label physically stuck on the wrong box — it's
+  // what the mismatch check below is built on.
+  //
+  // EXCEPTION: when every one of this outer's inner children carries the
+  // exact same qty as the outer itself (e.g. outer=36pcs, 1 inner also
+  // 36pcs — the inner is just the whole carton under a different code),
+  // Generate Barcodes doesn't print a label for that inner at all (see
+  // innerDuplicatesParent in GenerateBarcodes.jsx) — there's nothing to
+  // scan. Reporting innerTotal as 0 here for that case is what keeps Stock
+  // In from demanding a scan of a label that was never printed, which
+  // otherwise left every such outer permanently stuck "Incomplete".
+  let innerTotal = 0;
+  if (kind === 'outer') {
+    const innerDocs = await CartonBarcode.find({ parentCode: carton.code }).select('qty').lean();
+    const allLabelsSkipped = innerDocs.length > 0 && innerDocs.every((d) => d.qty === carton.qty);
+    innerTotal = allLabelsSkipped ? 0 : innerDocs.length;
+  }
   res.json({
     code: carton.code, status: carton.status, qty: carton.qty, createdAt: carton.createdAt,
     kind, parentCode: carton.parentCode || '', innerTotal,
@@ -479,6 +495,20 @@ async function deleteCarton(req, res) {
   if (hadStock) {
     await Inventory.findOneAndUpdate({ code: carton.product }, { $inc: { physical: -carton.qty } });
   }
+
+  // Cascade: an outer's own inner children (generated alongside it — see
+  // generateBatch) are only ever meant to exist as long as their parent
+  // does. Deleting just the outer used to leave them behind as orphans —
+  // still 'pending' in the DB with a parentCode pointing at an outer that
+  // no longer exists, silently inflating the batch's inner count forever
+  // and un-matchable to anything if ever scanned. Only cascades children
+  // that are still 'pending' (never scanned in) — one already in stock or
+  // beyond represents real physical stock and must be deleted on its own,
+  // the same deliberate way any other in-stock carton is.
+  if ((carton.kind || 'outer') === 'outer') {
+    await CartonBarcode.deleteMany({ parentCode: carton.code, status: 'pending' });
+  }
+
   await carton.deleteOne();
   res.json({
     message: hadStock
