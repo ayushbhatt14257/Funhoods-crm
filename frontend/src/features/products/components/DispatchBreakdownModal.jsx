@@ -21,7 +21,14 @@ export default function DispatchBreakdownModal({ product, onClose }) {
     productsApi.getDispatchBreakdown(product.code, params).then(setRows);
   }, [product.code, mode, date, month]);
 
-  const total = rows ? rows.reduce((s, r) => s + r.total, 0) : 0;
+  const liveTotal = rows ? rows.reduce((s, r) => s + r.total, 0) : 0;
+  const baseline = product.preCrmDispatched || 0;
+  // The "All time" card total elsewhere (Products list) = this baseline +
+  // the live invoice total below — the baseline itself is a single
+  // pre-CRM/gap number from the legacy import, not tied to any one
+  // customer, so it can't appear as a row in this customer-by-customer
+  // table. Shown here instead so the two totals never look unexplained.
+  const total = mode === 'all' ? liveTotal + baseline : liveTotal;
 
   return (
     <Modal title={`Dispatched — ${product.name}`} onClose={onClose}>
@@ -31,6 +38,12 @@ export default function DispatchBreakdownModal({ product, onClose }) {
         <button className={mode === 'month' ? 'on' : ''} onClick={() => setMode('month')}>By month</button>
         {mode !== 'all' && <button className="btn o sm" onClick={() => setMode('all')}>Clear filter</button>}
       </div>
+
+      {mode === 'all' && baseline > 0 && (
+        <div className="note b" style={{ fontSize: 12, marginBottom: 10 }}>
+          Includes a <b>{baseline.toLocaleString('en-IN')} pcs</b> pre-CRM/legacy baseline (from the Tally import) on top of the <b>{liveTotal.toLocaleString('en-IN')} pcs</b> shown in the table below — that baseline isn't tied to one customer, so it doesn't appear as its own row.
+        </div>
+      )}
 
       {mode === 'day' && (
         <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} style={{ marginBottom: 10 }} />
