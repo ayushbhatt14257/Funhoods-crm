@@ -11,8 +11,11 @@ export default function LegacyDispatchImportModal({ onClose, onApplied }) {
   const { showToast } = useToast();
   const [file, setFile] = useState(null);
   const [rows, setRows] = useState(null); // preview rows once parsed
+  const [dateRangeText, setDateRangeText] = useState(null);
+  const [dateRangeFound, setDateRangeFound] = useState(true);
   const [included, setIncluded] = useState({}); // row index -> bool
   const [overrides, setOverrides] = useState({}); // row index -> corrected code, for a wrong/no match
+  const [baselineQty, setBaselineQty] = useState({}); // row index -> the actual number that will be saved (defaults to the calculated gap)
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
 
@@ -24,9 +27,20 @@ export default function LegacyDispatchImportModal({ onClose, onApplied }) {
       formData.append('file', file);
       const res = await productsApi.previewLegacyDispatch(formData);
       setRows(res.rows);
+      setDateRangeText(res.dateRangeText);
+      setDateRangeFound(res.dateRangeFound);
       const initialIncluded = {};
-      res.rows.forEach((r, i) => { initialIncluded[i] = !!r.matchedCode; });
+      const initialQty = {};
+      res.rows.forEach((r, i) => {
+        initialIncluded[i] = !!r.matchedCode;
+        // Default to the calculated gap (Tally period total minus this
+        // CRM's own invoices for that same period) — if the date range
+        // couldn't be read from the file, there's no gap to calculate, so
+        // fall back to the raw qty and let the person correct it manually.
+        initialQty[i] = r.gap != null ? r.gap : r.qty;
+      });
       setIncluded(initialIncluded);
+      setBaselineQty(initialQty);
       showToast(`Matched ${res.matchedCount} of ${res.totalCount} rows.`, res.matchedCount === res.totalCount ? 'g' : 'y');
     } catch (err) { showToast(err.message, 'err'); }
     finally { setLoading(false); }
@@ -34,7 +48,7 @@ export default function LegacyDispatchImportModal({ onClose, onApplied }) {
 
   async function apply() {
     const toApply = rows
-      .map((r, i) => ({ code: (overrides[i] || r.matchedCode || '').trim().toUpperCase(), qty: r.qty, included: included[i] }))
+      .map((r, i) => ({ code: (overrides[i] || r.matchedCode || '').trim().toUpperCase(), qty: +baselineQty[i] || 0, included: included[i] }))
       .filter((r) => r.included && r.code);
     if (!toApply.length) return showToast('Nothing checked to apply', 'err');
     if (!confirm(`Set the pre-CRM dispatch baseline for ${toApply.length} product(s)? This replaces any existing baseline for those products.`)) return;
@@ -52,10 +66,14 @@ export default function LegacyDispatchImportModal({ onClose, onApplied }) {
     <Modal title="Import legacy (pre-CRM) dispatch data" onClose={onClose}>
         <p className="muted" style={{ fontSize: 12 }}>
           Upload the Tally "Stock Group Summary" export (or similar 2-column Particulars/Outwards report).
-          Each row gets matched to a real product by its code — review and adjust below before anything is saved.
-          The number you approve here REPLACES that product's "Dispatched (all-time)" figure everywhere it's
-          shown — it doesn't add to what this CRM has separately tracked, since the imported report's own
-          period typically already includes that. It never touches current stock or invoice history.
+          Each row gets matched to a real product by its code. Tally's own period usually overlaps with
+          dispatches this CRM has already invoiced, so the raw Tally quantity is <b>not</b> used directly —
+          instead, for each product, this reads Tally's period from the file and subtracts this CRM's own
+          invoice total for that exact same period, leaving only the <b>gap</b>: real dispatches Tally saw
+          that never made it into this CRM as an invoice. That gap is what gets saved as the baseline, and
+          it's added on top of the live invoice total everywhere "Dispatched (all-time)" is shown — so it
+          keeps growing correctly with every future dispatch instead of freezing. Review and correct the
+          numbers below before anything is saved. This never touches current stock or invoice history.
         </p>
 
         {!rows && (
@@ -67,9 +85,19 @@ export default function LegacyDispatchImportModal({ onClose, onApplied }) {
 
         {rows && (
           <>
+            {dateRangeText && (
+              <div className="note b" style={{ fontSize: 12, marginBottom: 8 }}>
+                Tally period read from file: <b>{dateRangeText}</b>. "CRM (this period)" below is this CRM's own invoice total for that same window.
+              </div>
+            )}
+            {!dateRangeFound && (
+              <div className="note" style={{ fontSize: 12, marginBottom: 8, color: 'var(--rd)' }}>
+                Couldn't find a date range in this file, so no gap could be calculated — "Baseline to save" defaults to the raw Tally qty for every row. Check each one carefully before applying, since this may double-count against invoices already in the CRM.
+              </div>
+            )}
             <div style={{ maxHeight: 420, overflowY: 'auto', marginTop: 12 }}>
               <table className="dt">
-                <thead><tr><th></th><th>Sheet row</th><th>Qty</th><th>Matched product</th></tr></thead>
+                <thead><tr><th></th><th>Sheet row</th><th>Tally qty</th><th>CRM (this period)</th><th>Matched product</th><th>Baseline to save</th></tr></thead>
                 <tbody>
                   {rows.map((r, i) => (
                     <tr key={i}>
@@ -83,6 +111,7 @@ export default function LegacyDispatchImportModal({ onClose, onApplied }) {
                       </td>
                       <td className="mono" style={{ fontSize: 11 }}>{r.text}</td>
                       <td>{r.qty}</td>
+                      <td className="muted">{r.crmPeriodTotal != null ? r.crmPeriodTotal : '—'}</td>
                       <td>
                         {r.matchedCode ? (
                           <span className="mono">{r.matchedCode}</span>
@@ -99,13 +128,22 @@ export default function LegacyDispatchImportModal({ onClose, onApplied }) {
                           <div className="muted" style={{ fontSize: 10 }}>Currently set to {r.currentPreCrmDispatched} — will be replaced</div>
                         )}
                       </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          value={baselineQty[i] ?? 0}
+                          onChange={(e) => setBaselineQty({ ...baselineQty, [i]: e.target.value })}
+                          style={{ width: 90, fontSize: 11 }}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <div className="btnrow" style={{ marginTop: 12 }}>
-              <button className="btn o sm" onClick={() => { setRows(null); setFile(null); setIncluded({}); setOverrides({}); }}>← Start over</button>
+              <button className="btn o sm" onClick={() => { setRows(null); setFile(null); setIncluded({}); setOverrides({}); setBaselineQty({}); }}>← Start over</button>
               <button className="btn sm" disabled={applying} onClick={apply}>{applying ? 'Saving…' : `Apply ${Object.values(included).filter(Boolean).length} row(s)`}</button>
             </div>
           </>
