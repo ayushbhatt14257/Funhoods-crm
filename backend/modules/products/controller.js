@@ -270,13 +270,15 @@ async function removeVideo(req, res) {
 // stock, or vice versa).
 //
 // When a product has a preCrmDispatched baseline set (see
-// legacyDispatchController.js), that number REPLACES what this CRM has
-// itself computed, rather than adding to it — the imported figure (e.g.
-// from a Tally export) is treated as the already-complete, correct
-// all-time total for that product, not an addition on top. Adding the two
-// together double-counts: the imported report's own date range typically
-// already spans whatever this CRM has independently tracked for the same
-// period, so summing them inflates the true total rather than correcting it.
+// legacyDispatchController.js), that number is ADDED on top of what this
+// CRM has itself computed from real Invoice records — confirmed with the
+// business that the imported figure (e.g. from a Tally export) only ever
+// covers dispatches from BEFORE this product started being invoiced inside
+// this CRM, with no overlap between the two. Replacing instead of adding
+// (the old behaviour) permanently froze the all-time total at whatever the
+// import said on the day it was uploaded, never again reflecting any
+// dispatch made afterwards through the CRM — baseline + live total keeps
+// both the pre-CRM history and ongoing dispatches correctly accounted for.
 async function dispatchedTotals(req, res) {
   const rows = await Invoice.aggregate([
     { $match: { status: { $ne: 'Cancelled' } } },
@@ -287,7 +289,7 @@ async function dispatchedTotals(req, res) {
     (await Product.find({ preCrmDispatched: { $gt: 0 } }).select('code preCrmDispatched').lean())
       .map((p) => [p.code, p.preCrmDispatched])
   );
-  const result = Object.fromEntries(rows.map((r) => [r._id, { total: baselineByCode[r._id] ?? r.total, lastDispatchedAt: r.lastDispatchedAt }]));
+  const result = Object.fromEntries(rows.map((r) => [r._id, { total: (baselineByCode[r._id] || 0) + r.total, lastDispatchedAt: r.lastDispatchedAt }]));
   // A product with a legacy baseline but NO invoices at all in this CRM yet
   // (e.g. discontinued before this software went live) wouldn't otherwise
   // appear here at all — this adds it in with just the baseline.
