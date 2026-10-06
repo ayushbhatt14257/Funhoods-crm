@@ -270,15 +270,16 @@ async function removeVideo(req, res) {
 // stock, or vice versa).
 //
 // When a product has a preCrmDispatched baseline set (see
-// legacyDispatchController.js), that number is ADDED on top of what this
-// CRM has itself computed from real Invoice records — confirmed with the
-// business that the imported figure (e.g. from a Tally export) only ever
-// covers dispatches from BEFORE this product started being invoiced inside
-// this CRM, with no overlap between the two. Replacing instead of adding
-// (the old behaviour) permanently froze the all-time total at whatever the
-// import said on the day it was uploaded, never again reflecting any
-// dispatch made afterwards through the CRM — baseline + live total keeps
-// both the pre-CRM history and ongoing dispatches correctly accounted for.
+// legacyDispatchController.js), it turns out the imported figure (e.g. from
+// a Tally export) actually OVERLAPS with the real Invoice records this CRM
+// already has for that product — adding the two together was tried and
+// confirmed to double-count (40,694 baseline + 45,072 live invoices wrongly
+// summed to 85,766 for a product whose real all-time total is 45,072).
+// So: whenever a product has ANY real Invoice history in this CRM, that
+// live, aggregated total is used by itself — the baseline is ignored for
+// it. The baseline is only used as a fallback for a product that has NO
+// Invoice records in this CRM at all yet (e.g. discontinued before this
+// software went live), where it's the only number we have.
 async function dispatchedTotals(req, res) {
   const rows = await Invoice.aggregate([
     { $match: { status: { $ne: 'Cancelled' } } },
@@ -289,7 +290,7 @@ async function dispatchedTotals(req, res) {
     (await Product.find({ preCrmDispatched: { $gt: 0 } }).select('code preCrmDispatched').lean())
       .map((p) => [p.code, p.preCrmDispatched])
   );
-  const result = Object.fromEntries(rows.map((r) => [r._id, { total: (baselineByCode[r._id] || 0) + r.total, lastDispatchedAt: r.lastDispatchedAt }]));
+  const result = Object.fromEntries(rows.map((r) => [r._id, { total: r.total, lastDispatchedAt: r.lastDispatchedAt }]));
   // A product with a legacy baseline but NO invoices at all in this CRM yet
   // (e.g. discontinued before this software went live) wouldn't otherwise
   // appear here at all — this adds it in with just the baseline.
