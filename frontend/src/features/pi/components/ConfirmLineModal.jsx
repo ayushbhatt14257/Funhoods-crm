@@ -7,6 +7,12 @@ import Modal from '../../../components/Modal';
 export default function ConfirmLineModal({ product: p, onConfirm, onClose }) {
   const [outers, setOuters] = useState(0);
   const [inners, setInners] = useState(0);
+  // An outer-only product (hasInner turned off on Products) has no inner
+  // carton to order at all — showing a "How many INNER cartons?" box for
+  // one used to silently compute 0 pcs no matter what was typed in it
+  // (outers * cartonOuter + inners * 0), which was confusing rather than
+  // useful. Hide it entirely instead; `inners` just stays 0.
+  const hasInner = p.hasInner !== false && p.cartonInner > 0;
   return (
     <Modal title={`Confirm — ${p.name}`} onClose={onClose}>
       <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 14, marginBottom: 12 }}>
@@ -17,15 +23,15 @@ export default function ConfirmLineModal({ product: p, onConfirm, onClose }) {
           <div style={{ fontWeight: 600, fontSize: 16 }}>{p.name}</div>
           <div className="mono muted" style={{ fontSize: 11, marginTop: 2 }}>{p.code} · {p.size}</div>
           <div style={{ marginTop: 6, fontSize: 12.5 }}>Rate: <b>₹{p.rate.toFixed(2)}</b> · GST <b>{p.gst_pct || 5}%</b></div>
-          <div style={{ fontSize: 12.5 }}>Outer: <b>{p.cartonOuter} pcs</b> · Inner: <b>{p.cartonInner} pcs</b></div>
+          <div style={{ fontSize: 12.5 }}>Outer: <b>{p.cartonOuter} pcs</b>{hasInner && <> · Inner: <b>{p.cartonInner} pcs</b></>}</div>
         </div>
       </div>
-      <div className="row2">
+      <div className={hasInner ? 'row2' : undefined}>
         <div className="fg"><label>How many OUTER cartons?</label><input type="number" min={0} value={outers} onChange={(e) => setOuters(+e.target.value || 0)} /></div>
-        <div className="fg"><label>How many INNER cartons?</label><input type="number" min={0} value={inners} onChange={(e) => setInners(+e.target.value || 0)} /></div>
+        {hasInner && <div className="fg"><label>How many INNER cartons?</label><input type="number" min={0} value={inners} onChange={(e) => setInners(+e.target.value || 0)} /></div>}
       </div>
       <div className="btnrow">
-        <button className="btn g" onClick={() => onConfirm(p, outers, inners, 0)}>Confirm &amp; add to order</button>
+        <button className="btn g" onClick={() => onConfirm(p, outers, hasInner ? inners : 0, 0)}>Confirm &amp; add to order</button>
         <button className="btn o" onClick={onClose}>Cancel</button>
       </div>
       <div className="note b" style={{ fontSize: 12 }}><b>You are confirming this exact SKU.</b> Double-check the code before adding.</div>

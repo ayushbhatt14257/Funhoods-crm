@@ -20,7 +20,7 @@ export default function ProductDetail() {
   async function load() {
     const p = await productsApi.getByCode(code);
     setProduct(p);
-    setForm({ name: p.name, size: p.size, category: p.category, cartonOuter: p.cartonOuter, cartonInner: p.cartonInner, rate: p.rate, gst_pct: p.gst_pct });
+    setForm({ name: p.name, size: p.size, category: p.category, cartonOuter: p.cartonOuter, cartonInner: p.cartonInner, hasInner: p.hasInner !== false, rate: p.rate, gst_pct: p.gst_pct });
   }
   async function loadCategories() { setCategories(await categoriesApi.list()); }
   useEffect(() => { load(); }, [code]);
@@ -30,7 +30,7 @@ export default function ProductDetail() {
     setSavingInfo(true);
     try {
       const updated = await productsApi.update(code, {
-        ...form, cartonOuter: +form.cartonOuter, cartonInner: +form.cartonInner, rate: +form.rate, gst_pct: +form.gst_pct,
+        ...form, cartonOuter: +form.cartonOuter, cartonInner: +form.cartonInner, hasInner: form.hasInner !== false, rate: +form.rate, gst_pct: +form.gst_pct,
       });
       setProduct(updated);
       showToast('Details saved', 'g');
@@ -83,7 +83,20 @@ export default function ProductDetail() {
         </div>
         <div className="row2">
           <div className="fg"><label>Outer carton pcs</label><input type="number" value={form.cartonOuter} onChange={(e) => setForm({ ...form, cartonOuter: e.target.value })} /></div>
-          <div className="fg"><label>Inner carton pcs</label><input type="number" value={form.cartonInner} onChange={(e) => setForm({ ...form, cartonInner: e.target.value })} /></div>
+          {form.hasInner !== false ? (
+            <div className="fg"><label>Inner carton pcs</label><input type="number" value={form.cartonInner} onChange={(e) => setForm({ ...form, cartonInner: e.target.value })} /></div>
+          ) : (
+            <div className="fg"><label>Inner carton pcs</label><div className="muted" style={{ fontSize: 12.5, padding: '8px 0' }}>Off — this product has no inner cartons</div></div>
+          )}
+        </div>
+        <div className="fg">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+            <input type="checkbox" checked={form.hasInner !== false} onChange={(e) => setForm({ ...form, hasInner: e.target.checked })} />
+            Has inner cartons
+          </label>
+          {form.hasInner === false && (
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>This product will show as outer-only everywhere — no inner input in New Order/Dispatch, no inner QR generation, no inner scan required at Stock In.</p>
+          )}
         </div>
         <div className="btnrow">
           <button className="btn" disabled={savingInfo} onClick={saveInfo}>{savingInfo ? 'Saving…' : 'Save details'}</button>

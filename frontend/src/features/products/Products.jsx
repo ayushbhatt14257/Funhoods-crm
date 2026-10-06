@@ -11,7 +11,7 @@ import CategoryManagerModal from './components/CategoryManagerModal';
 import DispatchBreakdownModal from './components/DispatchBreakdownModal';
 import LegacyDispatchImportModal from './components/LegacyDispatchImportModal';
 
-const emptyForm = { code: '', name: '', size: '', category: '', cartonOuter: '', cartonInner: '', rate: '', gst_pct: 5 };
+const emptyForm = { code: '', name: '', size: '', category: '', cartonOuter: '', cartonInner: '', hasInner: true, rate: '', gst_pct: 5 };
 
 export default function Products() {
   const { showToast } = useToast();
@@ -39,7 +39,7 @@ export default function Products() {
   function openEdit(p) {
     setEditing(p);
     setIsNew(false);
-    setForm({ code: p.code, name: p.name, size: p.size, category: p.category, cartonOuter: p.cartonOuter, cartonInner: p.cartonInner, rate: p.rate, gst_pct: p.gst_pct });
+    setForm({ code: p.code, name: p.name, size: p.size, category: p.category, cartonOuter: p.cartonOuter, cartonInner: p.cartonInner, hasInner: p.hasInner !== false, rate: p.rate, gst_pct: p.gst_pct });
   }
   function openNew() {
     setEditing({});
@@ -66,7 +66,7 @@ export default function Products() {
 
   async function save() {
     try {
-      const body = { ...form, cartonOuter: +form.cartonOuter, cartonInner: +form.cartonInner || undefined, rate: +form.rate, gst_pct: +form.gst_pct };
+      const body = { ...form, cartonOuter: +form.cartonOuter, cartonInner: +form.cartonInner || undefined, hasInner: form.hasInner !== false, rate: +form.rate, gst_pct: +form.gst_pct };
       if (isNew) {
         await productsApi.create(body);
         showToast('Product created — add photos/video from its page', 'g');
@@ -152,7 +152,7 @@ export default function Products() {
               <div style={{ fontSize: 12.5, display: 'flex', justifyContent: 'space-between' }}>
                 <span>₹{p.rate}</span><span>GST {p.gst_pct}%</span>
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Carton: {p.cartonOuter} outer / {p.cartonInner} inner</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Carton: {p.cartonOuter} outer{p.hasInner !== false && p.cartonInner > 0 ? ` / ${p.cartonInner} inner` : ' only'}</div>
               {user.role === 'masterAdmin' && (
                 <div
                   style={{ fontSize: 11.5, color: 'var(--spruce)', marginTop: 2, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
@@ -209,7 +209,24 @@ export default function Products() {
           <div className="row3">
             <div className="fg"><label>Rate ₹/pc</label><input type="number" step="0.01" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} /></div>
             <div className="fg"><label>Outer carton pcs</label><input type="number" value={form.cartonOuter} onChange={(e) => setForm({ ...form, cartonOuter: e.target.value, cartonInner: Math.round(e.target.value / 2) })} /></div>
-            <div className="fg"><label>Inner carton pcs</label><input type="number" value={form.cartonInner} onChange={(e) => setForm({ ...form, cartonInner: e.target.value })} /></div>
+            {form.hasInner !== false ? (
+              <div className="fg"><label>Inner carton pcs</label><input type="number" value={form.cartonInner} onChange={(e) => setForm({ ...form, cartonInner: e.target.value })} /></div>
+            ) : (
+              <div className="fg"><label>Inner carton pcs</label><div className="muted" style={{ fontSize: 12.5, padding: '8px 0' }}>Off — this product has no inner cartons</div></div>
+            )}
+          </div>
+          <div className="fg">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+              <input type="checkbox" checked={form.hasInner !== false} onChange={(e) => setForm({ ...form, hasInner: e.target.checked })} />
+              Has inner cartons
+            </label>
+            {/* Turning this off zeroes cartonInner on save, which is what
+                hides every inner-related option for this product elsewhere
+                in the app (New Order, Dispatch, Generate Barcodes, Stock
+                In) — see model.js for the full reasoning. */}
+            {form.hasInner === false && (
+              <p className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>This product will show as outer-only everywhere — no inner input in New Order/Dispatch, no inner QR generation, no inner scan required at Stock In.</p>
+            )}
           </div>
           {!isNew && (editing.images?.length > 0 ? (
             <div className="fg">

@@ -38,6 +38,9 @@ async function create(req, res) {
     if (!body.cartonInner && body.cartonOuter) {
       body.cartonInner = Math.round(body.cartonOuter / 2);
     }
+    // hasInner: false wins over the auto-fill above — an outer-only
+    // product's inner size is always stored as 0, never a guessed half.
+    if (body.hasInner === false) body.cartonInner = 0;
     const exists = await Product.findOne({ code: body.code });
     if (exists) return res.status(400).json({ message: 'Product code already exists' });
 
@@ -57,6 +60,9 @@ async function update(req, res) {
     if (updates.cartonOuter && !updates.cartonInner) {
       updates.cartonInner = Math.round(updates.cartonOuter / 2);
     }
+    // Same override as create() — explicitly turning inner off always
+    // zeroes the stored size, however it was computed above.
+    if (updates.hasInner === false) updates.cartonInner = 0;
     const product = await Product.findOneAndUpdate({ code }, updates, { new: true });
     if (!product) return res.status(404).json({ message: 'Product not found' });
     res.json(product);

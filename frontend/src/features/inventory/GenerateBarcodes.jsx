@@ -654,8 +654,23 @@ export default function GenerateBarcodes() {
               <label>What are you generating?</label>
               <div className="btnrow">
                 <button type="button" className={genMode === 'outer' ? 'btn sm' : 'btn o sm'} onClick={() => setGenMode('outer')}>Outer + its inner (new stock)</button>
-                <button type="button" className={genMode === 'looseInner' ? 'btn sm' : 'btn o sm'} onClick={() => setGenMode('looseInner')}>Loose inner only (old stock)</button>
+                {/* Disabled (not hidden) for an outer-only product (Has inner
+                    cartons turned off on Products) — this mode makes no sense
+                    without an inner carton size to generate against, and the
+                    backend would just refuse it with an error anyway. */}
+                <button
+                  type="button"
+                  className={genMode === 'looseInner' ? 'btn sm' : 'btn o sm'}
+                  disabled={product && (product.hasInner === false || !product.cartonInner)}
+                  title={product && (product.hasInner === false || !product.cartonInner) ? `${product.name} has no inner cartons` : undefined}
+                  onClick={() => setGenMode('looseInner')}
+                >
+                  Loose inner only (old stock)
+                </button>
               </div>
+              {product && (product.hasInner === false || !product.cartonInner) && (
+                <p className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>{product.name} is outer-only — no inner cartons to generate.</p>
+              )}
             </div>
 
             {genMode === 'outer' ? (
@@ -749,7 +764,18 @@ export default function GenerateBarcodes() {
           )}
 
           {showPicker && (
-            <ProductPickerModal products={products} onPick={(p) => { setProduct(p); setShowPicker(false); }} onClose={() => setShowPicker(false)} />
+            <ProductPickerModal
+              products={products}
+              onPick={(p) => {
+                setProduct(p);
+                setShowPicker(false);
+                // Switching to an outer-only product while "Loose inner
+                // only" was selected would leave a disabled-but-still-active
+                // mode on screen — fall back to the normal outer mode instead.
+                if (p.hasInner === false || !p.cartonInner) setGenMode('outer');
+              }}
+              onClose={() => setShowPicker(false)}
+            />
           )}
         </>
       )}

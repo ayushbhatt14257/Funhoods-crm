@@ -48,7 +48,7 @@ export default function ProductPickerModal({ products, onPick, onClose }) {
             <div className="mono muted" style={{ fontSize: 10 }}>{p.code}</div>
             <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>₹{p.rate.toFixed(2)} · GST {p.gst_pct || 5}%</div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Outer {p.cartonOuter} · Inner {p.cartonInner}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Outer {p.cartonOuter}{p.hasInner !== false && p.cartonInner > 0 && ` · Inner ${p.cartonInner}`}</div>
           </div>
         )) : <div className="empty">No matches</div>}
       </div>
