@@ -21,7 +21,7 @@ export default function InvoiceDetail() {
   const [markingPaid, setMarkingPaid] = useState(false);
   const [revertOpen, setRevertOpen] = useState(false);
   const [reverting, setReverting] = useState(false);
-  const [manualRows, setManualRows] = useState([]); // [{piNo, code, rate, pcs}] — only used when the invoice has no recorded consumedFrom
+  const [manualRows, setManualRows] = useState([]); // [{piNo, code, pcs}] — only used when the invoice has no recorded consumedFrom
   const builtyInputRef = useRef();
 
   async function load() {
@@ -57,7 +57,19 @@ export default function InvoiceDetail() {
   }
 
   function addManualRow() {
-    setManualRows((r) => [...r, { piNo: '', code: '', rate: '', pcs: '' }]);
+    setManualRows((r) => [...r, { piNo: '', code: '', pcs: '' }]);
+  }
+
+  // Code + pcs are already known from the invoice itself — the only thing
+  // a person actually needs to work out is which PI it came from. So when
+  // the revert panel opens for an invoice with no auto-tracked source, one
+  // row is pre-filled per paid line (code/pcs locked in), leaving just the
+  // PI number to type in for each.
+  function openRevert() {
+    if (!inv.consumedFrom?.length) {
+      setManualRows(inv.lines.map((l) => ({ piNo: '', code: l.code, name: l.name, pcs: l.pcs })));
+    }
+    setRevertOpen(true);
   }
   function updateManualRow(i, field, val) {
     setManualRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: val } : row)));
@@ -71,7 +83,7 @@ export default function InvoiceDetail() {
     try {
       const manualPiRestore = (inv.consumedFrom?.length ? [] : manualRows)
         .filter((r) => r.piNo && r.code && r.pcs)
-        .map((r) => ({ piNo: r.piNo.trim(), code: r.code.trim(), rate: Number(r.rate) || 0, pcs: Number(r.pcs) || 0 }));
+        .map((r) => ({ piNo: r.piNo.trim(), code: r.code.trim(), pcs: Number(r.pcs) || 0 }));
       const result = await invoicesApi.revert(no, { manualPiRestore });
       showToast(result.message || 'Dispatch reverted', 'g');
       setRevertOpen(false);
@@ -138,7 +150,7 @@ export default function InvoiceDetail() {
       <div className="btnrow" style={{ marginTop: 14 }}>
         <button className="btn o" onClick={() => printAs(`${inv.dealerName} ${ddmmyyyy(inv.date || inv.dispatchDate || inv.createdAt)}`)}>🖨️ Print / Save PDF</button>
         {inv.status === 'Dispatched' && <button className="btn g" onClick={markDelivered}>Mark delivered</button>}
-        {canRevert && <button className="btn r o" onClick={() => setRevertOpen(true)}>↩️ Revert dispatch</button>}
+        {canRevert && <button className="btn r o" onClick={openRevert}>↩️ Revert dispatch</button>}
       </div>
 
       {inv.status === 'Cancelled' && (
@@ -243,20 +255,20 @@ export default function InvoiceDetail() {
               </div>
             ) : (
               <div className="note y" style={{ fontSize: 13 }}>
-                This invoice has no recorded PI source (it predates auto-tracking). If this dispatch
-                was drawn from a PI, add the rows below so pending gets restored — otherwise leave empty
-                and only stock/cartons will be reverted.
+                This invoice has no recorded PI source (it predates auto-tracking). Product and pcs are
+                already filled in below from the invoice itself — just type the PI number each one came
+                from (leave a row's PI number blank to skip restoring that one, e.g. if it wasn't from a PI).
                 <div style={{ marginTop: 8 }}>
                   {manualRows.map((row, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                      <input placeholder="PI no" value={row.piNo} onChange={(e) => updateManualRow(i, 'piNo', e.target.value)} style={{ width: 110 }} />
-                      <input placeholder="Code" value={row.code} onChange={(e) => updateManualRow(i, 'code', e.target.value)} style={{ width: 90 }} />
-                      <input placeholder="Rate" type="number" value={row.rate} onChange={(e) => updateManualRow(i, 'rate', e.target.value)} style={{ width: 70 }} />
-                      <input placeholder="Pcs" type="number" value={row.pcs} onChange={(e) => updateManualRow(i, 'pcs', e.target.value)} style={{ width: 70 }} />
-                      <button className="btn o sm" onClick={() => removeManualRow(i)}>✕</button>
+                    <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ minWidth: 150, fontWeight: 600 }}>{row.name || row.code}</span>
+                      <span className="mono muted" style={{ fontSize: 10, minWidth: 70 }}>{row.code}</span>
+                      <span className="muted" style={{ fontSize: 12, minWidth: 60 }}>{row.pcs} pcs</span>
+                      <input placeholder="PI no (e.g. PI-2610-0207)" value={row.piNo} onChange={(e) => updateManualRow(i, 'piNo', e.target.value)} style={{ width: 170 }} />
+                      {manualRows.length > inv.lines.length && <button className="btn o sm" onClick={() => removeManualRow(i)}>✕</button>}
                     </div>
                   ))}
-                  <button className="btn o sm" onClick={addManualRow}>+ Add PI row</button>
+                  <button className="btn o sm" onClick={addManualRow}>+ Add another row</button>
                 </div>
               </div>
             )}

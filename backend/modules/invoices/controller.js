@@ -197,8 +197,13 @@ async function revertDispatch(req, res) {
     for (const entry of restoreEntries) {
       const pi = piByNo[entry.piNo];
       if (!pi) { piNotes.push(`${entry.piNo} not found — ${entry.pcs} pcs of ${entry.code} not restored to any PI.`); continue; }
-      const line = pi.lines.find((l) => l.code === entry.code && l.rate === entry.rate);
-      if (!line) { piNotes.push(`${entry.piNo} has no matching line for ${entry.code} @ ₹${entry.rate} — ${entry.pcs} pcs not restored.`); continue; }
+      // Matched by code alone — a PI only ever has one line per product
+      // code, and requiring the person to also know/retype the exact rate
+      // (which can differ from the product's catalog rate) was needless
+      // friction for a manual, one-off restore. Rate is still recorded on
+      // the entry for the audit trail, just not used for matching.
+      const line = pi.lines.find((l) => l.code === entry.code);
+      if (!line) { piNotes.push(`${entry.piNo} has no line for ${entry.code} — ${entry.pcs} pcs not restored.`); continue; }
       const currentPending = line.pending != null ? line.pending : line.pcs;
       line.pending = Math.min(line.pcs, currentPending + entry.pcs);
     }
