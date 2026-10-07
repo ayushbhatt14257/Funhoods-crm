@@ -16,6 +16,12 @@ const dealerSchema = new mongoose.Schema(
     // analytics map. Blank means no pincode on file, or the pincode wasn't
     // found in the dataset — shows as "Unknown" on the map.
     district: { type: String, default: '' },
+    // Canonical state name from the SAME pincode lookup as `district` (e.g.
+    // "MADHYA PRADESH") — kept separate from the free-text `state` field
+    // above (which staff types by hand and can vary in spelling/casing).
+    // The analytics map aggregates by this one so it lines up with the map
+    // library's own state names, not whatever staff typed.
+    pincodeState: { type: String, default: '' },
     gstin: { type: String, default: '' },
     gstCertUrl: { type: String, default: '' },
     aadharUrl: { type: String, default: '' },

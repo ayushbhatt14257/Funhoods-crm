@@ -18,5 +18,7 @@ router.get('/dealers', ctrl.dealerIntel);
 router.get('/inventory', ctrl.inventoryAnalytics);
 router.get('/financial', ctrl.financial);
 router.get('/ops', ctrl.ops);
+router.get('/geo', ctrl.geo);
+router.get('/geo/dealers', ctrl.geoDealers);
 
 module.exports = router;

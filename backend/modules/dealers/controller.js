@@ -51,6 +51,7 @@ async function create(req, res) {
     if (!body.assignedTo || !body.assignedTo.trim()) body.assignedTo = req.user.name;
     const found = lookupDistrict(body.pin);
     body.district = found?.district || '';
+    body.pincodeState = found?.state || '';
     const dealer = await Dealer.create(body);
     res.status(201).json(dealer);
   } catch (err) {
@@ -68,6 +69,7 @@ async function update(req, res) {
     if ('pin' in updates) {
       const found = lookupDistrict(updates.pin);
       updates.district = found?.district || '';
+      updates.pincodeState = found?.state || '';
     }
     const dealer = await Dealer.findOneAndUpdate({ code }, updates, { new: true });
     if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
@@ -92,14 +94,14 @@ async function remove(req, res) {
 // found in the dataset, are reported separately so they can be fixed by
 // hand (correcting the pincode) rather than silently staying "Unknown".
 async function backfillDistricts(req, res) {
-  const dealers = await Dealer.find({ pin: { $ne: '' } }).select('code name pin district');
+  const dealers = await Dealer.find({ pin: { $ne: '' } }).select('code name pin district pincodeState');
   let updated = 0;
   const notFound = [];
   for (const d of dealers) {
     const found = lookupDistrict(d.pin);
     if (!found) { notFound.push({ code: d.code, name: d.name, pin: d.pin }); continue; }
-    if (found.district !== d.district) {
-      await Dealer.updateOne({ _id: d._id }, { district: found.district });
+    if (found.district !== d.district || found.state !== d.pincodeState) {
+      await Dealer.updateOne({ _id: d._id }, { district: found.district, pincodeState: found.state });
       updated++;
     }
   }

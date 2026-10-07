@@ -46,4 +46,10 @@ export const analyticsApi = {
   inventory: () => api.get('/analytics/inventory', { headers: withSessionHeader() }),
   financial: () => api.get('/analytics/financial', { headers: withSessionHeader() }),
   ops: () => api.get('/analytics/ops', { headers: withSessionHeader() }),
+  geo: () => api.get('/analytics/geo', { headers: withSessionHeader() }),
+  geoDealers: (state, district) => {
+    const params = new URLSearchParams({ state });
+    if (district) params.set('district', district);
+    return api.get(`/analytics/geo/dealers?${params}`, { headers: withSessionHeader() });
+  },
 };

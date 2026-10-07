@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { analyticsApi, getAnalyticsSession, clearAnalyticsSession } from './analyticsApi';
 import { productsApi } from '../products/api';
+import { IndiaSvgMap } from 'vardhan-maps/react';
+import { buildColorScale } from 'vardhan-maps/spec';
 
 // Not a real security boundary by itself — the backend enforces this same
 // check on every request (see analytics/routes.js) regardless of what this
@@ -347,6 +349,124 @@ function OpsSection() {
   );
 }
 
+const GEO_METRICS = [
+  { key: 'sales', label: 'Sales value' },
+  { key: 'dealerCount', label: 'Dealer count' },
+  { key: 'pendingValue', label: 'Pending orders' },
+  { key: 'outstanding', label: 'Outstanding' },
+];
+
+// Case-insensitive lookup by name — the map library's state/district names
+// (Title Case, e.g. "Madhya Pradesh") don't necessarily match our data's
+// casing (the india-pincode dataset returns upper case, e.g. "MADHYA
+// PRADESH"), so every match here goes through this rather than a direct
+// key lookup.
+function findByName(list, name) {
+  const needle = (name || '').trim().toLowerCase();
+  return list.find((x) => (x.state || '').toLowerCase() === needle || (x.district || '').toLowerCase() === needle);
+}
+
+function MapSection() {
+  const { showToast } = useToast();
+  const [geo, setGeo] = useState(null); // null = loading
+  const [metric, setMetric] = useState('sales');
+  const [drillState, setDrillState] = useState(null); // null = India view; else a state name
+  const [dealerList, setDealerList] = useState(null); // drill-down table for a clicked district
+  const [dealerListLabel, setDealerListLabel] = useState('');
+
+  useEffect(() => { analyticsApi.geo().then(setGeo).catch((err) => showToast(err.message, 'err')); }, []);
+
+  if (!geo) return <div className="empty">Loading…</div>;
+
+  const metricLabel = GEO_METRICS.find((m) => m.key === metric).label;
+  const fmt = (v) => (metric === 'dealerCount' ? v.toLocaleString('en-IN') : inr(v));
+
+  // Districts for the drilled-in state only — byDistrict covers all of
+  // India, so narrow it down before building the scale (otherwise the
+  // color range would be dominated by whichever state has the most data).
+  const districtsOfState = drillState ? geo.byDistrict.filter((d) => (d.state || '').toLowerCase() === drillState.toLowerCase()) : [];
+  const stateScale = buildColorScale(geo.byState.map((s) => s[metric]));
+  const districtScale = buildColorScale(districtsOfState.map((d) => d[metric]));
+
+  async function openDistrict(stateName, districtName) {
+    try {
+      const rows = await analyticsApi.geoDealers(stateName, districtName);
+      setDealerList(rows);
+      setDealerListLabel(`${districtName}, ${stateName}`);
+    } catch (err) { showToast(err.message, 'err'); }
+  }
+
+  const unknownState = geo.byState.find((s) => s.state === 'Unknown');
+
+  return (
+    <div>
+      <div className="btnrow" style={{ marginBottom: 12 }}>
+        {GEO_METRICS.map((m) => (
+          <button key={m.key} className={metric === m.key ? 'btn sm' : 'btn o sm'} onClick={() => setMetric(m.key)}>{m.label}</button>
+        ))}
+        {drillState && <button className="btn o sm" style={{ marginLeft: 'auto' }} onClick={() => { setDrillState(null); setDealerList(null); }}>← Back to India</button>}
+      </div>
+
+      <p className="muted" style={{ fontSize: 12 }}>
+        Colored by <b>{metricLabel}</b> · matched by each dealer's pincode-derived district/state, not the free-text city/state on their profile.
+        {unknownState && unknownState.dealerCount > 0 && <> {unknownState.dealerCount} dealer(s) have no pincode-derived district — not shown on the map (run "Backfill districts" on the Dealers page, or fix their pincode).</>}
+      </p>
+
+      <div style={{ maxWidth: 720, margin: '0 auto' }}>
+        {!drillState ? (
+          <IndiaSvgMap
+            level="state"
+            width={680}
+            height={760}
+            stateFill={(name) => {
+              const row = findByName(geo.byState, name);
+              return row ? stateScale.colorFor(row[metric]) : '#e2e8f0';
+            }}
+            onStateClick={(name) => setDrillState(name)}
+            tooltip={(ctx) => {
+              const row = findByName(geo.byState, ctx.name);
+              return <div><b>{ctx.name}</b><br />{metricLabel}: {row ? fmt(row[metric]) : '—'}<br />Dealers: {row ? row.dealerCount : 0}</div>;
+            }}
+          />
+        ) : (
+          <IndiaSvgMap
+            level="district"
+            stateName={drillState}
+            width={680}
+            height={760}
+            districtFill={(name) => {
+              const row = findByName(districtsOfState, name);
+              return row ? districtScale.colorFor(row[metric]) : '#e2e8f0';
+            }}
+            onDistrictClick={(name) => openDistrict(drillState, name)}
+            tooltip={(ctx) => {
+              const row = findByName(districtsOfState, ctx.name);
+              return <div><b>{ctx.name}</b><br />{metricLabel}: {row ? fmt(row[metric]) : '—'}<br />Dealers: {row ? row.dealerCount : 0}</div>;
+            }}
+          />
+        )}
+      </div>
+
+      {dealerList && (
+        <div style={{ marginTop: 20 }}>
+          <h4>Dealers in {dealerListLabel}</h4>
+          {dealerList.length ? (
+            <table className="dt">
+              <thead><tr><th>Code</th><th>Name</th><th>City</th><th>Sales</th><th>Outstanding</th><th>Pending orders</th></tr></thead>
+              <tbody>{dealerList.map((d) => (
+                <tr key={d.code}>
+                  <td className="mono">{d.code}</td><td>{d.name}</td><td>{d.city}</td>
+                  <td>{inr(d.sales)}</td><td>{inr(d.outstanding)}</td><td>{inr(d.pendingValue)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          ) : <div className="empty">No dealers found here.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Small +/- stepper used for every quantity field in Sales Forecast. Plain
 // number input otherwise (no stepper) — used for the selling-price field,
 // since price is typed directly rather than nudged one unit at a time.
@@ -581,6 +701,7 @@ const SECTIONS = [
   { key: 'financial', label: 'D · Financial', Comp: FinancialSection },
   { key: 'ops', label: 'E · Ops & Dispatch', Comp: OpsSection },
   { key: 'forecast', label: 'F · Sales Forecast', Comp: ForecastSection },
+  { key: 'map', label: 'G · India Map', Comp: MapSection },
 ];
 
 export default function Analytics() {

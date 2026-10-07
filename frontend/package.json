@@ -11,11 +11,15 @@
     "@zxing/browser": "^0.2.1",
     "@zxing/library": "^0.23.0",
     "firebase": "^12.18.0",
-    "jsbarcode": "^3.12.3",
+    "jsbarcode": "^3.11.6",
+    "leaflet": "^1.9.4",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.25.1"
+    "react-router-dom": "^6.25.1",
+    "topojson-client": "^3.1.0",
+    "topojson-server": "^3.0.1",
+    "vardhan-maps": "^0.19.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

@@ -483,4 +483,106 @@ async function ops(req, res) {
   res.json({ repPerformance, avgTurnaroundHours, avgOrderToDispatchDays, sampleSize: lagDaysList.length });
 }
 
-module.exports = { verifyOtp, sales, dealerIntel, inventoryAnalytics, financial, ops };
+// GET /api/analytics/geo
+// Section G — the India map. Rolls up four metrics (sales/dealer
+// count/pending orders/outstanding) by state and by district, keyed on
+// each dealer's `pincodeState`/`district` (auto-derived from their pincode
+// — see dealers/districtLookup.js — NOT the free-text `state`/`city`
+// fields, which vary in spelling). A dealer with no pincode-derived
+// district at all is rolled into an explicit "Unknown" bucket rather than
+// silently dropped, so the map's totals still reconcile with the real
+// number of dealers.
+async function geo(req, res) {
+  const dealers = await Dealer.find().select('code name district pincodeState').lean();
+  const stateByDealer = {}; // code -> state (or 'Unknown')
+  const districtByDealer = {}; // code -> { state, district } (or null)
+  dealers.forEach((d) => {
+    const state = d.pincodeState || 'Unknown';
+    stateByDealer[d.code] = state;
+    districtByDealer[d.code] = d.district ? { state, district: d.district } : null;
+  });
+
+  const perDealer = {}; // code -> { name, sales, outstanding, pendingValue }
+  dealers.forEach((d) => { perDealer[d.code] = { name: d.name, sales: 0, outstanding: 0, pendingValue: 0 }; });
+
+  // Sales — every non-cancelled invoice's total, all-time.
+  const invoices = await Invoice.find({ status: { $ne: 'Cancelled' } }).select('dealer total paymentReceived dispatchDate createdAt').lean();
+  const now = new Date();
+  invoices.forEach((inv) => {
+    if (!perDealer[inv.dealer]) return; // dealer since deleted — skip rather than crash
+    perDealer[inv.dealer].sales += inv.total;
+    if (!inv.paymentReceived) perDealer[inv.dealer].outstanding += inv.total;
+  });
+
+  // Pending orders — value still owed (pending pcs × rate) across every PI
+  // not yet fully dispatched or closed out.
+  const pis = await PI.find({ status: { $in: ['Confirmed', 'Partial Dispatched'] } }).select('dealer lines').lean();
+  pis.forEach((pi) => {
+    if (!perDealer[pi.dealer]) return;
+    const value = pi.lines.reduce((s, l) => {
+      const pending = l.pending != null ? l.pending : l.pcs;
+      return s + Math.max(0, pending) * l.rate;
+    }, 0);
+    perDealer[pi.dealer].pendingValue += value;
+  });
+
+  function rollup(keyFn) {
+    const buckets = {};
+    dealers.forEach((d) => {
+      const key = keyFn(d);
+      if (!key) return;
+      const b = buckets[key.bucketKey] || (buckets[key.bucketKey] = { ...key.labels, dealerCount: 0, sales: 0, outstanding: 0, pendingValue: 0 });
+      b.dealerCount += 1;
+      b.sales += perDealer[d.code].sales;
+      b.outstanding += perDealer[d.code].outstanding;
+      b.pendingValue += perDealer[d.code].pendingValue;
+    });
+    return Object.values(buckets);
+  }
+
+  const byState = rollup((d) => {
+    const state = d.pincodeState || 'Unknown';
+    return { bucketKey: state, labels: { state } };
+  });
+  const byDistrict = rollup((d) => {
+    if (!d.district) return { bucketKey: `${d.pincodeState || 'Unknown'}|Unknown`, labels: { state: d.pincodeState || 'Unknown', district: 'Unknown' } };
+    return { bucketKey: `${d.pincodeState}|${d.district}`, labels: { state: d.pincodeState, district: d.district } };
+  });
+
+  res.json({ byState, byDistrict, totalDealers: dealers.length, unmappedDealers: dealers.filter((d) => !d.district).length });
+}
+
+// GET /api/analytics/geo/dealers?state=...&district=...
+// Dealer-level drill-down for one district (or, with district omitted,
+// every dealer in that state with no district on file — the "Unknown"
+// row's own drill-down).
+async function geoDealers(req, res) {
+  const { state, district } = req.query;
+  if (!state) return res.status(400).json({ message: 'state is required' });
+  const filter = state === 'Unknown' ? { pincodeState: { $in: ['', null] } } : { pincodeState: state };
+  if (district === 'Unknown') filter.district = { $in: ['', null] };
+  else if (district) filter.district = district;
+  const dealers = await Dealer.find(filter).select('code name city district pincodeState').lean();
+
+  const codes = dealers.map((d) => d.code);
+  const invoices = await Invoice.find({ dealer: { $in: codes }, status: { $ne: 'Cancelled' } }).select('dealer total paymentReceived').lean();
+  const pis = await PI.find({ dealer: { $in: codes }, status: { $in: ['Confirmed', 'Partial Dispatched'] } }).select('dealer lines').lean();
+
+  const byCode = {};
+  dealers.forEach((d) => { byCode[d.code] = { ...d, sales: 0, outstanding: 0, pendingValue: 0 }; });
+  invoices.forEach((inv) => {
+    byCode[inv.dealer].sales += inv.total;
+    if (!inv.paymentReceived) byCode[inv.dealer].outstanding += inv.total;
+  });
+  pis.forEach((pi) => {
+    const value = pi.lines.reduce((s, l) => {
+      const pending = l.pending != null ? l.pending : l.pcs;
+      return s + Math.max(0, pending) * l.rate;
+    }, 0);
+    byCode[pi.dealer].pendingValue += value;
+  });
+
+  res.json(Object.values(byCode).sort((a, b) => b.sales - a.sales));
+}
+
+module.exports = { verifyOtp, sales, dealerIntel, inventoryAnalytics, financial, ops, geo, geoDealers };
