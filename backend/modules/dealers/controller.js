@@ -1,6 +1,7 @@
 const Dealer = require('./model');
 const Ledger = require('../ledger/model');
 const PI = require('../pi/model');
+const { lookupDistrict } = require('./districtLookup');
 
 async function list(req, res) {
   const { q, state, assignedTo } = req.query;
@@ -48,6 +49,8 @@ async function create(req, res) {
     if (exists) return res.status(400).json({ message: 'Dealer code already exists' });
     body.createdByName = req.user.name;
     if (!body.assignedTo || !body.assignedTo.trim()) body.assignedTo = req.user.name;
+    const found = lookupDistrict(body.pin);
+    body.district = found?.district || '';
     const dealer = await Dealer.create(body);
     res.status(201).json(dealer);
   } catch (err) {
@@ -60,6 +63,12 @@ async function update(req, res) {
     const code = req.params.code.toUpperCase();
     const updates = { ...req.body };
     delete updates.code;
+    // Re-derive district whenever the pincode is part of this edit, same
+    // as on create — district is never typed in directly.
+    if ('pin' in updates) {
+      const found = lookupDistrict(updates.pin);
+      updates.district = found?.district || '';
+    }
     const dealer = await Dealer.findOneAndUpdate({ code }, updates, { new: true });
     if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
     res.json(dealer);
@@ -74,6 +83,31 @@ async function remove(req, res) {
   const dealer = await Dealer.findOneAndDelete({ code });
   if (!dealer) return res.status(404).json({ message: 'Dealer not found' });
   res.json({ message: 'Deleted', wasUsedInPastPI: !!usedInPI });
+}
+
+// POST /api/dealers/backfill-districts — masterAdmin only, one-off (but
+// safe to re-run any time). Fills `district` for every dealer that has a
+// pincode on file but no district yet — covers every dealer that existed
+// before this feature shipped. Dealers with no pincode, or a pincode not
+// found in the dataset, are reported separately so they can be fixed by
+// hand (correcting the pincode) rather than silently staying "Unknown".
+async function backfillDistricts(req, res) {
+  const dealers = await Dealer.find({ pin: { $ne: '' } }).select('code name pin district');
+  let updated = 0;
+  const notFound = [];
+  for (const d of dealers) {
+    const found = lookupDistrict(d.pin);
+    if (!found) { notFound.push({ code: d.code, name: d.name, pin: d.pin }); continue; }
+    if (found.district !== d.district) {
+      await Dealer.updateOne({ _id: d._id }, { district: found.district });
+      updated++;
+    }
+  }
+  const noPinCount = await Dealer.countDocuments({ $or: [{ pin: '' }, { pin: { $exists: false } }] });
+  res.json({
+    message: `${updated} dealer(s) updated. ${notFound.length} had a pincode not found in the dataset. ${noPinCount} have no pincode on file at all.`,
+    updated, notFound, noPinCount,
+  });
 }
 
 // PUT /api/dealers/:code/gst-cert  (multipart, field "file")
@@ -132,4 +166,4 @@ async function pincodeLookup(req, res) {
   }
 }
 
-module.exports = { list, getOne, create, update, remove, uploadGstCert, uploadAadhar, uploadBusinessCard, pincodeLookup };
+module.exports = { list, getOne, create, update, remove, uploadGstCert, uploadAadhar, uploadBusinessCard, pincodeLookup, backfillDistricts };

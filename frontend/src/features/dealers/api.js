@@ -9,4 +9,5 @@ export const dealersApi = {
   remove: (code) => api.del(`/dealers/${code}`),
   uploadDoc: (code, field, formData) => api.putForm(`/dealers/${code}/${field}`, formData),
   pincodeLookup: (city, state) => api.get(`/dealers/utils/pincode-lookup?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state || '')}`),
+  backfillDistricts: () => api.post('/dealers/backfill-districts'),
 };

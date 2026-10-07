@@ -9,6 +9,7 @@ router.use(protect);
 
 router.get('/', ctrl.list);
 router.get('/utils/pincode-lookup', ctrl.pincodeLookup);
+router.post('/backfill-districts', allow('masterAdmin'), ctrl.backfillDistricts);
 router.get('/:code', ctrl.getOne);
 router.post('/', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.create);
 router.put('/:code', allow('field', 'mhead', 'accounts', 'admin', 'masterAdmin'), ctrl.update);

@@ -10,6 +10,12 @@ const dealerSchema = new mongoose.Schema(
     city: { type: String, default: '' },
     state: { type: String, default: '' },
     pin: { type: String, default: '' },
+    // Auto-derived from `pin` via the india-pincode dataset (see
+    // districtLookup.js) whenever a dealer is created/edited with a
+    // pincode — never typed in directly. Powers the district-level
+    // analytics map. Blank means no pincode on file, or the pincode wasn't
+    // found in the dataset — shows as "Unknown" on the map.
+    district: { type: String, default: '' },
     gstin: { type: String, default: '' },
     gstCertUrl: { type: String, default: '' },
     aadharUrl: { type: String, default: '' },

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import { dealersApi } from './api';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 import Modal from '../../components/Modal';
 import NewDealerModal from './components/NewDealerModal';
 import Loading from '../../components/Loading';
@@ -12,7 +13,9 @@ const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city:
 
 export default function Dealers() {
   const { showToast } = useToast();
+  const { user } = useAuth();
   const [dealers, setDealers] = useState(null); // null = loading
+  const [backfilling, setBackfilling] = useState(false);
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -37,6 +40,20 @@ export default function Dealers() {
     setPinAutoFilled(false);
     // If the dealer's existing city isn't in our known list for their state, start in manual-entry mode so we don't silently blank it out.
     setCityMode(d.state && (STATE_CITIES[d.state] || []).includes(d.city) ? 'select' : 'manual');
+  }
+
+  // One-off (but safe to re-run) — fills `district` on every dealer that
+  // has a pincode but no district yet, for the analytics map. Needed once
+  // for dealers that existed before this feature shipped; new/edited
+  // dealers get it automatically now (see dealers/controller.js).
+  async function backfillDistricts() {
+    setBackfilling(true);
+    try {
+      const res = await dealersApi.backfillDistricts();
+      showToast(res.message, 'g');
+      load();
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setBackfilling(false); }
   }
 
   function lookupPincode(city, state) {
@@ -109,6 +126,11 @@ export default function Dealers() {
       <div className="btnrow" style={{ marginBottom: 14 }}>
         <input placeholder="Search dealer or city" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
         <button className="btn" onClick={() => setShowNewDealer(true)}>+ New dealer</button>
+        {user?.role === 'masterAdmin' && (
+          <button className="btn o sm" disabled={backfilling} onClick={backfillDistricts} title="Fills district (for the analytics map) on every dealer that has a pincode but no district yet">
+            {backfilling ? 'Backfilling…' : '📍 Backfill districts'}
+          </button>
+        )}
       </div>
       {dealers === null ? (
         <Loading label="Loading dealers…" />
