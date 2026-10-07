@@ -38,6 +38,20 @@ const giftSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One entry per (PI, line) that this invoice actually drew pending pcs
+// from — recorded at dispatch time (see dispatchFromPool in
+// dispatch/controller.js) so a later "revert this dispatch" action knows
+// EXACTLY which PI/line to add the pcs back to, instead of having to guess.
+// A dispatch can draw from more than one PI/line for the same product (the
+// pool dispatch consumes pending FIFO across every eligible PI), hence an
+// array rather than a single reference. Gift pcs never appear here — a
+// gift was never reserved against any PI pending in the first place, so
+// there's nothing to restore for it beyond physical stock.
+const consumedFromSchema = new mongoose.Schema(
+  { piNo: String, code: String, rate: Number, pcs: Number },
+  { _id: false }
+);
+
 const invoiceSchema = new mongoose.Schema(
   {
     no: { type: String, required: true, unique: true },
@@ -76,6 +90,19 @@ const invoiceSchema = new mongoose.Schema(
     paymentReceived: { type: Boolean, default: false },
     paymentReceivedAt: { type: Date, default: null },
     paymentReceivedBy: { type: String, default: '' },
+    // See consumedFromSchema above — blank on an invoice made before this
+    // shipped (nothing to backfill it from), and on a manual/no-PI dispatch
+    // (dispatchManual already creates its own fully-dispatched PI, so there
+    // is nothing pending anywhere to restore on revert).
+    consumedFrom: [consumedFromSchema],
+    // Set only when this invoice has been reverted/cancelled via the
+    // dedicated revert action (dispatch/controller.js is never a
+    // masterAdmin-triggered undo — this is a distinct, explicit action from
+    // the invoice detail screen). Kept separate from the plain `status`
+    // field so "who/when reverted this" survives even if status is ever
+    // read generically elsewhere.
+    revertedAt: { type: Date, default: null },
+    revertedBy: { type: String, default: '' },
   },
   { timestamps: true }
 );

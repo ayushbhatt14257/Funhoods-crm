@@ -3,6 +3,8 @@ const Invoice = require('./model');
 const Dealer = require('../dealers/model');
 const Notification = require('../notifications/model');
 const CartonBarcode = require('../inventory/cartonBarcodeModel');
+const Inventory = require('../inventory/model');
+const PI = require('../pi/model');
 const User = require('../users/model');
 const { uploadBuffer, destroyAsset } = require('../../config/cloudinary');
 
@@ -131,4 +133,97 @@ async function packingListExcel(req, res) {
   res.send(buf);
 }
 
-module.exports = { list, getOne, markDelivered, packingListExcel, uploadBuilty, markPaid };
+// PATCH /api/invoices/:no/revert — masterAdmin only. Fully undoes a
+// dispatch: cancels the invoice, puts every pcs (paid AND free gift) back
+// into physical stock, un-dispatches every carton that was scanned for
+// this invoice (back to in_stock, so it can be rescanned into a future
+// dispatch), and restores pending qty on whichever PI/line it actually
+// came from. Can only ever be done once per invoice — an already-Cancelled
+// invoice has nothing left to revert.
+//
+// PI restoration has two paths:
+//  - invoice.consumedFrom (set automatically for every invoice created
+//    after this feature shipped — see dispatchFromPool) is authoritative:
+//    exactly which PI/line/pcs to restore, no guessing involved.
+//  - An older invoice has no consumedFrom recorded at all (it predates this
+//    tracking), so there's nothing here to restore PI pending from
+//    automatically. The caller can optionally pass `manualPiRestore:
+//    [{piNo, code, rate, pcs}]` in the request body — reviewed and typed in
+//    by a person who worked out which PI(s) this dispatch actually drew
+//    from (e.g. from the original PI screenshots) — and those are applied
+//    exactly like a real consumedFrom entry would be. If omitted, physical
+//    stock and cartons still revert correctly; only the PI's pending figure
+//    is left untouched, and the response says so explicitly.
+async function revertDispatch(req, res) {
+  const inv = await Invoice.findOne({ no: req.params.no });
+  if (!inv) return res.status(404).json({ message: 'Invoice not found' });
+  if (inv.status === 'Cancelled') return res.status(400).json({ message: 'Already cancelled — nothing to revert.' });
+
+  const manualPiRestore = Array.isArray(req.body.manualPiRestore) ? req.body.manualPiRestore : [];
+  const restoreEntries = inv.consumedFrom?.length ? inv.consumedFrom : manualPiRestore;
+  const piNotes = [];
+
+  // 1) Physical stock — every paid pcs plus every catalog-gift pcs on this
+  // invoice leaves via the same physical decrement at dispatch time (see
+  // dispatchFromPool/dispatchManual), so both get added back the same way.
+  // A custom gift (no `code`) never touched stock, so it's naturally
+  // skipped here.
+  const physicalDeltaByCode = {};
+  inv.lines.forEach((l) => { physicalDeltaByCode[l.code] = (physicalDeltaByCode[l.code] || 0) + l.pcs; });
+  (inv.gifts || []).forEach((g) => { if (g.code) physicalDeltaByCode[g.code] = (physicalDeltaByCode[g.code] || 0) + (g.pcs || 0); });
+  for (const [code, pcs] of Object.entries(physicalDeltaByCode)) {
+    await Inventory.findOneAndUpdate({ code }, { $inc: { physical: pcs } }, { upsert: true });
+  }
+
+  // 2) Cartons — every carton this invoice actually marked dispatched goes
+  // back to in_stock, clearing the OUT-event fields so it reads as never
+  // having left and can be scanned again on a future dispatch. Does NOT
+  // attempt to reverse a split-cascade (a sealed outer this invoice opened
+  // to dispatch one of its inner children) — that's rare enough in
+  // practice, and safely unwinding it (re-sealing every sibling inner back
+  // to pending) is a separate, more invasive operation than this covers.
+  const revertedCartons = await CartonBarcode.updateMany(
+    { dispatchedInvoice: inv.no, status: 'dispatched' },
+    { $set: { status: 'in_stock', dispatchedTo: '', dispatchedInvoice: '', dispatchedBy: '', dispatchedAt: null, dispatchOverride: false } }
+  );
+
+  // 3) PI pending — add back exactly what this invoice (or the manually
+  // supplied entries) took, capped so it can never exceed the line's own
+  // original pcs (defensive — in case the PI was edited since).
+  if (restoreEntries.length) {
+    const piNos = [...new Set(restoreEntries.map((e) => e.piNo))];
+    const pis = await PI.find({ no: { $in: piNos } });
+    const piByNo = Object.fromEntries(pis.map((p) => [p.no, p]));
+    for (const entry of restoreEntries) {
+      const pi = piByNo[entry.piNo];
+      if (!pi) { piNotes.push(`${entry.piNo} not found — ${entry.pcs} pcs of ${entry.code} not restored to any PI.`); continue; }
+      const line = pi.lines.find((l) => l.code === entry.code && l.rate === entry.rate);
+      if (!line) { piNotes.push(`${entry.piNo} has no matching line for ${entry.code} @ ₹${entry.rate} — ${entry.pcs} pcs not restored.`); continue; }
+      const currentPending = line.pending != null ? line.pending : line.pcs;
+      line.pending = Math.min(line.pcs, currentPending + entry.pcs);
+    }
+    for (const pi of pis) {
+      const allPending = pi.lines.every((l) => (l.pending != null ? l.pending : l.pcs) === l.pcs);
+      const anyPending = pi.lines.some((l) => (l.pending != null ? l.pending : l.pcs) > 0);
+      if (['Confirmed', 'Partial Dispatched', 'Fully Dispatched'].includes(pi.status)) {
+        pi.status = allPending ? 'Confirmed' : anyPending ? 'Partial Dispatched' : 'Fully Dispatched';
+      }
+      await pi.save();
+    }
+  } else {
+    piNotes.push('This invoice has no recorded PI source (older than the auto-tracking, and no manualPiRestore given) — PI pending was left untouched.');
+  }
+
+  inv.status = 'Cancelled';
+  inv.revertedAt = new Date();
+  inv.revertedBy = req.user.name;
+  await inv.save();
+
+  res.json({
+    message: `${inv.no} reverted — stock and ${revertedCartons.modifiedCount} carton(s) restored.${piNotes.length ? ' ' + piNotes.join(' ') : ''}`,
+    invoice: inv,
+    piNotes,
+  });
+}
+
+module.exports = { list, getOne, markDelivered, packingListExcel, uploadBuilty, markPaid, revertDispatch };

@@ -294,6 +294,7 @@ async function dispatchFromPool(req, res) {
 
     const dispatchLines = [];
     const touchedPIs = new Map(); // no -> PI doc
+    const consumedFrom = []; // { piNo, code, rate, pcs }[] — which PI/line each dispatched pcs actually came from, for an accurate revert later (see invoices/model.js)
 
     for (const reqLine of requestedLines) {
       const product = await Product.findOne({ code: String(reqLine.code).toUpperCase() });
@@ -317,6 +318,7 @@ async function dispatchFromPool(req, res) {
           line.pending = pending - take;
           remaining -= take;
           touchedPIs.set(pi.no, pi);
+          consumedFrom.push({ piNo: pi.no, code: line.code, rate: line.rate, pcs: take });
         }
       }
       if (remaining > 0) {
@@ -394,6 +396,49 @@ async function dispatchFromPool(req, res) {
       scannedCartons.push(carton);
     }
 
+    // Mandatory scan for any product this warehouse already tracks by
+    // barcode — a typed/manual quantity is still fine for a product that's
+    // never been through barcode generation (or has 0 tracked cartons left),
+    // but once real QR-tracked stock exists for a product, EVERY pcs of it
+    // leaving — paid or gifted, doesn't matter — has to be an actual scan.
+    // This used to be optional for everyone (see the comment above), which
+    // is exactly how a past dispatch ended up with its "Dispatched out"
+    // stock-movement log silently missing real pcs that left the warehouse
+    // via a typed quantity instead of a scan — the log is built entirely
+    // from scanned-carton records, so an unscanned portion is invisible to
+    // it even though physical stock was correctly reduced. Enforcing this
+    // at the API level (not just in the UI) is what actually closes that
+    // gap for good, and it's also what makes the per-invoice revert feature
+    // trustworthy: reverting un-dispatches exactly the cartons this invoice
+    // scanned, so if a portion left without a scan, revert would have no
+    // record of it to restore stock-tracking-wise beyond the raw pcs count.
+    const neededByCode = {};
+    dispatchLines.forEach((l) => { neededByCode[l.code] = { name: l.name, pcs: (neededByCode[l.code]?.pcs || 0) + l.pcs }; });
+    Object.entries(giftPcsByCode).forEach(([code, pcs]) => {
+      const name = gifts.find((g) => g.code === code)?.name || code;
+      neededByCode[code] = { name, pcs: (neededByCode[code]?.pcs || 0) + pcs };
+    });
+    const involvedCodes = Object.keys(neededByCode);
+    if (involvedCodes.length) {
+      const trackedCodes = new Set(
+        await CartonBarcode.distinct('product', { product: { $in: involvedCodes }, status: { $in: AVAILABLE_FOR_DISPATCH } })
+      );
+      const scannedPcsByCode = {};
+      scannedCartons.forEach((c) => { scannedPcsByCode[c.product] = (scannedPcsByCode[c.product] || 0) + c.qty; });
+      const unscanned = involvedCodes
+        .filter((code) => trackedCodes.has(code))
+        .map((code) => ({ code, name: neededByCode[code].name, needed: neededByCode[code].pcs, scanned: scannedPcsByCode[code] || 0 }))
+        .filter((r) => r.scanned !== r.needed);
+      if (unscanned.length) {
+        const detail = unscanned
+          .map((r) => `${r.name} — ${r.scanned} of ${r.needed} pcs scanned`)
+          .join('; ');
+        return res.status(400).json({
+          message: `This warehouse tracks barcodes for: ${detail}. These have to be fully scanned (paid and free gift pcs both) before dispatching — typed/manual quantity isn't allowed for a product with tracked stock.`,
+        });
+      }
+    }
+
     const subtotal = dispatchLines.reduce((s, l) => s + l.total, 0);
     const frt = +freight || 0;
     const frtGst = +(frt * 0.05).toFixed(2); // 5% GST on transport/freight — new for invoices from this point forward
@@ -421,6 +466,7 @@ async function dispatchFromPool(req, res) {
       packing,
       gifts,
       dispatchDate: todayISODate(),
+      consumedFrom,
     });
 
     for (const pi of touchedPIs.values()) {

@@ -19,6 +19,9 @@ export default function InvoiceDetail() {
   const [uploadingBuilty, setUploadingBuilty] = useState(false);
   const [confirmingPaid, setConfirmingPaid] = useState(false);
   const [markingPaid, setMarkingPaid] = useState(false);
+  const [revertOpen, setRevertOpen] = useState(false);
+  const [reverting, setReverting] = useState(false);
+  const [manualRows, setManualRows] = useState([]); // [{piNo, code, rate, pcs}] — only used when the invoice has no recorded consumedFrom
   const builtyInputRef = useRef();
 
   async function load() {
@@ -53,6 +56,31 @@ export default function InvoiceDetail() {
     finally { setMarkingPaid(false); }
   }
 
+  function addManualRow() {
+    setManualRows((r) => [...r, { piNo: '', code: '', rate: '', pcs: '' }]);
+  }
+  function updateManualRow(i, field, val) {
+    setManualRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: val } : row)));
+  }
+  function removeManualRow(i) {
+    setManualRows((r) => r.filter((_, idx) => idx !== i));
+  }
+
+  async function confirmRevert() {
+    setReverting(true);
+    try {
+      const manualPiRestore = (inv.consumedFrom?.length ? [] : manualRows)
+        .filter((r) => r.piNo && r.code && r.pcs)
+        .map((r) => ({ piNo: r.piNo.trim(), code: r.code.trim(), rate: Number(r.rate) || 0, pcs: Number(r.pcs) || 0 }));
+      const result = await invoicesApi.revert(no, { manualPiRestore });
+      showToast(result.message || 'Dispatch reverted', 'g');
+      setRevertOpen(false);
+      setManualRows([]);
+      load();
+    } catch (err) { showToast(err.message, 'err'); }
+    finally { setReverting(false); }
+  }
+
   async function downloadPackingList() {
     const res = await fetch(`${API_URL}/invoices/${no}/packing-list.xlsx`, {
       headers: { Authorization: `Bearer ${getToken()}` },
@@ -69,6 +97,8 @@ export default function InvoiceDetail() {
 
   const daysSinceDispatch = Math.floor((Date.now() - new Date(inv.dispatchDate || inv.date)) / 86400000);
   const canMarkPaid = ['accounts', 'admin'].includes(user?.role);
+  const canRevert = user?.role === 'masterAdmin' && inv.status !== 'Cancelled';
+  const hasAutoConsumed = !!inv.consumedFrom?.length;
 
   return (
     <div>
@@ -108,7 +138,15 @@ export default function InvoiceDetail() {
       <div className="btnrow" style={{ marginTop: 14 }}>
         <button className="btn o" onClick={() => printAs(`${inv.dealerName} ${ddmmyyyy(inv.date || inv.dispatchDate || inv.createdAt)}`)}>🖨️ Print / Save PDF</button>
         {inv.status === 'Dispatched' && <button className="btn g" onClick={markDelivered}>Mark delivered</button>}
+        {canRevert && <button className="btn r o" onClick={() => setRevertOpen(true)}>↩️ Revert dispatch</button>}
       </div>
+
+      {inv.status === 'Cancelled' && (
+        <div className="note r" style={{ marginTop: 10 }}>
+          ❌ Cancelled (reverted){inv.revertedBy && <> by <b>{inv.revertedBy}</b></>}
+          {inv.revertedAt && <> on {new Date(inv.revertedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</>}
+        </div>
+      )}
 
       <h3 style={{ margin: '20px 0 10px' }}>Builty (LR receipt)</h3>
       <div className="card">
@@ -183,6 +221,54 @@ export default function InvoiceDetail() {
           onConfirm={confirmMarkPaid}
           onClose={() => setConfirmingPaid(false)}
         />
+      )}
+
+      {revertOpen && (
+        <div className="modal-backdrop" onClick={() => setRevertOpen(false)}>
+          <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <h3>Revert dispatch {inv.no}?</h3>
+            <p style={{ fontSize: 13 }}>
+              This will cancel the invoice, add every pcs (paid + free gift) back into physical stock,
+              and un-dispatch every scanned carton so it can be rescanned.
+            </p>
+
+            {hasAutoConsumed ? (
+              <div className="note g" style={{ fontSize: 13 }}>
+                PI pending will be restored automatically from this invoice's recorded source:
+                <ul style={{ margin: '6px 0 0 18px' }}>
+                  {inv.consumedFrom.map((c, i) => (
+                    <li key={i}>{c.piNo} · {c.code} @ ₹{c.rate} · {c.pcs} pcs</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="note y" style={{ fontSize: 13 }}>
+                This invoice has no recorded PI source (it predates auto-tracking). If this dispatch
+                was drawn from a PI, add the rows below so pending gets restored — otherwise leave empty
+                and only stock/cartons will be reverted.
+                <div style={{ marginTop: 8 }}>
+                  {manualRows.map((row, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                      <input placeholder="PI no" value={row.piNo} onChange={(e) => updateManualRow(i, 'piNo', e.target.value)} style={{ width: 110 }} />
+                      <input placeholder="Code" value={row.code} onChange={(e) => updateManualRow(i, 'code', e.target.value)} style={{ width: 90 }} />
+                      <input placeholder="Rate" type="number" value={row.rate} onChange={(e) => updateManualRow(i, 'rate', e.target.value)} style={{ width: 70 }} />
+                      <input placeholder="Pcs" type="number" value={row.pcs} onChange={(e) => updateManualRow(i, 'pcs', e.target.value)} style={{ width: 70 }} />
+                      <button className="btn o sm" onClick={() => removeManualRow(i)}>✕</button>
+                    </div>
+                  ))}
+                  <button className="btn o sm" onClick={addManualRow}>+ Add PI row</button>
+                </div>
+              </div>
+            )}
+
+            <div className="btnrow" style={{ marginTop: 14 }}>
+              <button className="btn o" onClick={() => setRevertOpen(false)} disabled={reverting}>Cancel</button>
+              <button className="btn r" onClick={confirmRevert} disabled={reverting}>
+                {reverting ? 'Reverting…' : 'Yes, revert this dispatch'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

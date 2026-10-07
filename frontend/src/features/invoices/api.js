@@ -7,4 +7,5 @@ export const invoicesApi = {
   markDelivered: (no) => api.patch(`/invoices/${no}/delivered`),
   uploadBuilty: (no, formData) => api.putForm(`/invoices/${no}/builty`, formData),
   markPaid: (no) => api.patch(`/invoices/${no}/mark-paid`),
+  revert: (no, body = {}) => api.patch(`/invoices/${no}/revert`, body),
 };

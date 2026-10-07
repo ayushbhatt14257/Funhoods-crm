@@ -159,15 +159,16 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         // The scan button (a real physical carton must exist to be found by
         // its code) still needs the real tracked count — that's canScanPhysical.
         const canScanPhysical = avail.outer > 0 || avail.inner > 0;
-        // The checkbox/manual-quantity path, on the other hand, is NOT
-        // gated on tracked stock right now — the carton-tracking counts are
-        // known to be unreliable/incomplete while stock is being migrated
-        // onto the scan system, even though the warehouse physically has
-        // stock of most things. So any row with a real order behind it can
-        // be selected and dispatched manually (typing outer/inner), without
-        // waiting for that stock to be scanned in first. Scanning itself is
-        // untouched — it still only works against real, tracked cartons.
-        const canSelect = it.pendingPcs > 0 && (it.cartonOuter > 0 || it.cartonInner > 0);
+        // The checkbox/manual-quantity path used to be left open regardless
+        // of tracked stock (the carton-tracking counts were unreliable while
+        // stock was being migrated onto the scan system). That's no longer
+        // the policy: once a product has ANY tracked (in_stock) cartons, the
+        // Stock Movement "dispatched out" log can only see scanned pcs, so a
+        // manual/typed dispatch of a tracked product silently breaks that
+        // log. So manual selection is now only allowed for products with
+        // ZERO tracked stock (canScanPhysical false) — anything with real
+        // tracked cartons must go through the Scan button instead.
+        const canSelect = it.pendingPcs > 0 && (it.cartonOuter > 0 || it.cartonInner > 0) && !canScanPhysical;
         // Bold default before the row is checked: since manual selection no
         // longer depends on tracked stock, show the real ordered split
         // (outer-first, unlimited) rather than a stock-capped guess that
@@ -526,22 +527,25 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     style={r.key === flashRowKey ? { background: 'rgba(240,200,60,0.35)', transition: 'background 0.3s' } : undefined}
                   >
                     <td>
-                      {/* A real, native checkbox — clickable whenever this
-                          product has a real order behind it, regardless of
-                          tracked stock (see canSelect above; the barcode
-                          stock counts are unreliable while stock is being
-                          migrated onto scanning). Checking it stages a
-                          manual selection (no scan required), capped only
-                          by the order's own pcs budget (row.max). The Scan
-                          button below still requires a real tracked carton
-                          — the two aren't mutually exclusive, scanning just
-                          adds to whatever count is already staged. */}
+                      {/* A real, native checkbox — clickable only when this
+                          product has a real order AND no tracked stock at
+                          all (see canSelect above). Once any in_stock carton
+                          exists for a product, manual/typed dispatch is
+                          disabled so the dispatch is forced through the Scan
+                          button instead — keeping the Stock Movement log
+                          accurate for every tracked product. Checking it
+                          stages a manual selection (no scan required),
+                          capped only by the order's own pcs budget (row.max). */}
                       <input
                         type="checkbox"
                         checked={r.checked}
                         disabled={!r.canSelect}
                         onChange={() => toggle(r)}
-                        title={!r.canSelect ? 'Nothing ordered for this product' : r.checked ? 'Uncheck to clear this row' : 'Check to select this row'}
+                        title={
+                          !r.canSelect
+                            ? (r.canScanPhysical ? 'Tracked stock exists for this product — use Scan instead' : 'Nothing ordered for this product')
+                            : r.checked ? 'Uncheck to clear this row' : 'Check to select this row'
+                        }
                       />
                     </td>
                     <td>{r.item.photo ? <img src={r.item.photo} alt="" style={{ width: 30, height: 30, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>

@@ -30,7 +30,21 @@ export default function GiftingStep({ products, gifts, onAddCatalogGift, onAddCu
   const [scanning, setScanning] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
 
-  function confirmCatalogGift(product, outers, inners, directPcs) {
+  // Mandatory-scan enforcement: once a product has ANY tracked (in_stock)
+  // carton, typing a manual qty for it here — same as on the paid side —
+  // would leave the Stock Movement "dispatched out" log unable to see it.
+  // So picking a product with real tracked stock is blocked; the person
+  // must use the scan field above instead. Checked lazily per pick (not for
+  // the whole catalogue up front) to avoid a big fan-out call here.
+  async function confirmCatalogGift(product, outers, inners, directPcs) {
+    try {
+      const avail = await barcodeApi.availableCounts([product.code]);
+      const a = avail[product.code] || { outer: 0, inner: 0 };
+      if (a.outer > 0 || a.inner > 0) {
+        showToast(`${product.name} has tracked stock — scan it to gift instead of typing a quantity`, 'err');
+        return;
+      }
+    } catch { /* if the availability check itself fails, don't block the gift on that */ }
     onAddCatalogGift(product, outers, inners, directPcs);
     setConfirmingProduct(null);
     setShowPicker(false);
