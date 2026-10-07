@@ -6,6 +6,8 @@ const Inventory = require('../inventory/model');
 const CartonBarcode = require('../inventory/cartonBarcodeModel');
 const Ledger = require('../ledger/model');
 const Notification = require('../notifications/model');
+const GiftApproval = require('../giftApprovals/model');
+const { normalizeGiftsKey } = require('../giftApprovals/normalizeGiftsKey');
 
 const AVAILABLE_FOR_DISPATCH = ['in_stock', 'used']; // same grouping as barcodeController — physically in the warehouse, not yet gone
 const NOT_STOCKED = ['pending', 'unused']; // same grouping as barcodeController — never confirmed into stock at all
@@ -330,12 +332,29 @@ async function dispatchFromPool(req, res) {
       const gross = +(rate + tax).toFixed(2);
       dispatchLines.push({
         no: dispatchLines.length + 1, code: product.code, name: product.name, photo: product.photo || '',
-        pcs: needed, rate, gstPct, tax, gross, total: +(gross * needed).toFixed(2),
+        pcs: needed, outers, inners, rate, gstPct, tax, gross, total: +(gross * needed).toFixed(2),
       });
     }
     if (!dispatchLines.length) return res.status(400).json({ message: 'Select at least one item with a whole-carton quantity' });
 
     const { gifts, giftPcsByCode } = await buildGiftLines(requestedGifts);
+
+    // Any gift at all blocks the WHOLE dispatch (paid lines included) until
+    // Master Admin approves this exact gift selection for this dealer — a
+    // gift mistakenly scanned/added is what caused the bad dispatch this
+    // feature exists to prevent. masterAdmin dispatching directly skips this
+    // (nothing to approve against themselves), same as price approval.
+    let matchedGiftApproval = null;
+    if (gifts.length && req.user.role !== 'masterAdmin') {
+      const giftsKey = normalizeGiftsKey(requestedGifts);
+      matchedGiftApproval = await GiftApproval.findOne({ dealer: dealer.code, giftsKey, status: 'approved' });
+      if (!matchedGiftApproval) {
+        return res.status(400).json({
+          message: 'This dispatch has a gift attached — it needs Master Admin approval before it can be completed.',
+          needsGiftApproval: true,
+        });
+      }
+    }
 
     const cartonError = validateOptionalCartonMap(dispatchLines, cartonMap);
     if (cartonError) return res.status(400).json({ message: cartonError });
@@ -473,6 +492,14 @@ async function dispatchFromPool(req, res) {
       const allDone = pi.lines.every((l) => (l.pending != null ? l.pending : l.pcs) === 0);
       pi.status = allDone ? 'Fully Dispatched' : 'Partial Dispatched';
       await pi.save();
+    }
+
+    // Consume the approval now that the dispatch it was approved for has
+    // actually gone through — stops it from silently covering some other,
+    // later gift selection for the same dealer.
+    if (matchedGiftApproval) {
+      matchedGiftApproval.status = 'used';
+      await matchedGiftApproval.save();
     }
 
     // Lock in every scanned carton now that the invoice actually exists —

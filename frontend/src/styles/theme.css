@@ -156,6 +156,8 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .pi table.lines th{background:var(--spruce);color:var(--paper);font-family:var(--mono);font-size:9.5px;padding:7px 8px;text-align:left;letter-spacing:.05em}
 .pi table.lines td{padding:7px 8px;border-bottom:1px solid #F0ECE0}
 .pi table.lines td.r{text-align:right;font-family:var(--mono)}
+.pi table.lines th.c,.pi table.lines td.c{text-align:center}
+.pi table.lines td.c{font-family:var(--mono)}
 .pi .totals{margin-left:auto;width:280px;font-size:12.5px}
 .pi .totals .line{display:flex;justify-content:space-between;padding:3px 0}
 .pi .totals .line.grand{font-weight:700;font-size:14px;border-top:2px solid var(--spruce);padding-top:6px;margin-top:6px;color:var(--spruce)}

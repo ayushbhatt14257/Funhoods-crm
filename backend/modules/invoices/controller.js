@@ -49,9 +49,15 @@ async function getOne(req, res) {
   // Every carton actually scanned against this invoice gets
   // dispatchedInvoice set to its number (see dispatch/controller.js) — that
   // is the real, trustworthy count, kept separate by outer/inner as usual.
-  const cartons = await CartonBarcode.find({ dispatchedInvoice: inv.no }).select('kind').lean();
+  const cartons = await CartonBarcode.find({ dispatchedInvoice: inv.no }).select('code product kind').lean();
   const outerCartons = cartons.filter((c) => c.kind !== 'inner').length;
   const innerCartons = cartons.filter((c) => c.kind === 'inner').length;
+  // Which real QR/barcode cartons were actually scanned for each product on
+  // this invoice — shown on the delivery challan so "which carton did this
+  // line go out in" is answerable without a separate lookup. A line with no
+  // entry here was dispatched by typed quantity, not scanned.
+  const cartonCodesByProduct = {};
+  cartons.forEach((c) => { (cartonCodesByProduct[c.product] ||= []).push({ code: c.code, kind: c.kind }); });
 
   // `by` is the dealer's assigned salesperson (dealer.assignedTo) — not
   // necessarily createdBy, which is just whichever logged-in account
@@ -60,7 +66,7 @@ async function getOne(req, res) {
   // than createdBy's, which could belong to someone else entirely.
   const rep = inv.by ? await User.findOne({ name: inv.by }).select('mobile') : null;
 
-  res.json({ ...inv.toObject(), outerCartons, innerCartons, repMobile: rep?.mobile || '' });
+  res.json({ ...inv.toObject(), outerCartons, innerCartons, cartonCodesByProduct, repMobile: rep?.mobile || '' });
 }
 
 async function markDelivered(req, res) {

@@ -4,6 +4,8 @@ import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import ConfirmPopup from '../../components/ConfirmPopup';
 import { dispatchApi } from './api';
+import { giftApprovalsApi } from '../giftApprovals/api';
+import { useAuth } from '../../context/AuthContext';
 import DealerPickerModal from '../pi/components/DealerPickerModal';
 import CustomerPoolView from './components/CustomerPoolView';
 import GiftingStep from './components/GiftingStep';
@@ -23,6 +25,7 @@ import Loading from '../../components/Loading';
 // produced the items being dispatched.
 export default function Dispatch() {
   const { showToast } = useToast();
+  const { user } = useAuth();
   const nav = useNavigate();
   const [params] = useSearchParams();
   const dealerParam = params.get('dealer');
@@ -56,6 +59,7 @@ export default function Dispatch() {
   const [gifts, setGifts] = useState([]); // free items riding on this dispatch — see GiftingStep
   const [submitting, setSubmitting] = useState(false);
   const [shortageConfirm, setShortageConfirm] = useState(null);
+  const [giftApprovalPending, setGiftApprovalPending] = useState(false); // true once "send for approval" has been sent for the currently-staged gifts — reset whenever gifts change
 
   useEffect(() => {
     api.get('/dealers').then(setDealers);
@@ -65,6 +69,12 @@ export default function Dispatch() {
   useEffect(() => {
     if (dealerCode) loadPool(dealerCode);
   }, [dealerCode]);
+
+  // Any change to the staged gifts invalidates a previously-sent approval
+  // request — the approval is matched to the EXACT gift selection
+  // (normalizeGiftsKey on the backend), so a stale "waiting" banner here
+  // would be misleading the moment the person adds/removes a gift.
+  useEffect(() => { setGiftApprovalPending(false); }, [gifts]);
 
   async function loadPool(code) {
     setPool(null);
@@ -244,14 +254,15 @@ export default function Dispatch() {
       .filter((l) => l.outers > 0 || l.inners > 0);
     if (!lines.length) return showToast('Select at least one item with a whole-carton quantity', 'err');
     if (submitting) return;
+    const giftsPayload = gifts.map((g) => (g.custom
+      ? { custom: true, name: g.name, worth: g.worth }
+      : { code: g.code, outers: g.outers, inners: g.inners, directPcs: g.directPcs }));
     setSubmitting(true);
     try {
       const res = await dispatchApi.dispatchFromPool({
         dealerCode, lines, transporter, vehicle, lr, eway, driver, freight, freightTerm,
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
-        gifts: gifts.map((g) => (g.custom
-          ? { custom: true, name: g.name, worth: g.worth }
-          : { code: g.code, outers: g.outers, inners: g.inners, directPcs: g.directPcs })),
+        gifts: giftsPayload,
         scannedCartonCodes: scannedCodes.map((s) => s.code), // locked in as "dispatched" server-side only now, at this exact commit
         force,
       });
@@ -260,6 +271,21 @@ export default function Dispatch() {
     } catch (err) {
       if (err.status === 409 && err.data?.shortages) {
         setShortageConfirm({ message: err.message, shortages: err.data.shortages, onConfirm: () => { setShortageConfirm(null); submitPoolDispatch(true); } });
+        setSubmitting(false);
+        return;
+      }
+      // Gift(s) on this dispatch haven't been approved yet (see
+      // dispatch/controller.js dispatchFromPool) — send the approval
+      // request instead of just showing the error, so the person doesn't
+      // have to separately find their way to a "request approval" action.
+      if (err.status === 400 && err.data?.needsGiftApproval) {
+        try {
+          await giftApprovalsApi.create({ dealer: dealerCode, dealerName: pool?.dealer?.name, gifts: giftsPayload });
+          setGiftApprovalPending(true);
+          showToast('Gifts sent for Master Admin approval — this dispatch will unlock once approved.', 'y');
+        } catch (sendErr) {
+          showToast(sendErr.message, 'err');
+        }
         setSubmitting(false);
         return;
       }
@@ -400,6 +426,11 @@ export default function Dispatch() {
             onRemoveCartonItem={removeCartonItem}
             onRemoveCarton={removeCarton}
           />
+          {giftApprovalPending && gifts.length > 0 && user?.role !== 'masterAdmin' && (
+            <div className="note y" style={{ marginBottom: 10 }}>
+              ⏳ Gifts sent to Master Admin for approval — this dispatch is locked until approved. Nothing more to do here; once approved, come back and click Dispatch again.
+            </div>
+          )}
           <div className="btnrow">
             <button className="btn g" disabled={submitting || pool.dealer.dispatchHold?.active} onClick={() => submitPoolDispatch()}>{submitting ? 'Saving…' : '→ Dispatch selected items'}</button>
           </div>

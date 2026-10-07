@@ -1,6 +1,6 @@
 // Renders the same letterhead format used in PIPreview, but read-only —
 // for viewing an already-saved PI or Invoice. kind: 'PI' | 'INVOICE'
-export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons, outerCartons, innerCartons, salesRep, gifts }) {
+export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons, outerCartons, innerCartons, salesRep, gifts, cartonCodesByProduct }) {
   if (!settings || !dealer) return null;
   const s = settings;
   const isInvoice = kind === 'INVOICE';
@@ -62,22 +62,38 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
       </div>
 
       <table className="lines">
-        <thead><tr><th>#</th><th style={{ width: 34 }}></th><th>Item</th>{!isInvoice && <th className="r">Packing</th>}<th className="r">Qty</th><th className="r">Rate ₹</th><th className="r">GST %</th><th className="r">Tax</th><th className="r">Gross</th><th className="r">Total ₹</th></tr></thead>
+        <thead><tr><th>#</th><th style={{ width: 34 }}></th><th>Item</th><th className="c">Qty</th><th className="r">Rate ₹</th><th className="r">GST %</th><th className="r">Tax</th><th className="r">Gross</th><th className="r">Total ₹</th></tr></thead>
         <tbody>
-          {lines.map((l, i) => (
-            <tr key={i}>
-              <td>{l.no || i + 1}</td>
-              <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 28, height: 28, background: 'var(--paper)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>📦</div>}</td>
-              <td><b>{l.name}</b><br /><span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span></td>
-              {!isInvoice && <td className="r">{l.outers ? `${l.outers} outer` : ''}{l.inners ? `${l.inners} inner` : ''}</td>}
-              <td className="r">{l.pcs}</td>
-              <td className="r">{l.rate.toFixed(2)}</td>
-              <td className="r">{l.gstPct}</td>
-              <td className="r">{l.tax.toFixed(2)}</td>
-              <td className="r">{l.gross.toFixed(2)}</td>
-              <td className="r"><b>{l.total.toFixed(2)}</b></td>
-            </tr>
-          ))}
+          {lines.map((l, i) => {
+            const codes = isInvoice ? cartonCodesByProduct?.[l.code] : null;
+            return (
+              <tr key={i}>
+                <td>{l.no || i + 1}</td>
+                <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 28, height: 28, background: 'var(--paper)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>📦</div>}</td>
+                <td>
+                  <b>{l.name}</b><br /><span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span>
+                  {codes?.length > 0 && (
+                    <div className="muted" style={{ fontSize: 9.5, fontFamily: 'var(--mono)', marginTop: 3 }}>
+                      QR: {codes.map((c) => c.code).join(', ')}
+                    </div>
+                  )}
+                </td>
+                <td className="c">
+                  <b>{l.pcs}</b>
+                  {(l.outers || l.inners) ? (
+                    <div className="muted" style={{ fontSize: 9.5 }}>
+                      {l.outers ? `${l.outers} outer` : ''}{l.outers && l.inners ? ' + ' : ''}{l.inners ? `${l.inners} inner` : ''}
+                    </div>
+                  ) : null}
+                </td>
+                <td className="r">{l.rate.toFixed(2)}</td>
+                <td className="r">{l.gstPct}</td>
+                <td className="r">{l.tax.toFixed(2)}</td>
+                <td className="r">{l.gross.toFixed(2)}</td>
+                <td className="r"><b>{l.total.toFixed(2)}</b></td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 

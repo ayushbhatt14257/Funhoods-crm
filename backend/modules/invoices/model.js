@@ -7,6 +7,8 @@ const lineSchema = new mongoose.Schema(
     name: String,
     photo: String,
     pcs: Number,
+    outers: { type: Number, default: 0 }, // carton-level split this line was dispatched as — for the challan's Qty breakdown
+    inners: { type: Number, default: 0 },
     rate: Number,
     gstPct: Number,
     tax: Number,

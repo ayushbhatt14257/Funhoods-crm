@@ -139,6 +139,7 @@ export default function InvoiceDetail() {
         freightTerm={inv.freightTerm}
         total={inv.total}
         cartons={inv.cartons}
+        cartonCodesByProduct={inv.cartonCodesByProduct}
         outerCartons={inv.outerCartons}
         innerCartons={inv.innerCartons}
         salesRep={{ name: inv.by, mobile: inv.repMobile }}
