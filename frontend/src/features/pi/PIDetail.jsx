@@ -251,6 +251,36 @@ export default function PIDetail() {
         salesRep={{ name: pi.by, mobile: pi.repMobile }}
       />
 
+      <div className="card" style={{ marginTop: 10 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 8 }}>Dispatch status</h3>
+        <div className="tblwrap">
+          <table className="dt">
+            <thead><tr><th>Item</th><th>Ordered</th><th>Dispatched</th><th>Pending</th><th></th></tr></thead>
+            <tbody>
+              {pi.lines.map((l, i) => {
+                const pending = l.pending != null ? l.pending : l.pcs;
+                const dispatched = l.pcs - pending;
+                return (
+                  <tr key={i}>
+                    <td>{l.name}<br /><span className="mono" style={{ fontSize: 10, color: 'var(--muted)' }}>{l.code}</span></td>
+                    <td>{l.pcs}</td>
+                    <td style={{ color: dispatched > 0 ? 'var(--green)' : undefined, fontWeight: dispatched > 0 ? 600 : undefined }}>{dispatched}</td>
+                    <td style={{ color: pending > 0 ? 'var(--orange)' : undefined, fontWeight: pending > 0 ? 600 : undefined }}>{pending}</td>
+                    <td>
+                      {pending === 0
+                        ? <span className="badge g">✓ Fully dispatched</span>
+                        : dispatched > 0
+                          ? <span className="badge y">Partially dispatched</span>
+                          : <span className="badge">Not dispatched</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div className="btnrow">
         {canEdit && <button className="btn o" onClick={startEdit}>Edit PI</button>}
         {canSend && <button className="btn g" disabled={actionBusy} onClick={sendToCustomer}>{actionBusy ? 'Working…' : 'Save + send to customer'}</button>}
