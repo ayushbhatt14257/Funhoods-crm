@@ -412,39 +412,73 @@ function MapSection() {
         {unknownState && unknownState.dealerCount > 0 && <> {unknownState.dealerCount} dealer(s) have no pincode-derived district — not shown on the map (run "Backfill districts" on the Dealers page, or fix their pincode).</>}
       </p>
 
-      <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        {!drillState ? (
-          <IndiaSvgMap
-            level="state"
-            width={680}
-            height={760}
-            stateFill={(name) => {
-              const row = findByName(geo.byState, name);
-              return row ? stateScale.colorFor(row[metric]) : '#e2e8f0';
-            }}
-            onStateClick={(name) => setDrillState(name)}
-            tooltip={(ctx) => {
-              const row = findByName(geo.byState, ctx.name);
-              return <div><b>{ctx.name}</b><br />{metricLabel}: {row ? fmt(row[metric]) : '—'}<br />Dealers: {row ? row.dealerCount : 0}</div>;
-            }}
-          />
-        ) : (
-          <IndiaSvgMap
-            level="district"
-            stateName={drillState}
-            width={680}
-            height={760}
-            districtFill={(name) => {
-              const row = findByName(districtsOfState, name);
-              return row ? districtScale.colorFor(row[metric]) : '#e2e8f0';
-            }}
-            onDistrictClick={(name) => openDistrict(drillState, name)}
-            tooltip={(ctx) => {
-              const row = findByName(districtsOfState, ctx.name);
-              return <div><b>{ctx.name}</b><br />{metricLabel}: {row ? fmt(row[metric]) : '—'}<br />Dealers: {row ? row.dealerCount : 0}</div>;
-            }}
-          />
-        )}
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center' }}>
+        <div style={{ maxWidth: 680, flex: '1 1 480px' }}>
+          {!drillState ? (
+            <IndiaSvgMap
+              level="state"
+              width={680}
+              height={760}
+              stateFill={(name) => {
+                const row = findByName(geo.byState, name);
+                return row ? stateScale.colorFor(row[metric]) : '#e2e8f0';
+              }}
+              onStateClick={(name) => setDrillState(name)}
+              tooltip={(ctx) => {
+                const row = findByName(geo.byState, ctx.name);
+                return <div><b>{ctx.name}</b><br />{metricLabel}: {row ? fmt(row[metric]) : '—'}<br />Dealers: {row ? row.dealerCount : 0}</div>;
+              }}
+            />
+          ) : (
+            <IndiaSvgMap
+              level="district"
+              stateName={drillState}
+              width={680}
+              height={760}
+              districtFill={(name) => {
+                const row = findByName(districtsOfState, name);
+                return row ? districtScale.colorFor(row[metric]) : '#e2e8f0';
+              }}
+              onDistrictClick={(name) => openDistrict(drillState, name)}
+              tooltip={(ctx) => {
+                const row = findByName(districtsOfState, ctx.name);
+                return <div><b>{ctx.name}</b><br />{metricLabel}: {row ? fmt(row[metric]) : '—'}<br />Dealers: {row ? row.dealerCount : 0}</div>;
+              }}
+            />
+          )}
+        </div>
+
+        {/* The map itself has no room to print a name on every one of 36
+            states / 700+ districts legibly, and hover tooltips are easy to
+            miss — so every name + its number is always listed here too,
+            ranked highest first, same metric as the map's coloring. */}
+        <div style={{ flex: '1 1 280px', minWidth: 260, maxWidth: 340 }}>
+          <h4 style={{ marginTop: 0 }}>{drillState ? `${drillState} — districts` : 'States'}</h4>
+          <div style={{ maxHeight: 700, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <table className="dt" style={{ fontSize: 12.5 }}>
+              <thead>
+                <tr><th>{drillState ? 'District' : 'State'}</th><th>{metricLabel}</th><th>Dealers</th></tr>
+              </thead>
+              <tbody>
+                {(drillState ? districtsOfState : geo.byState)
+                  .filter((r) => r.state !== 'Unknown' && r.district !== 'Unknown')
+                  .slice()
+                  .sort((a, b) => b[metric] - a[metric])
+                  .map((r) => (
+                    <tr
+                      key={drillState ? r.district : r.state}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => (drillState ? openDistrict(drillState, r.district) : setDrillState(r.state))}
+                    >
+                      <td>{drillState ? r.district : r.state}</td>
+                      <td>{fmt(r[metric])}</td>
+                      <td>{r.dealerCount}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {dealerList && (
