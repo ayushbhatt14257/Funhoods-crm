@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../../api/client';
+import { api, getToken, API_URL } from '../../api/client';
 import { piApi } from './api';
 import Loading from '../../components/Loading';
 import Modal from '../../components/Modal';
@@ -29,6 +29,7 @@ export default function PIList() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
   const [priceChangesFor, setPriceChangesFor] = useState(null); // PI object mid-view
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
 
@@ -39,6 +40,29 @@ export default function PIList() {
     if (from) params.set('from', from);
     if (to) params.set('to', to);
     return params;
+  }
+
+  // Exports exactly the currently selected tab + filters — same params the
+  // on-screen list itself is fetched with, so the file always matches what's
+  // visible (no pagination applied server-side, so this gets the full set).
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const params = baseParams();
+      if (status === PENDING_APPROVAL_TAB) params.set('pendingApproval', '1');
+      else if (status) params.set('status', status);
+      const res = await fetch(`${API_URL}/pi/export.xlsx?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const tabLabel = status === PENDING_APPROVAL_TAB ? 'Waiting-for-approval' : (status || 'All');
+      a.download = `PI_${tabLabel.replace(/\s+/g, '-')}.xlsx`;
+      a.click();
+    } catch (err) { alert(err.message); }
+    finally { setExporting(false); }
   }
 
   // Status-tab counts — a lightweight counts-only call, not a second full fetch of every PI.
@@ -130,6 +154,9 @@ export default function PIList() {
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} title="From date" />
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="To date" />
         </div>
+        <button className="btn o" onClick={exportExcel} disabled={exporting}>
+          {exporting ? 'Exporting…' : '📊 Export Excel'}
+        </button>
       </div>
 
       {pis === null ? (

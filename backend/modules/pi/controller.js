@@ -1,3 +1,4 @@
+const XLSX = require('xlsx');
 const PI = require('./model');
 const Dealer = require('../dealers/model');
 const Product = require('../products/model');
@@ -5,6 +6,16 @@ const Alias = require('../aliases/model');
 const Notification = require('../notifications/model');
 const User = require('../users/model');
 const { parseOrderText } = require('../../utils/orderParser');
+
+// Same label the PI list table shows (see frontend statusDisplay.js) — kept
+// in sync by hand since the frontend one is plain JS with no shared module
+// between the two apps. A PI "Waiting for approval" is still really
+// Confirmed/whatever underneath, but the list always shows the approval
+// label over the raw status, so the export matches what's on screen.
+function statusLabel(pi) {
+  if (pi.priceApproval?.status === 'pending') return 'Waiting for approval';
+  return pi.status;
+}
 
 // POST /api/pi/parse  { text }
 async function parseOrder(req, res) {
@@ -245,6 +256,58 @@ async function statusCounts(req, res) {
   res.json({ all, pendingApproval, ...counts });
 }
 
+// GET /api/pi/export.xlsx — same filters as list() (status/pendingApproval/
+// q/by/from/to/role restriction), but no pagination: exports every matching
+// PI so the file matches exactly whatever tab + filters are on screen.
+async function exportExcel(req, res) {
+  const { q, status, by, from, to, pendingApproval } = req.query;
+  const filter = {};
+  if (status) {
+    const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
+    filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+  }
+  if (pendingApproval === '1') filter['priceApproval.status'] = 'pending';
+  if (by) filter.by = by;
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = new Date(from);
+    if (to) filter.createdAt.$lte = new Date(new Date(to).getTime() + 86399999);
+  }
+  if (q) filter.$or = [{ no: new RegExp(q, 'i') }, { dealerName: new RegExp(q, 'i') }];
+  if (['field', 'mhead'].includes(req.user.role)) {
+    const myDealers = await Dealer.find({ assignedTo: req.user.name }).select('code');
+    filter.dealer = { $in: myDealers.map((d) => d.code) };
+  }
+
+  const pis = await PI.find(filter).sort({ confirmedAt: -1, createdAt: -1 });
+  const dealerCodes = [...new Set(pis.map((p) => p.dealer))];
+  const dealers = await Dealer.find({ code: { $in: dealerCodes } }).select('code assignedTo');
+  const assignedByCode = Object.fromEntries(dealers.map((d) => [d.code, d.assignedTo || '']));
+
+  const header = ['PI no', 'Dealer', 'Assigned to', 'Items', 'Total ₹', 'Status', 'Created by', 'Created', 'Confirmed'];
+  const rows = pis.map((p) => [
+    p.no,
+    p.dealerName,
+    assignedByCode[p.dealer] || '',
+    p.lines.length,
+    Math.round(p.total),
+    statusLabel(p),
+    p.by,
+    new Date(p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }),
+    new Date(p.confirmedAt || p.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }),
+  ]);
+
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'PIs');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  const tabLabel = (pendingApproval === '1') ? 'Waiting-for-approval' : (status || 'All');
+  res.setHeader('Content-Disposition', `attachment; filename=PI-${tabLabel.replace(/[^a-z0-9-]+/gi, '_')}-${Date.now()}.xlsx`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
+}
+
 async function getOne(req, res) {
   const pi = await PI.findOne({ no: req.params.no });
   if (!pi) return res.status(404).json({ message: 'PI not found' });
@@ -405,6 +468,6 @@ async function approvePrice(req, res) {
 }
 
 module.exports = {
-  parseOrder, create, update, list, statusCounts, getOne, setStatus, confirm, cancel, closeRemaining, remove,
+  parseOrder, create, update, list, statusCounts, exportExcel, getOne, setStatus, confirm, cancel, closeRemaining, remove,
   listPendingApprovals, approvePrice,
 };
