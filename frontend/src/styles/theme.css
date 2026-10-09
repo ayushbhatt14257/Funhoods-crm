@@ -152,9 +152,16 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .pi .bill h6{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
 .pi .bill div{font-size:12px}
 .pi .bill b{font-weight:600}
-.pi table.lines{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px}
+/* table-layout:fixed so columns keep to the widths set by <colgroup> below
+   regardless of content — without this, a line item with many QR codes
+   (10+ carton codes is common for a big outer count) stretches the Item
+   column wide enough to push the table past the printable page width,
+   which is what cut off Qty/Rate/Total on print for long-QR items. Every
+   cell still wraps its own content (word-wrap below) instead of being cut
+   off or forcing the column wider. */
+.pi table.lines{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px;table-layout:fixed}
 .pi table.lines th{background:var(--spruce);color:var(--paper);font-family:var(--mono);font-size:9.5px;padding:7px 8px;text-align:left;letter-spacing:.05em}
-.pi table.lines td{padding:7px 8px;border-bottom:1px solid #F0ECE0}
+.pi table.lines td{padding:7px 8px;border-bottom:1px solid #F0ECE0;word-wrap:break-word;overflow-wrap:break-word}
 .pi table.lines td.r{text-align:right;font-family:var(--mono)}
 .pi table.lines th.c,.pi table.lines td.c{text-align:center}
 .pi table.lines td.c{font-family:var(--mono)}
@@ -165,7 +172,15 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
 .pi .toggle2{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
 .pi .toggle2 button{border:none;background:var(--white);padding:6px 12px;font-size:12px;cursor:pointer;color:var(--muted)}
 .pi .toggle2 button.on{background:var(--spruce);color:#fff;font-weight:600}
-@media(max-width:800px){
+/* "screen" only — a printed page's usable width (page width minus margins)
+   is very often under 800px too (a Letter/A4 page at default margins comes
+   out around 750-780px), so without this an unscoped max-width query also
+   matches WHILE printing and re-enables the nowrap/horizontal-scroll mode
+   below — silently undoing the print-specific wrapping fix in the
+   table.lines rules above, which is exactly what caused Qty/Rate/Total to
+   still run off the printed page even after those fixed-width columns were
+   added. */
+@media screen and (max-width:800px){
   .pi{padding:14px}
   .pi .head{flex-direction:column}
   .pi .head .r{text-align:left}
@@ -181,6 +196,10 @@ table.dt td{padding:9px;border-bottom:1px solid #F0ECE0}
   .card{border:none;padding:0;box-shadow:none}
   body{background:#fff}
   .print-only{display:block!important}
+  /* Belt-and-braces: force the fixed-width/wrap behavior regardless of any
+     other rule, since this is the one place it actually has to hold. */
+  #print-area table.lines{table-layout:fixed!important;width:100%!important;display:table!important;white-space:normal!important;overflow-x:visible!important}
+  #print-area table.lines td{word-break:break-word!important;overflow-wrap:break-word!important;white-space:normal!important}
 }
 .print-only{display:none}
 .loginwrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--spruce);padding:20px}

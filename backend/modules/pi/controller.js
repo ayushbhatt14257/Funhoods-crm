@@ -69,12 +69,21 @@ async function buildLines(inputLines, role) {
     // outright. Master Admin's own decreases still need nothing (they're
     // the approver, nothing to approve against).
     const gstPct = product.gst_pct || 5;
+    // tax/gross shown here are PER-UNIT display values, rounded to paise —
+    // fine on their own, but multiplying a quantity against an already-
+    // rounded per-unit gross compounds that rounding error (e.g. ₹35.25 at
+    // 5% GST is really ₹37.0125/unit; rounded to ₹37.01 and then ×2880 pcs
+    // comes out ₹7.20 short of the true figure, which is what made this
+    // line's total disagree with Tally, where GST is applied to the whole
+    // subtotal rather than per unit). So `total` is computed from the
+    // UNROUNDED per-unit gross × pcs, and only the final total is rounded.
     const tax = +((rate * gstPct) / 100).toFixed(2);
     const gross = +(rate + tax).toFixed(2);
+    const rawGross = rate + (rate * gstPct) / 100;
 
     // If a direct pcs override is given (not derived purely from outer/inner), use it as-is.
     const pcs = il.pcs != null ? +il.pcs : (+il.outers || 0) * product.cartonOuter + (+il.inners || 0) * product.cartonInner;
-    const total = +(gross * pcs).toFixed(2);
+    const total = +(rawGross * pcs).toFixed(2);
 
     lines.push({
       no: i + 1,

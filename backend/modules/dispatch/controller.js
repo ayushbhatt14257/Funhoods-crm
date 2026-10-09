@@ -328,11 +328,16 @@ async function dispatchFromPool(req, res) {
       }
 
       const gstPct = reqLine.gstPct || product.gst_pct || 5;
+      // total from the UNROUNDED per-unit gross × pcs, not the rounded
+      // display gross × pcs — see the matching comment in pi/controller.js
+      // create() for why (rounding-before-multiply compounds into a real
+      // mismatch against Tally on large quantities).
       const tax = +((rate * gstPct) / 100).toFixed(2);
       const gross = +(rate + tax).toFixed(2);
+      const rawGross = rate + (rate * gstPct) / 100;
       dispatchLines.push({
         no: dispatchLines.length + 1, code: product.code, name: product.name, photo: product.photo || '',
-        pcs: needed, outers, inners, rate, gstPct, tax, gross, total: +(gross * needed).toFixed(2),
+        pcs: needed, outers, inners, rate, gstPct, tax, gross, total: +(rawGross * needed).toFixed(2),
       });
     }
     if (!dispatchLines.length) return res.status(400).json({ message: 'Select at least one item with a whole-carton quantity' });
@@ -598,11 +603,14 @@ async function dispatchManual(req, res) {
       const pcs = +il.pcs;
       const rate = product.rate;
       const gstPct = product.gst_pct || 5;
+      // See the matching comment in pi/controller.js create() — total comes
+      // from the unrounded per-unit gross × pcs, not rounded-gross × pcs.
       const tax = +((rate * gstPct) / 100).toFixed(2);
       const gross = +(rate + tax).toFixed(2);
+      const rawGross = rate + (rate * gstPct) / 100;
       dispatchLines.push({
         no: i + 1, code: product.code, name: product.name, photo: product.photo || '',
-        pcs, rate, gstPct, tax, gross, total: +(gross * pcs).toFixed(2),
+        pcs, rate, gstPct, tax, gross, total: +(rawGross * pcs).toFixed(2),
       });
     }
 
