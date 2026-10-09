@@ -62,7 +62,22 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
       </div>
 
       <table className="lines">
-        <thead><tr><th>#</th><th style={{ width: 34 }}></th><th>Item</th><th className="c">Qty</th><th className="r">Rate ₹</th><th className="r">GST %</th><th className="r">Tax</th><th className="r">Gross</th><th className="r">Total ₹</th></tr></thead>
+        {/* Fixed column widths (table-layout:fixed in theme.css) so a line
+            with many QR codes listed under it wraps within the Item column
+            instead of stretching the whole table past the page on print —
+            Qty/Rate/Total stay put and visible either way. */}
+        <colgroup>
+          <col style={{ width: '4%' }} />
+          <col style={{ width: 34 }} />
+          <col style={{ width: '38%' }} />
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '8%' }} />
+          <col style={{ width: '9%' }} />
+          <col style={{ width: '9%' }} />
+          <col style={{ width: '10%' }} />
+        </colgroup>
+        <thead><tr><th>#</th><th></th><th>Item</th><th className="c">Qty</th><th className="r">Rate ₹</th><th className="r">GST %</th><th className="r">Tax</th><th className="r">Gross</th><th className="r">Total ₹</th></tr></thead>
         <tbody>
           {lines.map((l, i) => {
             const codes = isInvoice ? cartonCodesByProduct?.[l.code] : null;
@@ -73,7 +88,7 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
                 <td>
                   <b>{l.name}</b><br /><span className="mono muted" style={{ fontSize: 10 }}>{l.code}</span>
                   {codes?.length > 0 && (
-                    <div className="muted" style={{ fontSize: 9.5, fontFamily: 'var(--mono)', marginTop: 3 }}>
+                    <div className="muted" style={{ fontSize: 9.5, fontFamily: 'var(--mono)', marginTop: 3, wordBreak: 'break-all' }}>
                       QR: {codes.map((c) => c.code).join(', ')}
                     </div>
                   )}
