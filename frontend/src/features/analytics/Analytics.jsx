@@ -408,8 +408,8 @@ function MapSection() {
       </div>
 
       <p className="muted" style={{ fontSize: 12 }}>
-        Colored by <b>{metricLabel}</b> · matched by each dealer's pincode-derived district/state, not the free-text city/state on their profile.
-        {unknownState && unknownState.dealerCount > 0 && <> {unknownState.dealerCount} dealer(s) have no pincode-derived district — not shown on the map (run "Backfill districts" on the Dealers page, or fix their pincode).</>}
+        Colored by <b>{metricLabel}</b> · state uses each dealer's pincode-derived state where available, else their typed state (common abbreviations/misspellings merged automatically); district only comes from a pincode, so a dealer with no pincode on file still falls into that state's "Unknown" district.
+        {unknownState && unknownState.dealerCount > 0 && <> {unknownState.dealerCount} dealer(s) have no state on file at all (pincode or typed) — not shown on the map; add a pincode or state on the Dealers page to place them.</>}
       </p>
 
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center' }}>
@@ -461,7 +461,7 @@ function MapSection() {
               </thead>
               <tbody>
                 {(drillState ? districtsOfState : geo.byState)
-                  .filter((r) => r.state !== 'Unknown' && r.district !== 'Unknown')
+                  .filter((r) => r.state !== 'Unknown')
                   .slice()
                   .sort((a, b) => b[metric] - a[metric])
                   .map((r) => (

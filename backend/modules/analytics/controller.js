@@ -542,14 +542,18 @@ async function ops(req, res) {
 // silently dropped, so the map's totals still reconcile with the real
 // number of dealers.
 async function geo(req, res) {
-  const dealers = await Dealer.find().select('code name district pincodeState').lean();
-  const stateByDealer = {}; // code -> state (or 'Unknown')
-  const districtByDealer = {}; // code -> { state, district } (or null)
-  dealers.forEach((d) => {
-    const state = d.pincodeState || 'Unknown';
-    stateByDealer[d.code] = state;
-    districtByDealer[d.code] = d.district ? { state, district: d.district } : null;
-  });
+  const dealers = await Dealer.find().select('code name district pincodeState state').lean();
+  // Most dealers were bulk-imported, and that import never captured a
+  // pincode (the sheet has no such column) — so `pincodeState` (pincode
+  // derived, fully reliable) is empty for the large majority, not just the
+  // odd stragglers. Rather than dumping all of them into one "Unknown"
+  // bucket, fall back to the dealer's own typed state, run through the same
+  // alias map used for the city/state order-volume report, so "UP"/"M.P."/
+  // "Gujrat" etc. still land on the right state. District has no such
+  // fallback — a pincode is the only way this app derives a district — so
+  // a dealer with no pincode-derived district still shows as "Unknown"
+  // there, just no longer at the state level too.
+  const effectiveState = (d) => (d.pincodeState ? titleCase(d.pincodeState) : canonicalState(d.state));
 
   const perDealer = {}; // code -> { name, sales, outstanding, pendingValue }
   dealers.forEach((d) => { perDealer[d.code] = { name: d.name, sales: 0, outstanding: 0, pendingValue: 0 }; });
@@ -590,12 +594,13 @@ async function geo(req, res) {
   }
 
   const byState = rollup((d) => {
-    const state = d.pincodeState || 'Unknown';
+    const state = effectiveState(d);
     return { bucketKey: state, labels: { state } };
   });
   const byDistrict = rollup((d) => {
-    if (!d.district) return { bucketKey: `${d.pincodeState || 'Unknown'}|Unknown`, labels: { state: d.pincodeState || 'Unknown', district: 'Unknown' } };
-    return { bucketKey: `${d.pincodeState}|${d.district}`, labels: { state: d.pincodeState, district: d.district } };
+    const state = effectiveState(d);
+    if (!d.district) return { bucketKey: `${state}|Unknown`, labels: { state, district: 'Unknown' } };
+    return { bucketKey: `${state}|${d.district}`, labels: { state, district: d.district } };
   });
 
   res.json({ byState, byDistrict, totalDealers: dealers.length, unmappedDealers: dealers.filter((d) => !d.district).length });
@@ -608,10 +613,13 @@ async function geo(req, res) {
 async function geoDealers(req, res) {
   const { state, district } = req.query;
   if (!state) return res.status(400).json({ message: 'state is required' });
-  const filter = state === 'Unknown' ? { pincodeState: { $in: ['', null] } } : { pincodeState: state };
-  if (district === 'Unknown') filter.district = { $in: ['', null] };
-  else if (district) filter.district = district;
-  const dealers = await Dealer.find(filter).select('code name city district pincodeState').lean();
+  // Same effective-state (pincode-derived, else typed+aliased) as geo()
+  // above — can't be expressed as a Mongo filter since the alias mapping
+  // happens in JS, so filter the (small) dealer set here instead.
+  const all = await Dealer.find().select('code name city district pincodeState state').lean();
+  let dealers = all.filter((d) => (d.pincodeState ? titleCase(d.pincodeState) : canonicalState(d.state)) === state);
+  if (district === 'Unknown') dealers = dealers.filter((d) => !d.district);
+  else if (district) dealers = dealers.filter((d) => d.district === district);
 
   const codes = dealers.map((d) => d.code);
   const invoices = await Invoice.find({ dealer: { $in: codes }, status: { $ne: 'Cancelled' } }).select('dealer total paymentReceived').lean();
