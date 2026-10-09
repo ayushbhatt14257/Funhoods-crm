@@ -6,6 +6,43 @@ const Product = require('../products/model');
 const CartonBarcode = require('../inventory/cartonBarcodeModel');
 const { verifyFirebaseIdToken } = require('../../config/firebaseAdmin');
 
+// Common ways an Indian state name shows up in free-typed dealer records —
+// abbreviations ("UP", "M.P", "C.G"), missing letters ("Gujrat",
+// "Maharastra"), full names in different casing. Blindly fuzzy-merging any
+// two similar-looking strings risks combining two genuinely different
+// places, so instead this is a small, hand-picked list of known variants
+// for India's 28 states + 8 UTs, mapped to one canonical display name.
+// Keyed by the UPPERCASE, punctuation-stripped form of the variant.
+const STATE_ALIASES = {
+  'UP': 'Uttar Pradesh', 'U P': 'Uttar Pradesh',
+  'MP': 'Madhya Pradesh', 'M P': 'Madhya Pradesh',
+  'CG': 'Chhattisgarh', 'C G': 'Chhattisgarh', 'CHATTISGARH': 'Chhattisgarh',
+  'TN': 'Tamil Nadu', 'AP': 'Andhra Pradesh', 'TS': 'Telangana',
+  'MH': 'Maharashtra', 'MAHARASTRA': 'Maharashtra', 'MAHARASHTRA': 'Maharashtra',
+  'GUJRAT': 'Gujarat', 'GUJARAT': 'Gujarat', 'GJ': 'Gujarat',
+  'RAJASTHAN': 'Rajasthan', 'RJ': 'Rajasthan',
+  'WB': 'West Bengal', 'WESTBENGAL': 'West Bengal',
+  'KL': 'Kerala', 'KA': 'Karnataka', 'KARNATKA': 'Karnataka',
+  'PB': 'Punjab', 'HR': 'Haryana', 'HP': 'Himachal Pradesh',
+  'JH': 'Jharkhand', 'JHARKAND': 'Jharkhand',
+  'OD': 'Odisha', 'ORISSA': 'Odisha', 'OR': 'Odisha',
+  'AS': 'Assam', 'BR': 'Bihar', 'UK': 'Uttarakhand', 'UTTARANCHAL': 'Uttarakhand',
+  'DL': 'Delhi', 'NEWDELHI': 'Delhi', 'NCT OF DELHI': 'Delhi', 'NCTOFDELHI': 'Delhi',
+  'GA': 'Goa', 'JK': 'Jammu and Kashmir', 'J K': 'Jammu and Kashmir',
+};
+// A state string may carry stray dots/commas ("M.P.", "C.G.,") that the
+// alias lookup needs stripped before matching, but the fallback title-case
+// below should NOT see those stripped — only the lookup key is normalized.
+function canonicalState(raw) {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return 'Unknown';
+  const key = trimmed.toUpperCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+  return STATE_ALIASES[key] || titleCase(trimmed);
+}
+function titleCase(s) {
+  return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) || 'Unknown';
+}
+
 // Same India-only normalization used in auth/controller.js (kept identical
 // on purpose — a mismatch here would make an otherwise-valid OTP fail).
 function toLocalMobile(e164) {
@@ -133,19 +170,31 @@ async function sales(req, res) {
     .slice(0, 30);
 
   // City/state-wise order volume — join dealer.city/state onto invoice
-  // revenue. Normalized (trimmed, single-spaced, title-cased) before
-  // grouping so "MUMBAI" and "Mumbai" merge into one row instead of
-  // appearing as separate locations purely from inconsistent capitalization
-  // in how each dealer's city/state happened to be typed in. This does NOT
-  // catch genuine spelling differences ("Maharashtra" vs "Maharastra") or
-  // abbreviation-vs-full-name ("UP" vs "Uttar Pradesh") — those are
-  // different text, and auto-merging them risks silently combining two
-  // actually-different places; that needs a manual data cleanup in the
-  // Dealer records themselves, not a display-time guess here.
-  const titleCase = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) || 'Unknown';
+  // revenue. City is normalized (trimmed, single-spaced, title-cased) so
+  // "MUMBAI" and "Mumbai" merge into one row from capitalization alone.
+  // State goes further: it prefers the dealer's pincode-derived state
+  // (already one canonical spelling, see dealers/districtLookup.js) and
+  // otherwise runs the typed state through a known-alias map (STATE_ALIASES
+  // above) so "UP"/"M.P."/"Gujrat"/"Maharastra" merge into their real state
+  // instead of each showing as its own row. City has no equivalent reliable
+  // source to fall back on, so a genuine city-name misspelling still shows
+  // as a separate row — that needs a manual data cleanup in the Dealer
+  // records themselves.
   const dealerCodes = [...new Set(invoices.map((i) => i.dealer))];
   const dealerLoc = Object.fromEntries(
-    (await Dealer.find({ code: { $in: dealerCodes } }).select('code city state')).map((d) => [d.code, { city: titleCase(d.city), state: titleCase(d.state) }])
+    (await Dealer.find({ code: { $in: dealerCodes } }).select('code city state pincodeState')).map((d) => [
+      d.code,
+      {
+        city: titleCase(d.city),
+        // pincodeState is auto-derived from the dealer's pincode (see
+        // dealers/districtLookup.js) and is already a single canonical
+        // spelling — far more reliable than whatever was free-typed into
+        // the state field, so prefer it whenever it's set. Only fall back
+        // to the typed state (passed through the alias map above) for
+        // dealers with no pincode-derived state yet.
+        state: d.pincodeState ? titleCase(d.pincodeState) : canonicalState(d.state),
+      },
+    ])
   );
   const byLocation = {}, byCity = {}, byState = {};
   invoices.forEach((inv) => {
