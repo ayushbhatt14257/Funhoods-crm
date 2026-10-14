@@ -257,26 +257,28 @@ export default function GenerateBarcodes() {
         if (canvas) {
           JsBarcode(canvas, c.code, {
             format: 'CODE128',
-            width: 2.4,       // px per narrow bar — controls scan-resolution, not print size
-            height: 90,       // px, tall enough for a reliable laser sweep even off-angle
+            // Bumped from 2.4/90 — a gun reads a 1D barcode by X-dimension
+            // (how fat each narrow bar is) and height (room for the laser
+            // line to sweep even slightly off-angle). Both were previously
+            // sized for a dense label with lots of other text competing for
+            // space; the new left/right layout below frees up most of the
+            // label for the barcode alone, so there's room to make the bars
+            // themselves fatter and taller — which is the actual lever for
+            // "scans faster, from further away", not just a bigger-looking
+            // image. Higher internal pixel width also means less blur when
+            // the canvas gets scaled down to the printed mm width.
+            width: 3.6,
+            height: 130,
             margin: 4,
             displayValue: false, // the code is already printed big below (.label-code) — a second copy under the bars would be redundant and eats vertical space
           });
-          // As with the old QR canvas, jsbarcode sets canvas.style.width/height
-          // inline to match its native pixel size — that would override our
-          // own sizing. We fix WIDTH and let height scale from the canvas's
-          // native aspect ratio (not the other way around): CODE128's native
-          // width grows with the code's character count while its height
-          // stays constant, so scaling from a fixed HEIGHT (the old approach)
-          // let long codes render wider than the 100mm label and get cut off
-          // left/right. Fixing width instead guarantees the barcode never
-          // exceeds the label's width regardless of code length; height comes
-          // out small (well inside the label) since the native aspect ratio
-          // is very wide. Inner gets a narrower width since it also carries 2
-          // extra lines above the barcode (its badge + "Belongs to outer X")
-          // that outer doesn't, so it needs more vertical room to spare.
+          // jsbarcode sets canvas.style.width/height inline to match its
+          // native pixel size — override both and let the barcode fill the
+          // full width of its column (CSS, via .label-barcode), so it's
+          // always as big as the new layout allows rather than a fixed mm
+          // figure that has to be kept in sync with the layout by hand.
           canvas.style.height = '';
-          canvas.style.width = (c.kind === 'inner') ? '68mm' : '76mm';
+          canvas.style.width = '100%';
         }
       });
       printLabels();
@@ -608,27 +610,34 @@ export default function GenerateBarcodes() {
               const innerSiblingCount = isInner && !isLoose ? batch.cartons.filter((x) => x.kind === 'inner' && x.parentCode === c.parentCode).length : 0;
               return (
                 <div className="label" key={c.code}>
-                  {/* OUTER (black) vs INNER (red) badge — colour alone tells
-                      them apart from across the room, before anyone even
-                      reads the text. An inner ALSO prints its real parent's
-                      code right under the badge, bold, so it can be visually
-                      matched against the outer box it's meant to go in
-                      before sticking it — no scanning needed for that quick
-                      sanity check (the scan-time check is the real
-                      guarantee; this is the fast human-eye first pass). A
-                      LOOSE inner (no outer at all — old stock) skips that
-                      line entirely, since there's no outer to match it to. */}
-                  <div className={`label-badge ${isInner ? 'inner' : 'outer'}`}>
-                    {isLoose ? 'INNER (loose)' : isInner ? `INNER${innerIndex ? ` ${+innerIndex} of ${innerSiblingCount || '?'}` : ''}` : 'OUTER CARTON'}
+                  {/* Left strip: OUTER (black) vs INNER (red) badge — colour
+                      alone tells them apart from across the room, before
+                      anyone even reads the text — plus the qty and, for a
+                      real inner, which outer it belongs to. Moved off the
+                      top (where it used to eat a full-width line above the
+                      name on every label) into its own narrow column, so the
+                      freed-up width goes straight to a bigger name and a
+                      bigger barcode on the right — that's the actual point:
+                      more room for the two things that matter for a fast
+                      gun-scan, name legibility and barcode size. A LOOSE
+                      inner (no outer at all — old stock) skips the "belongs
+                      to" line, since there's no outer to match it to. */}
+                  <div className="label-left">
+                    <div className={`label-badge ${isInner ? 'inner' : 'outer'}`}>
+                      {isLoose ? 'INNER' : isInner ? `INNER${innerIndex ? ` ${+innerIndex}/${innerSiblingCount || '?'}` : ''}` : 'OUTER'}
+                    </div>
+                    <div className="label-qty">{c.qty ?? batch.qty}<span> pcs</span></div>
+                    {isInner && !isLoose && (
+                      <div className="label-parent">of<br /><b>{c.parentCode}</b></div>
+                    )}
+                    <div className="label-date">{new Date(c.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</div>
                   </div>
-                  {isInner && !isLoose && (
-                    <div className="label-parent">Belongs to outer <b>{c.parentCode}</b></div>
-                  )}
-                  <div className="label-name" style={isInner ? { fontSize: 18 } : undefined}>{batch.product.name}</div>
-                  <div className="label-meta"><b>{batch.product.code}</b> · {c.qty ?? batch.qty} pcs</div>
-                  <canvas id={`barcode-${c.code}`} className="label-barcode" style={isInner ? { width: '68mm' } : undefined}></canvas>
-                  <div className="label-code">{c.code}</div>
-                  <div className="label-date">{new Date(c.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="label-right">
+                    <div className="label-name">{batch.product.name}</div>
+                    <div className="label-meta">{batch.product.code}</div>
+                    <canvas id={`barcode-${c.code}`} className="label-barcode"></canvas>
+                    <div className="label-code">{c.code}</div>
+                  </div>
                 </div>
               );
             })}
@@ -955,40 +964,62 @@ export default function GenerateBarcodes() {
           height: var(--label-h);
           box-sizing: border-box;
           border: 1px dashed var(--line);
-          padding: 14px 18px;
+          padding: 10px 14px;
+          display: flex;
+          flex-direction: row;
+          align-items: stretch;
+          gap: 10px;
+          overflow: hidden;
+        }
+        /* Left strip: badge, qty, parent-code, date — everything that's
+           useful but doesn't need to be huge. Narrow and fixed-width, so the
+           rest of the label's width always goes to the name/barcode on the
+           right no matter what's in this column. */
+        .label-left {
+          flex: 0 0 24mm;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
           text-align: center;
+          gap: 4px;
+          border-right: 1px dashed var(--line);
+          padding-right: 8px;
+        }
+        /* Colour is the fast, no-reading-required signal (black = whole
+           carton, red = a piece of one) — text is the fallback for anyone
+           printing in black & white. */
+        .label-badge { font-weight: 800; font-size: 13px; letter-spacing: 0.04em; color: #fff; padding: 3px 8px; border-radius: 4px; white-space: pre-line; line-height: 1.2; }
+        .label-badge.outer { background: #111; }
+        .label-badge.inner { background: #b3261e; }
+        .label-qty { font-weight: 700; font-size: 16px; }
+        .label-qty span { font-weight: 400; font-size: 11px; color: var(--muted); }
+        .label-parent { font-size: 10px; color: var(--muted); line-height: 1.3; }
+        .label-parent b { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+        .label-date { font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+        /* Right side: the two things that actually matter for a fast
+           gun-scan — a big, easy-to-read name, and a big barcode — get the
+           rest of the label's width and height. */
+        .label-right {
+          flex: 1 1 auto;
           display: flex;
           flex-direction: column;
           justify-content: center;
           align-items: center;
-          overflow: hidden;
+          text-align: center;
+          min-width: 0;
         }
-        /* Colour is the fast, no-reading-required signal (black = whole
-           carton, red = a piece of one) — text is the fallback for anyone
-           printing in black & white. Bold + letter-spacing + bigger size
-           than the rest of the label's small text, since this is the first
-           thing meant to catch the eye when matching labels to boxes. */
-        .label-badge { font-weight: 800; font-size: 15px; letter-spacing: 0.06em; color: #fff; padding: 2px 12px; border-radius: 4px; margin-bottom: 3px; }
-        .label-badge.outer { background: #111; }
-        .label-badge.inner { background: #b3261e; }
-        .label-parent { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
-        .label-parent b { font-family: var(--mono); font-size: 13px; color: var(--ink); }
-        .label-name { font-weight: 700; font-size: 22px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-        .label-meta { font-size: 14px; color: var(--muted); margin: 3px 0 8px; }
-        .label-meta b { font-family: var(--mono); }
-        /* Only width is fixed (86mm, safely inside the 100mm label) — height
-           is left to the browser so it scales from the canvas's native
-           aspect ratio instead of being stretched to a fixed square like the
-           old QR code was. Fixing width (not height) guarantees the barcode
-           never prints wider than the label regardless of code length. */
-        .label-barcode { width: 76mm; height: auto; display: block; margin: 0 auto; }
-        {/* Code on its own line, bold and 10px larger than the old combined
-            .label-footer (11px -> 21px) for on-shelf legibility — split from
-            the date/time so the bigger text doesn't risk overflowing the
-            fixed-size label (.label has overflow:hidden). Date/time kept
-            smaller since only the code itself was asked to be more visible. */}
-        .label-code { font-family: var(--mono); font-size: 21px; font-weight: 700; color: var(--ink); margin-top: 6px; letter-spacing: 0.01em; white-space: nowrap; }
-        .label-date { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+        /* Up from 22px — left column freed up enough width that the name
+           can wrap to 2 lines instead of being truncated with an ellipsis,
+           so a long product name is still readable rather than cut off. */
+        .label-name { font-weight: 700; font-size: 26px; line-height: 1.15; max-width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .label-meta { font-family: var(--mono); font-size: 13px; color: var(--muted); margin: 2px 0 6px; }
+        /* Fills the whole right column now (was a fixed 68-76mm) — the JS
+           effect above sets the canvas's own style.width:100% so it always
+           matches whatever width .label-right actually has. */
+        .label-barcode { width: 100%; height: auto; display: block; }
+        {/* Code on its own line, bold, for on-shelf legibility. */}
+        .label-code { font-family: var(--mono); font-size: 23px; font-weight: 700; color: var(--ink); margin-top: 6px; letter-spacing: 0.01em; white-space: nowrap; }
         /* Nothing in #print-area is ever shown in the app — generate and
            reprint both render here purely so window.print() has something to
            print, then go straight to the print dialog. Off-screen (never
