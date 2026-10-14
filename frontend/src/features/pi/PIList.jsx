@@ -13,23 +13,49 @@ const PENDING_APPROVAL_TAB = '__pendingApproval__'; // not a real PI status — 
 
 export default function PIList() {
   const nav = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [pis, setPis] = useState(null); // null = loading
   const [total, setTotal] = useState(0);
   const [counts, setCounts] = useState(null);
   const [users, setUsers] = useState([]);
-  const [q, setQ] = useState('');
+  // Every filter below is seeded from the URL on first render and kept in
+  // sync with it afterward (see the sync effect below) — not just `status`.
+  // Without this, opening a PI from a filtered list and pressing the
+  // browser's Back button lands you back on /pis with no query string,
+  // which remounts this component from scratch and silently drops every
+  // filter you'd set (search text, salesperson, date range, status tab,
+  // even page number) — exactly the "back se pura list khul jata hai"
+  // complaint. Keeping them in the URL means Back actually restores the
+  // same filtered view instead of resetting it.
+  const [q, setQ] = useState(searchParams.get('q') || '');
   // Pre-filled from a dashboard stat-card link, e.g. /pis?status=Sent,Confirmed,Partial%20Dispatched
   const [status, setStatus] = useState(searchParams.get('status') || '');
-  const [by, setBy] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [view, setView] = useState('flat'); // 'flat' | 'byCustomer'
+  const [by, setBy] = useState(searchParams.get('by') || '');
+  const [from, setFrom] = useState(searchParams.get('from') || '');
+  const [to, setTo] = useState(searchParams.get('to') || '');
+  const [view, setView] = useState(searchParams.get('view') || 'flat'); // 'flat' | 'byCustomer'
   const [openDealers, setOpenDealers] = useState({}); // dealer code -> expanded?
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(30);
+  const [page, setPage] = useState(+(searchParams.get('page') || 1));
+  const [pageSize, setPageSize] = useState(+(searchParams.get('pageSize') || 30));
   const [priceChangesFor, setPriceChangesFor] = useState(null); // PI object mid-view
   const [exporting, setExporting] = useState(false);
+
+  // Mirror every filter into the URL (replacing, not pushing, so typing in
+  // the search box doesn't spam browser history) — this is what makes Back
+  // land on the filtered view instead of a blank one.
+  useEffect(() => {
+    const params = {};
+    if (q) params.q = q;
+    if (status) params.status = status;
+    if (by) params.by = by;
+    if (from) params.from = from;
+    if (to) params.to = to;
+    if (view !== 'flat') params.view = view;
+    if (page !== 1) params.page = String(page);
+    if (pageSize !== 30) params.pageSize = String(pageSize);
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, status, by, from, to, view, page, pageSize]);
 
   useEffect(() => { api.get('/users/names').then(setUsers); }, []);
 
