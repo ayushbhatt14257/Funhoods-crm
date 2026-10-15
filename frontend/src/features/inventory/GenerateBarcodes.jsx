@@ -274,12 +274,16 @@ export default function GenerateBarcodes() {
           JsBarcode(canvas, c.code, {
             format: 'CODE128',
             width: BAR_WIDTH,
-            // An inner label has one extra line above the name ("of outer
-            // SP-01-...") that an outer label doesn't — at the same tall
-            // barcode, that pushed the name/code/date below the label's
-            // fixed 76mm and they got clipped. Shorter bars for inner only,
-            // so everything fits without shrinking the name or code text.
-            height: c.kind === 'inner' ? 85 : 110,
+            // Back to the SAME height as outer (was shortened to 85 for
+            // inner, to make room for its extra "of outer ..." line before
+            // the code scheme got shorter) — a shorter barcode is harder
+            // for a handheld gun to get a clean sweep across, especially
+            // held at a slight angle, and that height difference lines up
+            // exactly with "outer scans, inner doesn't" even after the
+            // width/clipping bugs were fixed. The code is shorter now
+            // (v87) and the layout more compact, so there's enough vertical
+            // room on the label without that 85 shortcut.
+            height: 110,
             // Quiet zone (blank margin either side of the bars) — scanners
             // use it to find the start/end of the code; too thin a margin
             // relative to bar width is itself a common cause of a scan that
@@ -1032,7 +1036,15 @@ export default function GenerateBarcodes() {
            portion was simply cut, stop-pattern and all) and wouldn't scan,
            while the shorter outer code — narrower natively, so never hit
            this — scanned fine. */
-        .label-barcode { max-width: 100%; min-width: 0; height: auto; display: block; margin: 4px auto 0; }
+        /* Capped to 70mm (was 100% of the label, ~94mm) — with the carton
+           code scheme now shortened (backend), the barcode at a safe, thick
+           bar width no longer needs the full label width, so capping it
+           physically smaller and centering it gives a visibly more compact
+           barcode on every label, old long-code reprints included (those
+           just get proportionally scaled down to fit the same 70mm cap —
+           min-width:0 above is what makes that scaling actually happen
+           instead of clipping, per the bug just fixed). */
+        .label-barcode { max-width: 70mm; min-width: 0; height: auto; display: block; margin: 4px auto 0; }
         .label-code { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--ink); margin-top: 6px; letter-spacing: 0.01em; white-space: nowrap; }
         .label-date { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: auto; padding-top: 4px; }
         /* Nothing in #print-area is ever shown in the app — generate and

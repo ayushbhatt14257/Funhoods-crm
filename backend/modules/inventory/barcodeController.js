@@ -63,8 +63,15 @@ async function generateBatch(req, res) {
       qty, kind: 'outer', status: 'pending', createdBy: req.user.name,
     });
     for (let j = 0; j < innerPerOuter; j++) {
+      // No leading zero (was padStart(2,'0'), e.g. "-01") — one less
+      // character in the barcode for every batch with 9 or fewer inner per
+      // outer (effectively always, in practice), which is also one fewer
+      // bar for the scanner to read. innerIndex parsing on the label side
+      // (GenerateBarcodes.jsx, the /-(\d+)$/ match) already handles both
+      // 1-digit and 2-digit suffixes, so this needed no matching change
+      // there.
       docs.push({
-        code: `${outerCode}-${String(j + 1).padStart(2, '0')}`,
+        code: `${outerCode}-${j + 1}`,
         batchId, product: product.code, productName: product.name,
         qty: product.cartonInner, kind: 'inner', parentCode: outerCode,
         status: 'pending', createdBy: req.user.name,
