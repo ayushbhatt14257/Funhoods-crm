@@ -9,6 +9,13 @@ const lineSchema = new mongoose.Schema(
     pcs: Number,
     outers: { type: Number, default: 0 }, // carton-level split this line was dispatched as — for the challan's Qty breakdown
     inners: { type: Number, default: 0 },
+    // How many of the outers/inners above were an explicit "No QR
+    // available" override on the dispatch screen rather than an actual
+    // scan — only present (non-zero) for a genuinely overridden line, so
+    // this stays a visible audit flag on the invoice rather than quietly
+    // blending in with scanned pcs.
+    overrideOuters: { type: Number, default: 0 },
+    overrideInners: { type: Number, default: 0 },
     rate: Number,
     gstPct: Number,
     tax: Number,

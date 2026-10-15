@@ -306,6 +306,14 @@ async function dispatchFromPool(req, res) {
       const inners = +reqLine.inners || 0;
       const needed = outers * (product.cartonOuter || 0) + inners * (product.cartonInner || 0);
       if (needed <= 0) continue;
+      // overrideOuters/overrideInners: how many of the outers/inners above
+      // were explicitly marked "no QR available" on the dispatch screen
+      // instead of coming from an actual scan — a scan-only product's
+      // outer/inner count can otherwise only grow from a real scan, so this
+      // is the one escape hatch, and it's recorded here (not just accepted
+      // silently) so it shows up on the invoice for audit.
+      const overrideOuters = Math.min(+reqLine.overrideOuters || 0, outers);
+      const overrideInners = Math.min(+reqLine.overrideInners || 0, inners);
 
       const rate = +reqLine.rate;
       let remaining = needed;
@@ -338,6 +346,7 @@ async function dispatchFromPool(req, res) {
       dispatchLines.push({
         no: dispatchLines.length + 1, code: product.code, name: product.name, photo: product.photo || '',
         pcs: needed, outers, inners, rate, gstPct, tax, gross, total: +(rawGross * needed).toFixed(2),
+        ...(overrideOuters || overrideInners ? { overrideOuters, overrideInners } : {}),
       });
     }
     if (!dispatchLines.length) return res.status(400).json({ message: 'Select at least one item with a whole-carton quantity' });

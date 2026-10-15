@@ -81,7 +81,7 @@ const AUTO_SUBMIT_DEBOUNCE_MS = 120;
 // selection is) so the raw list of scanned carton codes survives up to the
 // final dispatch submit — that's what actually gets locked in as
 // "dispatched" once the Dispatch button is pressed, not before.
-export default function CustomerPoolView({ pool, selection, onSelectionChange, scannedCodes, onScannedCodesChange }) {
+export default function CustomerPoolView({ pool, selection, onSelectionChange, scannedCodes, onScannedCodesChange, overrides = {}, onOverridesChange = () => {} }) {
   const { showToast } = useToast();
   const [q, setQ] = useState('');
   const [available, setAvailable] = useState({}); // product code -> { outer, inner } in_stock counts
@@ -199,8 +199,11 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
         // (forDispatch always checks the real carton server-side), so
         // nothing here weakens scan-based dispatch.
         const max = pcsMax;
-        const outers = checked ? Math.min(currentOuters, max.outers) : Math.min(suggested.outers, max.outers);
-        const inners = checked ? Math.min(currentInners, max.inners) : Math.min(suggested.inners, max.inners);
+        // A scan-only row has nothing to "default" to — outers/inners must
+        // read 0 until an actual scan (or no-QR override) happens, never the
+        // ordered suggestion, since nothing has genuinely been dispatched yet.
+        const outers = checked ? Math.min(currentOuters, max.outers) : (canScanPhysical ? 0 : Math.min(suggested.outers, max.outers));
+        const inners = checked ? Math.min(currentInners, max.inners) : (canScanPhysical ? 0 : Math.min(suggested.inners, max.inners));
         return { item: it, key, max, suggested, ordered, outers, inners, checked, avail, canScanPhysical, canSelect };
       });
   }, [pool, selection, available]);
@@ -270,6 +273,45 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   function setInners(row, value) {
     const inners = Math.max(0, Math.min(row.max.inners, Math.floor(+value) || 0));
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
+  }
+
+  // "No QR available" override — the one deliberate escape hatch for a
+  // scan-only row (canScanPhysical true): adds ONE carton's worth without a
+  // matching scan, for the genuine case where a physical carton exists but
+  // has no barcode to scan. Kept in its own `overrides` map (lifted to
+  // Dispatch.jsx, sent to the backend as an explicit audit flag) in
+  // addition to being folded into `selection` so the line total is still
+  // correct — this is NOT the same as the old free-typing input, which let
+  // anyone silently inflate a scan-tracked line with no record of why.
+  function addOverride(row, kind) {
+    const current = selection[row.key] || { outers: 0, inners: 0 };
+    const atMax = kind === 'outer' ? current.outers >= row.max.outers : current.inners >= row.max.inners;
+    if (atMax) return;
+    const nextSel = kind === 'outer' ? { ...current, outers: current.outers + 1 } : { ...current, inners: current.inners + 1 };
+    onSelectionChange({ ...selection, [row.key]: nextSel });
+    const ov = overrides[row.key] || { outers: 0, inners: 0 };
+    const nextOv = kind === 'outer' ? { ...ov, outers: ov.outers + 1 } : { ...ov, inners: ov.inners + 1 };
+    onOverridesChange({ ...overrides, [row.key]: nextOv });
+  }
+  // Mirrors addOverride — removes exactly one overridden carton, same as
+  // removeScannedEntry does for an actual scan.
+  function removeOverride(row, kind) {
+    const ov = overrides[row.key];
+    const field = kind === 'outer' ? 'outers' : 'inners';
+    if (!ov || !ov[field]) return;
+    const current = selection[row.key] || { outers: 0, inners: 0 };
+    const nextSel = { ...current, [field]: Math.max(0, current[field] - 1) };
+    const nextOv = { ...ov, [field]: Math.max(0, ov[field] - 1) };
+    if (nextSel.outers === 0 && nextSel.inners === 0) {
+      const next = { ...selection }; delete next[row.key]; onSelectionChange(next);
+    } else {
+      onSelectionChange({ ...selection, [row.key]: nextSel });
+    }
+    if (nextOv.outers === 0 && nextOv.inners === 0) {
+      const nextO = { ...overrides }; delete nextO[row.key]; onOverridesChange(nextO);
+    } else {
+      onOverridesChange({ ...overrides, [row.key]: nextOv });
+    }
   }
 
   // Undoes exactly one scanned carton: drops the row's count by one (of
@@ -570,7 +612,27 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                     </td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
-                      {r.checked ? (
+                      {r.canScanPhysical ? (
+                        // Scan-only row — this number is never typed, it's
+                        // exactly how many outers have actually been scanned
+                        // (plus any explicit "no QR" override below), so it
+                        // can only be read, not edited directly.
+                        <>
+                          <b>{r.outers}</b>
+                          {r.item.cartonOuter > 0 && (
+                            <div className="muted" style={{ fontSize: 10 }}>of {r.max.outers} · × {r.item.cartonOuter} pcs</div>
+                          )}
+                          {(overrides[r.key]?.outers || 0) > 0 && (
+                            <div style={{ fontSize: 10, color: 'var(--red)' }}>
+                              {overrides[r.key].outers} no-QR{' '}
+                              <button type="button" className="btn o sm rd" style={{ padding: '0 4px', fontSize: 10 }} onClick={() => removeOverride(r, 'outer')}>✕</button>
+                            </div>
+                          )}
+                          {r.outers < r.max.outers && (
+                            <button type="button" className="btn o sm" style={{ fontSize: 10, padding: '0 4px', marginTop: 2 }} onClick={() => addOverride(r, 'outer')} title="Use only if this carton genuinely has no QR to scan">+1 no QR</button>
+                          )}
+                        </>
+                      ) : r.checked ? (
                         <input
                           type="number" min={0} max={r.max.outers} value={r.outers}
                           onChange={(e) => setOuters(r, e.target.value)}
@@ -582,14 +644,30 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                         // no longer stock-capped — just show it plainly.
                         <b>{r.suggested.outers}</b>
                       )}
-                      {r.item.cartonOuter > 0 && (
+                      {!r.canScanPhysical && r.item.cartonOuter > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
                           {r.checked ? `of ${r.max.outers} · ` : ''}× {r.item.cartonOuter} pcs
                         </div>
                       )}
                     </td>
                     <td>
-                      {r.checked ? (
+                      {r.canScanPhysical ? (
+                        <>
+                          <b>{r.inners}</b>
+                          {r.item.cartonInner > 0 && (
+                            <div className="muted" style={{ fontSize: 10 }}>of {r.max.inners} · × {r.item.cartonInner} pcs</div>
+                          )}
+                          {(overrides[r.key]?.inners || 0) > 0 && (
+                            <div style={{ fontSize: 10, color: 'var(--red)' }}>
+                              {overrides[r.key].inners} no-QR{' '}
+                              <button type="button" className="btn o sm rd" style={{ padding: '0 4px', fontSize: 10 }} onClick={() => removeOverride(r, 'inner')}>✕</button>
+                            </div>
+                          )}
+                          {r.inners < r.max.inners && (
+                            <button type="button" className="btn o sm" style={{ fontSize: 10, padding: '0 4px', marginTop: 2 }} onClick={() => addOverride(r, 'inner')} title="Use only if this carton genuinely has no QR to scan">+1 no QR</button>
+                          )}
+                        </>
+                      ) : r.checked ? (
                         <input
                           type="number" min={0} max={r.max.inners} value={r.inners}
                           onChange={(e) => setInners(r, e.target.value)}
@@ -598,7 +676,7 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                       ) : (
                         <b>{r.suggested.inners}</b>
                       )}
-                      {r.item.cartonInner > 0 && (
+                      {!r.canScanPhysical && r.item.cartonInner > 0 && (
                         <div className="muted" style={{ fontSize: 10 }}>
                           {r.checked ? `of ${r.max.inners} · ` : ''}× {r.item.cartonInner} pcs
                         </div>

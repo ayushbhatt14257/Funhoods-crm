@@ -38,8 +38,15 @@ export default function Dispatch() {
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [dealerCode, setDealerCode] = useState(dealerParam || '');
   const [pool, setPool] = useState(null); // null = loading/none picked yet
-  const [selection, setSelection] = useState({}); // rowKey -> { outers, inners } (checked) | undefined (unchecked) — user-editable, capped at max in CustomerPoolView
+  const [selection, setSelection] = useState({}); // rowKey -> { outers, inners } (checked) | undefined (unchecked) — for products with NO tracked stock this is still freely typed; for products WITH tracked stock, every bit of it now comes only from an actual scan (or an explicit override below) — see CustomerPoolView
   const [scannedCodes, setScannedCodes] = useState([]); // raw carton codes scanned so far (paid lines + gifts, all in one list) — locked in as "dispatched" only when Dispatch is actually pressed
+  // rowKey -> { outers, inners } — the "No QR available" override: pcs added
+  // to a scan-only row WITHOUT a matching scan, for the rare case where
+  // physical stock genuinely has no barcode to scan. Counted into selection
+  // (so the line total is correct) but tracked separately here purely so it
+  // can be sent to the backend as an explicit, audited flag rather than
+  // silently looking like an ordinary scanned dispatch.
+  const [overrides, setOverrides] = useState({});
 
   // --- manual-mode state (unchanged from before) ---
   const [manualDealer, setManualDealer] = useState('');
@@ -80,6 +87,7 @@ export default function Dispatch() {
     setPool(null);
     setSelection({});
     setScannedCodes([]);
+    setOverrides({});
     try {
       const res = await dispatchApi.getCustomerPool(code);
       setPool(res);
@@ -98,6 +106,7 @@ export default function Dispatch() {
     setPool(null);
     setSelection({});
     setScannedCodes([]);
+    setOverrides({});
     setShowCustomerPicker(true);
     nav('/dispatch', { replace: true });
   }
@@ -249,7 +258,15 @@ export default function Dispatch() {
       .filter(([, sel]) => sel)
       .map(([key, sel]) => {
         const item = pool.items.find((it) => `${it.code}|${it.rate}` === key);
-        return { code: item.code, rate: item.rate, gstPct: item.gstPct, outers: sel.outers, inners: sel.inners };
+        const ov = overrides[key];
+        // overrideOuters/overrideInners tell the backend how much of this
+        // line's outers/inners did NOT come from an actual scan (the
+        // dispatcher explicitly used "No QR available" instead) — purely an
+        // audit flag, already included in outers/inners above.
+        return {
+          code: item.code, rate: item.rate, gstPct: item.gstPct, outers: sel.outers, inners: sel.inners,
+          overrideOuters: ov?.outers || 0, overrideInners: ov?.inners || 0,
+        };
       })
       .filter((l) => l.outers > 0 || l.inners > 0);
     if (!lines.length) return showToast('Select at least one item with a whole-carton quantity', 'err');
@@ -413,7 +430,7 @@ export default function Dispatch() {
               <b>⏸ {pool.dealer.name} is on hold</b> — "{pool.dealer.dispatchHold.reason}" (by {pool.dealer.dispatchHold.heldBy}). This customer can't be dispatched until the hold is released from the pending list.
             </div>
           )}
-          <CustomerPoolView pool={pool} selection={selection} onSelectionChange={setSelection} scannedCodes={scannedCodes} onScannedCodesChange={setScannedCodes} />
+          <CustomerPoolView pool={pool} selection={selection} onSelectionChange={setSelection} scannedCodes={scannedCodes} onScannedCodesChange={setScannedCodes} overrides={overrides} onOverridesChange={setOverrides} />
           <GiftingStep products={products} gifts={gifts} onAddCatalogGift={addCatalogGift} onAddCustomGift={addCustomGift} onRemoveGift={removeGift} dealerCode={dealerCode} scannedCodes={scannedCodes} onScannedCodesChange={setScannedCodes} />
           <TransportStep {...transportState} />
           <CartonMappingStep

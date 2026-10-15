@@ -92,6 +92,14 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
                       QR: {codes.map((c) => c.code).join(', ')}
                     </div>
                   )}
+                  {/* Explicit audit flag — this many of the outer/inner count
+                      above were dispatched WITHOUT a scan ("no QR
+                      available" on the dispatch screen), never silent. */}
+                  {(l.overrideOuters || l.overrideInners) ? (
+                    <div style={{ fontSize: 9.5, color: 'var(--red)', marginTop: 2 }}>
+                      ⚠ No-QR override: {l.overrideOuters ? `${l.overrideOuters} outer` : ''}{l.overrideOuters && l.overrideInners ? ' + ' : ''}{l.overrideInners ? `${l.overrideInners} inner` : ''}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="c">
                   <b>{l.pcs}</b>
