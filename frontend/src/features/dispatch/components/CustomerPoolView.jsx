@@ -275,6 +275,43 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     onSelectionChange({ ...selection, [row.key]: { outers: row.outers, inners } });
   }
 
+  // Undoes exactly one scan of the given kind for this row — the quick fix
+  // for "scanned 2 by mistake, only want to dispatch 1" without having to
+  // scroll down to the full scanned-cartons list. Picks the most recently
+  // scanned matching entry (last in, first undone).
+  function removeOneScan(row, kind) {
+    const entry = [...scannedCodes].reverse().find((s) => s.ownerKey === row.key && s.kind === kind);
+    if (entry) { removeScannedEntry(entry); return; }
+    // Nothing scanned of this kind for this row — the count must be made
+    // up of a "no QR" override instead, so undo that.
+    removeOverride(row, kind);
+  }
+  // Full reset for one row — every scan AND override this row has, gone in
+  // one go, cartons released back to available. This is the scan-tracked
+  // row's only way back to zero now that its checkbox is permanently
+  // disabled (toggle()/unchecking only ever applied to the manual path).
+  function clearRowScans(row) {
+    const released = scannedCodes.filter((s) => s.ownerKey === row.key);
+    if (released.length) {
+      setAvailable((a) => {
+        const next = { ...a };
+        released.forEach((s) => {
+          next[s.productCode] = { ...next[s.productCode], [s.kind]: (next[s.productCode]?.[s.kind] || 0) + 1 };
+        });
+        return next;
+      });
+    }
+    onScannedCodesChange(scannedCodes.filter((s) => s.ownerKey !== row.key));
+    const nextSel = { ...selection };
+    delete nextSel[row.key];
+    onSelectionChange(nextSel);
+    if (overrides[row.key]) {
+      const nextOv = { ...overrides };
+      delete nextOv[row.key];
+      onOverridesChange(nextOv);
+    }
+  }
+
   // "No QR available" override — the one deliberate escape hatch for a
   // scan-only row (canScanPhysical true): adds ONE carton's worth without a
   // matching scan, for the genuine case where a physical carton exists but
@@ -562,11 +599,23 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                 const lineTotal = gross * pcs;
                 const avail = r.avail;
                 const canScan = r.canScanPhysical;
+                // Row color: flash (just-scanned highlight) wins briefly,
+                // then a scan-tracked row settles into yellow (something
+                // scanned, not yet the full ordered pcs) or green (fully
+                // scanned) so the whole party's progress is readable from a
+                // glance down the table, not just from the numbers.
+                const scannedPcs = r.outers * r.item.cartonOuter + r.inners * r.item.cartonInner;
+                const orderedPcs = r.item.pendingPcs;
+                let rowBg;
+                if (r.key === flashRowKey) rowBg = 'rgba(240,200,60,0.35)';
+                else if (canScan && scannedPcs > 0 && orderedPcs > 0) {
+                  rowBg = scannedPcs >= orderedPcs ? 'rgba(60,180,90,0.16)' : 'rgba(240,200,60,0.16)';
+                }
                 return (
                   <tr
                     key={r.key}
                     ref={(el) => { if (el) rowElsRef.current[r.key] = el; else delete rowElsRef.current[r.key]; }}
-                    style={r.key === flashRowKey ? { background: 'rgba(240,200,60,0.35)', transition: 'background 0.3s' } : undefined}
+                    style={rowBg ? { background: rowBg, transition: 'background 0.3s' } : undefined}
                   >
                     <td>
                       {/* A real, native checkbox — clickable only when this
@@ -583,6 +632,11 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                         checked={r.checked}
                         disabled={!r.canSelect}
                         onChange={() => toggle(r)}
+                        // Blue once this row has any scan in it (manual rows
+                        // still use the browser default) — a quick visual
+                        // "something's been scanned here" independent of the
+                        // yellow/green row shading below.
+                        style={r.checked && canScan ? { accentColor: '#2563eb' } : undefined}
                         title={
                           !r.canSelect
                             ? (r.canScanPhysical ? 'Tracked stock exists for this product — use Scan instead' : 'Nothing ordered for this product')
@@ -619,6 +673,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                         // can only be read, not edited directly.
                         <>
                           <b>{r.outers}</b>
+                          {r.outers > 0 && (
+                            <button
+                              type="button" className="btn o sm" style={{ padding: '0 4px', fontSize: 10, marginLeft: 4 }}
+                              onClick={() => removeOneScan(r, 'outer')} title="Undo one scanned outer (most recent)"
+                            >−1</button>
+                          )}
                           {r.item.cartonOuter > 0 && (
                             <div className="muted" style={{ fontSize: 10 }}>of {r.max.outers} · × {r.item.cartonOuter} pcs</div>
                           )}
@@ -654,6 +714,12 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                       {r.canScanPhysical ? (
                         <>
                           <b>{r.inners}</b>
+                          {r.inners > 0 && (
+                            <button
+                              type="button" className="btn o sm" style={{ padding: '0 4px', fontSize: 10, marginLeft: 4 }}
+                              onClick={() => removeOneScan(r, 'inner')} title="Undo one scanned inner (most recent)"
+                            >−1</button>
+                          )}
                           {r.item.cartonInner > 0 && (
                             <div className="muted" style={{ fontSize: 10 }}>of {r.max.inners} · × {r.item.cartonInner} pcs</div>
                           )}
@@ -690,6 +756,15 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           one global box above, not per row. Outer/inner are
                           never blended into one merged number here. */}
                       {canScan ? `${availLabel(avail)} in stock` : 'No tracked stock'}
+                      {/* The scan-tracked row's only full reset — its
+                          checkbox is permanently disabled, so this is the
+                          "scanned the wrong thing / not dispatching this
+                          after all" undo for the whole row in one click. */}
+                      {canScan && r.checked && (
+                        <div style={{ marginTop: 3 }}>
+                          <button type="button" className="btn o sm rd" style={{ fontSize: 10, padding: '0 5px' }} onClick={() => clearRowScans(r)}>✕ Clear all scans</button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
