@@ -259,26 +259,26 @@ export default function GenerateBarcodes() {
             format: 'CODE128',
             // v81 made this WORSE, not better — it set width:3.6 (a big
             // native pixel size per bar) and then force-stretched the
-            // canvas down to the column's ~60mm with canvas.style.width =
-            // '100%'. That ~3.5x shrink is exactly what breaks a gun scan:
-            // squeezing an 800px-wide raster barcode into a ~220px box
-            // blurs/merges adjacent thin bars into each other, so the
-            // scanner sees mush instead of clean edges — it looks big and
-            // bold on screen/print preview, but the actual printed bars are
-            // the blurred, DOWNSCALED result, not the sharp 3.6-wide ones.
-            // The fix is the opposite move: keep the native canvas size
-            // close to the size it will actually print at, so there's
-            // little or no resampling to blur it. width:1.3 here is tuned
-            // for this code length (~16-18 chars) to land near the column's
-            // real width — see the CSS below (max-width:100%, not a forced
-            // width:100%) so nothing stretches/shrinks it again.
-            width: 1.3,
-            height: 140,
-            // Bigger quiet zone (blank margin either side of the bars) —
-            // scanners use it to find the start/end of the code; too
-            // thin a margin (was 4) relative to bar width is itself a
-            // common cause of a scan that "doesn't lock on".
-            margin: 12,
+            // canvas down to a ~60mm column with canvas.style.width = '100%'.
+            // That ~3.5x shrink is exactly what breaks a gun scan: squeezing
+            // an 800px-wide raster barcode into a ~220px box blurs/merges
+            // adjacent thin bars into each other, so the scanner sees mush
+            // instead of clean edges. The fix is the opposite move: keep the
+            // native canvas size close to the size it will actually print
+            // at, so there's little or no resampling to blur it.
+            // v83's full-label-width layout (was a side column) gives this
+            // ~80mm to work with instead of ~60mm, so width bumped
+            // 1.3 -> 1.8 to use that extra room as fatter, easier-to-scan
+            // bars rather than leaving it blank — see the CSS below
+            // (max-width:100%, not a forced width:100%) so nothing
+            // stretches/shrinks it again after this.
+            width: 1.8,
+            height: 110,
+            // Quiet zone (blank margin either side of the bars) — scanners
+            // use it to find the start/end of the code; too thin a margin
+            // relative to bar width is itself a common cause of a scan that
+            // "doesn't lock on".
+            margin: 10,
             displayValue: false, // the code is already printed big below (.label-code) — a second copy under the bars would be redundant and eats vertical space
           });
         }
@@ -611,35 +611,30 @@ export default function GenerateBarcodes() {
               const innerIndex = isInner && !isLoose ? (c.code.match(/-(\d+)$/)?.[1] || '') : '';
               const innerSiblingCount = isInner && !isLoose ? batch.cartons.filter((x) => x.kind === 'inner' && x.parentCode === c.parentCode).length : 0;
               return (
+                // v83 — redesigned to the layout Ayush sketched by hand:
+                // OUTER/INNER top-left, qty top-right (plain text, no coloured
+                // block eating space), big centered product name, a full-
+                // label-width barcode (this, not the text, is what actually
+                // fixed scanning — see the JS effect above), the code centered
+                // and bold under it, and the date centered at the very bottom.
                 <div className="label" key={c.code}>
-                  {/* Left strip: OUTER (black) vs INNER (red) badge — colour
-                      alone tells them apart from across the room, before
-                      anyone even reads the text — plus the qty and, for a
-                      real inner, which outer it belongs to. Moved off the
-                      top (where it used to eat a full-width line above the
-                      name on every label) into its own narrow column, so the
-                      freed-up width goes straight to a bigger name and a
-                      bigger barcode on the right — that's the actual point:
-                      more room for the two things that matter for a fast
-                      gun-scan, name legibility and barcode size. A LOOSE
-                      inner (no outer at all — old stock) skips the "belongs
-                      to" line, since there's no outer to match it to. */}
-                  <div className="label-left">
-                    <div className={`label-badge ${isInner ? 'inner' : 'outer'}`}>
+                  <div className="label-top">
+                    <span className={`label-kind ${isInner ? 'inner' : 'outer'}`}>
                       {isLoose ? 'INNER' : isInner ? `INNER${innerIndex ? ` ${+innerIndex}/${innerSiblingCount || '?'}` : ''}` : 'OUTER'}
-                    </div>
-                    <div className="label-qty">{c.qty ?? batch.qty}<span> pcs</span></div>
-                    {isInner && !isLoose && (
-                      <div className="label-parent">of<br /><b>{c.parentCode}</b></div>
-                    )}
-                    <div className="label-date">{new Date(c.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}</div>
+                    </span>
+                    <span className="label-qty">{c.qty ?? batch.qty} pcs</span>
                   </div>
-                  <div className="label-right">
-                    <div className="label-name">{batch.product.name}</div>
-                    <div className="label-meta">{batch.product.code}</div>
-                    <canvas id={`barcode-${c.code}`} className="label-barcode"></canvas>
-                    <div className="label-code">{c.code}</div>
-                  </div>
+                  {/* A real inner ALSO shows which outer it belongs to, right
+                      under the top row — a loose inner (no outer at all, old
+                      stock) skips this since there's no outer to match it to. */}
+                  {isInner && !isLoose && (
+                    <div className="label-parent">of outer <b>{c.parentCode}</b></div>
+                  )}
+                  <div className="label-name">{batch.product.name}</div>
+                  <div className="label-meta">{batch.product.code}</div>
+                  <canvas id={`barcode-${c.code}`} className="label-barcode"></canvas>
+                  <div className="label-code">{c.code}</div>
+                  <div className="label-date">{new Date(c.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
                 </div>
               );
             })}
@@ -961,72 +956,45 @@ export default function GenerateBarcodes() {
           gap: 16px;
           margin-top: 16px;
         }
+        /* v83 — Ayush's hand-sketched layout: OUTER/qty as plain text in the
+           top corners (not a coloured block eating width), everything else
+           centered in a single column, and the barcode running the FULL
+           label width — that full-width run, not the text sizing, is what
+           actually fixes gun-scanning (a dense barcode squeezed into a
+           narrow column is what blurred/merged the bars before). */
         .label {
           width: var(--label-w);
           height: var(--label-h);
           box-sizing: border-box;
           border: 1px dashed var(--line);
-          padding: 10px 14px;
+          padding: 8px 10px;
           display: flex;
-          flex-direction: row;
-          align-items: stretch;
-          gap: 10px;
+          flex-direction: column;
+          align-items: center;
           overflow: hidden;
         }
-        /* Left strip: badge, qty, parent-code, date — everything that's
-           useful but doesn't need to be huge. Narrow and fixed-width, so the
-           rest of the label's width always goes to the name/barcode on the
-           right no matter what's in this column. */
-        .label-left {
-          flex: 0 0 24mm;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          gap: 4px;
-          border-right: 1px dashed var(--line);
-          padding-right: 8px;
-        }
-        /* Colour is the fast, no-reading-required signal (black = whole
-           carton, red = a piece of one) — text is the fallback for anyone
-           printing in black & white. */
-        .label-badge { font-weight: 800; font-size: 13px; letter-spacing: 0.04em; color: #fff; padding: 3px 8px; border-radius: 4px; white-space: pre-line; line-height: 1.2; }
-        .label-badge.outer { background: #111; }
-        .label-badge.inner { background: #b3261e; }
-        .label-qty { font-weight: 700; font-size: 16px; }
-        .label-qty span { font-weight: 400; font-size: 11px; color: var(--muted); }
-        .label-parent { font-size: 10px; color: var(--muted); line-height: 1.3; }
+        .label-top { width: 100%; display: flex; justify-content: space-between; align-items: baseline; }
+        /* Colour is still the fast, no-reading-required signal (black = whole
+           carton, red = a piece of one) — just as plain bold text now
+           instead of a filled badge block, to match the sketch and leave
+           more width for the barcode below. */
+        .label-kind { font-weight: 800; font-size: 15px; letter-spacing: 0.04em; }
+        .label-kind.outer { color: #111; }
+        .label-kind.inner { color: #b3261e; }
+        .label-qty { font-weight: 700; font-size: 15px; }
+        .label-parent { font-size: 11px; color: var(--muted); margin-top: 2px; }
         .label-parent b { font-family: var(--mono); font-size: 12px; color: var(--ink); }
-        .label-date { font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
-        /* Right side: the two things that actually matter for a fast
-           gun-scan — a big, easy-to-read name, and a big barcode — get the
-           rest of the label's width and height. */
-        .label-right {
-          flex: 1 1 auto;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          align-items: center;
-          text-align: center;
-          min-width: 0;
-        }
-        /* Up from 22px — left column freed up enough width that the name
-           can wrap to 2 lines instead of being truncated with an ellipsis,
-           so a long product name is still readable rather than cut off. */
-        .label-name { font-weight: 700; font-size: 26px; line-height: 1.15; max-width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-        .label-meta { font-family: var(--mono); font-size: 13px; color: var(--muted); margin: 2px 0 6px; }
-        /* max-width, NOT width — jsbarcode already leaves the canvas at its
-           own native pixel size (see the JS effect above), tuned to come
-           out close to this column's real width on its own. Forcing
-           width:100% here would stretch/shrink that native raster to fit
-           the box exactly, which is the resampling that blurs thin bars
-           together and breaks scanning (see the comment above) — max-width
-           only steps in as a safety net if a longer code ever renders
-           wider than the column, so the common case prints crisp. */
-        .label-barcode { max-width: 100%; height: auto; display: block; margin: 0 auto; }
-        {/* Code on its own line, bold, for on-shelf legibility. */}
-        .label-code { font-family: var(--mono); font-size: 23px; font-weight: 700; color: var(--ink); margin-top: 6px; letter-spacing: 0.01em; white-space: nowrap; }
+        .label-name { font-weight: 700; font-size: 25px; line-height: 1.15; max-width: 100%; margin-top: 6px; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .label-meta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 2px 0 4px; }
+        /* Full label width now (was capped to a side column) — this is the
+           actual scan-speed fix: fewer/fatter bars per mm of label, printed
+           at jsbarcode's own native size (see the JS effect above) rather
+           than stretched/shrunk to fit a box, which is what blurs bars
+           together and breaks scanning. max-width only steps in as a safety
+           net if a code ever renders wider than the label itself. */
+        .label-barcode { max-width: 100%; height: auto; display: block; margin: 4px auto 0; }
+        .label-code { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--ink); margin-top: 6px; letter-spacing: 0.01em; white-space: nowrap; }
+        .label-date { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: auto; padding-top: 4px; }
         /* Nothing in #print-area is ever shown in the app — generate and
            reprint both render here purely so window.print() has something to
            print, then go straight to the print dialog. Off-screen (never
