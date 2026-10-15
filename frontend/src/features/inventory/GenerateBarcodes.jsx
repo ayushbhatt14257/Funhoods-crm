@@ -1021,7 +1021,18 @@ export default function GenerateBarcodes() {
            than stretched/shrunk to fit a box, which is what blurs bars
            together and breaks scanning. max-width only steps in as a safety
            net if a code ever renders wider than the label itself. */
-        .label-barcode { max-width: 100%; height: auto; display: block; margin: 4px auto 0; }
+        /* min-width:0 is the actual fix here, not max-width — a flex item
+           (which this canvas is, inside .label's flex column) defaults to
+           min-width:auto, i.e. "never shrink below my own content size",
+           and that silently BEATS max-width:100% whenever the canvas's
+           native size is wider than the box. Combined with .label's
+           overflow:hidden, the excess was getting clipped off outright
+           (not scaled) — invisibly on screen, but it's exactly why a
+           longer inner code's barcode came out visibly narrower (its right
+           portion was simply cut, stop-pattern and all) and wouldn't scan,
+           while the shorter outer code — narrower natively, so never hit
+           this — scanned fine. */
+        .label-barcode { max-width: 100%; min-width: 0; height: auto; display: block; margin: 4px auto 0; }
         .label-code { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--ink); margin-top: 6px; letter-spacing: 0.01em; white-space: nowrap; }
         .label-date { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: auto; padding-top: 4px; }
         /* Nothing in #print-area is ever shown in the app — generate and
