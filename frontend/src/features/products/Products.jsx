@@ -152,6 +152,12 @@ export default function Products() {
               <div style={{ fontSize: 12.5, display: 'flex', justifyContent: 'space-between' }}>
                 <span>₹{p.rate}</span><span>GST {p.gst_pct}%</span>
               </div>
+              {/* Rate above is always ex-GST (what's stored/edited) — this is
+                  just the GST-inclusive price shown alongside it so it
+                  doesn't have to be worked out by hand every time. */}
+              <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>
+                ₹{(p.rate + (p.rate * p.gst_pct) / 100).toFixed(2)} incl. GST
+              </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Carton: {p.cartonOuter} outer{p.hasInner !== false && p.cartonInner > 0 ? ` / ${p.cartonInner} inner` : ' only'}</div>
               {user.role === 'masterAdmin' && (
                 <div

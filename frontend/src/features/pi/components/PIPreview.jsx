@@ -39,6 +39,18 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
     next[i] = { ...next[i], rate: entered };
     setLines(next);
   }
+  // Gross (rate + GST) is the number a dealer actually haggles over, so it's
+  // editable too — typing a gross here reverse-calculates the ex-GST rate
+  // that produces it, same GST% this line already has. The stored field is
+  // still always `rate` (ex-GST); gross is never persisted on its own.
+  function editGross(i, val) {
+    const next = [...lines];
+    const enteredGross = val === '' ? '' : +val || 0;
+    const gstPct = next[i].gstPct || 0;
+    const rate = enteredGross === '' ? '' : +(enteredGross / (1 + gstPct / 100)).toFixed(2);
+    next[i] = { ...next[i], rate };
+    setLines(next);
+  }
 
   const computed = lines.map((l) => {
     const rate = +l.rate || 0;
@@ -134,7 +146,16 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
                 </td>
                 <td className="r">{l.gstPct}{l.gstPct !== 5 && <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600 }}>non-standard</div>}</td>
                 <td className="r">{l.tax.toFixed(2)}</td>
-                <td className="r">{l.gross.toFixed(2)}</td>
+                <td className="r">
+                  {/* Editable the other way round — typing a gross price
+                      here reverse-calculates the ex-GST rate above (see
+                      editGross), so either column can drive the price. */}
+                  <input
+                    type="number" step="0.01" value={l.gross}
+                    style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12 }}
+                    onChange={(e) => editGross(i, e.target.value)}
+                  />
+                </td>
                 <td className="r"><b>{l.total.toFixed(2)}</b></td>
               </tr>
             ))}
