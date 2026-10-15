@@ -257,28 +257,30 @@ export default function GenerateBarcodes() {
         if (canvas) {
           JsBarcode(canvas, c.code, {
             format: 'CODE128',
-            // Bumped from 2.4/90 — a gun reads a 1D barcode by X-dimension
-            // (how fat each narrow bar is) and height (room for the laser
-            // line to sweep even slightly off-angle). Both were previously
-            // sized for a dense label with lots of other text competing for
-            // space; the new left/right layout below frees up most of the
-            // label for the barcode alone, so there's room to make the bars
-            // themselves fatter and taller — which is the actual lever for
-            // "scans faster, from further away", not just a bigger-looking
-            // image. Higher internal pixel width also means less blur when
-            // the canvas gets scaled down to the printed mm width.
-            width: 3.6,
-            height: 130,
-            margin: 4,
+            // v81 made this WORSE, not better — it set width:3.6 (a big
+            // native pixel size per bar) and then force-stretched the
+            // canvas down to the column's ~60mm with canvas.style.width =
+            // '100%'. That ~3.5x shrink is exactly what breaks a gun scan:
+            // squeezing an 800px-wide raster barcode into a ~220px box
+            // blurs/merges adjacent thin bars into each other, so the
+            // scanner sees mush instead of clean edges — it looks big and
+            // bold on screen/print preview, but the actual printed bars are
+            // the blurred, DOWNSCALED result, not the sharp 3.6-wide ones.
+            // The fix is the opposite move: keep the native canvas size
+            // close to the size it will actually print at, so there's
+            // little or no resampling to blur it. width:1.3 here is tuned
+            // for this code length (~16-18 chars) to land near the column's
+            // real width — see the CSS below (max-width:100%, not a forced
+            // width:100%) so nothing stretches/shrinks it again.
+            width: 1.3,
+            height: 140,
+            // Bigger quiet zone (blank margin either side of the bars) —
+            // scanners use it to find the start/end of the code; too
+            // thin a margin (was 4) relative to bar width is itself a
+            // common cause of a scan that "doesn't lock on".
+            margin: 12,
             displayValue: false, // the code is already printed big below (.label-code) — a second copy under the bars would be redundant and eats vertical space
           });
-          // jsbarcode sets canvas.style.width/height inline to match its
-          // native pixel size — override both and let the barcode fill the
-          // full width of its column (CSS, via .label-barcode), so it's
-          // always as big as the new layout allows rather than a fixed mm
-          // figure that has to be kept in sync with the layout by hand.
-          canvas.style.height = '';
-          canvas.style.width = '100%';
         }
       });
       printLabels();
@@ -1014,10 +1016,15 @@ export default function GenerateBarcodes() {
            so a long product name is still readable rather than cut off. */
         .label-name { font-weight: 700; font-size: 26px; line-height: 1.15; max-width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .label-meta { font-family: var(--mono); font-size: 13px; color: var(--muted); margin: 2px 0 6px; }
-        /* Fills the whole right column now (was a fixed 68-76mm) — the JS
-           effect above sets the canvas's own style.width:100% so it always
-           matches whatever width .label-right actually has. */
-        .label-barcode { width: 100%; height: auto; display: block; }
+        /* max-width, NOT width — jsbarcode already leaves the canvas at its
+           own native pixel size (see the JS effect above), tuned to come
+           out close to this column's real width on its own. Forcing
+           width:100% here would stretch/shrink that native raster to fit
+           the box exactly, which is the resampling that blurs thin bars
+           together and breaks scanning (see the comment above) — max-width
+           only steps in as a safety net if a longer code ever renders
+           wider than the column, so the common case prints crisp. */
+        .label-barcode { max-width: 100%; height: auto; display: block; margin: 0 auto; }
         {/* Code on its own line, bold, for on-shelf legibility. */}
         .label-code { font-family: var(--mono); font-size: 23px; font-weight: 700; color: var(--ink); margin-top: 6px; letter-spacing: 0.01em; white-space: nowrap; }
         /* Nothing in #print-area is ever shown in the app — generate and
