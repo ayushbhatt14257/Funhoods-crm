@@ -273,7 +273,14 @@ export default function GenerateBarcodes() {
             // (max-width:100%, not a forced width:100%) so nothing
             // stretches/shrinks it again after this.
             width: 1.8,
-            height: 110,
+            // An inner label has one extra line above the name ("of outer
+            // SP-01-...") that an outer label doesn't — at the same 110
+            // barcode height, that pushed the name/code/date below the
+            // label's fixed 76mm and they got clipped (see screenshot: the
+            // inner's "Spinner Ball" line was cut off). Shorter bars for
+            // inner only, so everything fits without shrinking the name or
+            // code text.
+            height: c.kind === 'inner' ? 85 : 110,
             // Quiet zone (blank margin either side of the bars) — scanners
             // use it to find the start/end of the code; too thin a margin
             // relative to bar width is itself a common cause of a scan that
