@@ -252,26 +252,21 @@ export default function GenerateBarcodes() {
     if (!batch) return;
     (async () => {
       const JsBarcode = (await import('jsbarcode')).default;
-      // v85's fix was wrong — it shrank the BAR WIDTH for longer (inner)
-      // codes to keep the total barcode narrower than the label. That did
-      // stop the downscale-blur, but a thinner bar is itself harder to
-      // scan reliably, especially on a budget thermal/inkjet printer where
-      // very thin bars smear together from dot-gain even at "correct" size
-      // — the printed photo confirmed it: outer's bars were visibly bolder
-      // than inner's, and outer scanned, inner didn't.
-      // v86 fixed that (one fixed, thick bar width for every code) but the
-      // carton codes themselves were still long (6 random hex chars, e.g.
-      // SP-01-E38232 / SP-01-E38232-01), so even at a sane bar width the
-      // printed barcode came out wider than it needed to. The carton code
-      // scheme itself is now shortened (backend: randomSuffix 6->4 hex
-      // chars — new cartons only, doesn't touch any already-printed code),
-      // so the SAME fixed bar width below now produces a visibly narrower
-      // barcode without going back to thin, hard-to-scan bars.
+      // v91 — switched the barcode from a <canvas> (raster/bitmap) to an
+      // <svg> (vector). Every fix up to this point (v81-v90) was chasing
+      // some flavour of the same underlying problem: a canvas is a grid of
+      // pixels at a fixed native resolution, and ANY resize of it — by
+      // CSS, by the print engine, by a flexbox quirk — has to resample
+      // that pixel grid, which is exactly what blurs or clips thin bars
+      // together. An SVG barcode has no pixel grid to resample: it's drawn
+      // as actual bar shapes (<rect> elements) that stay perfectly crisp at
+      // ANY size, so it's now structurally impossible for scaling to be
+      // the cause of a bad scan, for inner or outer, at any label size.
       const BAR_WIDTH = 1.6;
       batch.cartons.filter((c) => !innerDuplicatesParent(c, batch.cartons)).forEach((c) => {
-        const canvas = document.getElementById(`barcode-${c.code}`);
-        if (canvas) {
-          JsBarcode(canvas, c.code, {
+        const svg = document.getElementById(`barcode-${c.code}`);
+        if (svg) {
+          JsBarcode(svg, c.code, {
             format: 'CODE128',
             width: BAR_WIDTH,
             // Back to the SAME height as outer (was shortened to 85 for
@@ -653,7 +648,10 @@ export default function GenerateBarcodes() {
                     <div className="label-name">{batch.product.name}</div>
                     <div className="label-meta">{batch.product.code}</div>
                   </div>
-                  <canvas id={`barcode-${c.code}`} className="label-barcode"></canvas>
+                  {/* v91: <svg>, not <canvas> — a vector barcode can't blur
+                      or get resampled by any CSS/print scaling, unlike a
+                      raster canvas (see the JS effect above). */}
+                  <svg id={`barcode-${c.code}`} className="label-barcode"></svg>
                   <div className="label-text">
                     <div className="label-code">{c.code}</div>
                     <div className="label-date">{new Date(c.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
