@@ -28,12 +28,11 @@ export default function WhatsAppOrderMode() {
   const errors = parsed ? parsed.lines.filter((l) => l.error) : [];
 
   if (showPreview && parsed?.dealer) {
-    return (
-      <div className="grid2">
-        <PIPreview dealer={parsed.dealer} initialLines={lines} onBack={() => setShowPreview(false)} />
-        <ModeInfoPanel />
-      </div>
-    );
+    // Full width here, no side "how this mode works" panel — that panel is
+    // only useful while still picking a mode/entering the order; once this
+    // table is up its wide Item/Rate/GST/Gross/Total columns were getting
+    // squeezed into half the screen for nothing, breaking into multi-line text.
+    return <PIPreview dealer={parsed.dealer} initialLines={lines} onBack={() => setShowPreview(false)} />;
   }
 
   return (

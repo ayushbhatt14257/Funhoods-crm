@@ -53,19 +53,18 @@ export default function StructuredOrderMode() {
   const total = lines.reduce((s, l) => s + l.pcs * l.product.rate * (1 + (l.product.gst_pct || 5) / 100), 0);
 
   if (showPreview) {
+    // Full width, no side info panel — see the matching comment in
+    // WhatsAppOrderMode.jsx for why.
     return (
-      <div className="grid2">
-        <PIPreview
-          dealer={dealer}
-          initialLines={lines.map((l) => ({
-            code: l.product.code, name: l.product.name, photo: l.product.photo,
-            outers: l.outers, inners: l.inners, pcs: l.pcs,
-            rate: l.product.rate, gstPct: l.product.gst_pct || 5,
-          }))}
-          onBack={() => setShowPreview(false)}
-        />
-        <ModeInfoPanel />
-      </div>
+      <PIPreview
+        dealer={dealer}
+        initialLines={lines.map((l) => ({
+          code: l.product.code, name: l.product.name, photo: l.product.photo,
+          outers: l.outers, inners: l.inners, pcs: l.pcs,
+          rate: l.product.rate, gstPct: l.product.gst_pct || 5,
+        }))}
+        onBack={() => setShowPreview(false)}
+      />
     );
   }
 

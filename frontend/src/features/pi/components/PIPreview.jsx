@@ -138,10 +138,14 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
                     style={{ width: 74, textAlign: 'right', padding: '5px 6px', fontSize: 12, borderColor: l.belowFloor ? 'var(--orange)' : undefined }}
                     onChange={(e) => editRate(i, e.target.value)}
                   />
-                  {l.belowFloor ? (
+                  {/* Just the below-floor approval warning now — the plain
+                      "edited (list ₹X)" note was dropped, it was wrapping
+                      onto its own lines in this already-narrow cell and
+                      pushing the row layout around for no real reason: the
+                      orange border on the input above already shows a rate
+                      was changed. */}
+                  {l.belowFloor && (
                     <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600, marginTop: 2 }}>⚠ below ₹{l.listRate} — needs Master Admin approval</div>
-                  ) : l.rateEdited && (
-                    <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600, marginTop: 2 }}>✎ edited (list ₹{l.listRate})</div>
                   )}
                 </td>
                 <td className="r">{l.gstPct}{l.gstPct !== 5 && <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 600 }}>non-standard</div>}</td>
