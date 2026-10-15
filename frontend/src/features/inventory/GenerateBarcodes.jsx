@@ -252,34 +252,36 @@ export default function GenerateBarcodes() {
     if (!batch) return;
     (async () => {
       const JsBarcode = (await import('jsbarcode')).default;
+      // CODE128's native width grows with the code's character count (~11
+      // modules/char + ~35 for start/stop/checksum). An inner carton's code
+      // is always longer than its outer's (same code + "-01"/"-02" suffix —
+      // see SP-01-E38232 vs SP-01-E38232-01), so at a FIXED bar width the
+      // inner barcode renders wider than the outer's. v83/v84 used one fixed
+      // width (1.8) for every code — fine for the outer, but the longer
+      // inner code overflowed the label and got shrunk by max-width:100%,
+      // which is exactly the blur-from-downscaling bug fixed for outer
+      // earlier, just now hitting inner only (outer scanned fine, inner
+      // didn't — matches what was reported).
+      // Fix: derive the bar width FROM the code length so every code — any
+      // length, outer or inner, now or if the scheme ever changes — renders
+      // at close to the same safe TOTAL width, comfortably inside the label
+      // with no downscaling needed for any of them.
+      const TARGET_MODULES_PX = 300; // tuned to sit safely inside the ~90mm-usable label width with margin to spare
+      function barcodeWidth(code) {
+        const estModules = code.length * 11 + 35;
+        return Math.max(1.1, Math.min(2.2, TARGET_MODULES_PX / estModules));
+      }
       batch.cartons.filter((c) => !innerDuplicatesParent(c, batch.cartons)).forEach((c) => {
         const canvas = document.getElementById(`barcode-${c.code}`);
         if (canvas) {
           JsBarcode(canvas, c.code, {
             format: 'CODE128',
-            // v81 made this WORSE, not better — it set width:3.6 (a big
-            // native pixel size per bar) and then force-stretched the
-            // canvas down to a ~60mm column with canvas.style.width = '100%'.
-            // That ~3.5x shrink is exactly what breaks a gun scan: squeezing
-            // an 800px-wide raster barcode into a ~220px box blurs/merges
-            // adjacent thin bars into each other, so the scanner sees mush
-            // instead of clean edges. The fix is the opposite move: keep the
-            // native canvas size close to the size it will actually print
-            // at, so there's little or no resampling to blur it.
-            // v83's full-label-width layout (was a side column) gives this
-            // ~80mm to work with instead of ~60mm, so width bumped
-            // 1.3 -> 1.8 to use that extra room as fatter, easier-to-scan
-            // bars rather than leaving it blank — see the CSS below
-            // (max-width:100%, not a forced width:100%) so nothing
-            // stretches/shrinks it again after this.
-            width: 1.8,
+            width: barcodeWidth(c.code),
             // An inner label has one extra line above the name ("of outer
-            // SP-01-...") that an outer label doesn't — at the same 110
-            // barcode height, that pushed the name/code/date below the
-            // label's fixed 76mm and they got clipped (see screenshot: the
-            // inner's "Spinner Ball" line was cut off). Shorter bars for
-            // inner only, so everything fits without shrinking the name or
-            // code text.
+            // SP-01-...") that an outer label doesn't — at the same tall
+            // barcode, that pushed the name/code/date below the label's
+            // fixed 76mm and they got clipped. Shorter bars for inner only,
+            // so everything fits without shrinking the name or code text.
             height: c.kind === 'inner' ? 85 : 110,
             // Quiet zone (blank margin either side of the bars) — scanners
             // use it to find the start/end of the code; too thin a margin
@@ -974,7 +976,13 @@ export default function GenerateBarcodes() {
           height: var(--label-h);
           box-sizing: border-box;
           border: 1px dashed var(--line);
-          padding: 8px 10px;
+          /* Side padding bumped 10px -> 16px (~4mm) — the printed photo
+             showed "OUTER"/"INNER" getting their first letter sliced off
+             right at the sticker edge, which means the printer itself is
+             trimming a couple mm off each side (a roll/printer calibration
+             thing, not something CSS controls) — this just gives that trim
+             some blank margin to eat into instead of real content. */
+          padding: 8px 16px;
           display: flex;
           flex-direction: column;
           align-items: center;
