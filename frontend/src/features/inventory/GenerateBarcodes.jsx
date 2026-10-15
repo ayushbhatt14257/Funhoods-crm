@@ -257,16 +257,17 @@ export default function GenerateBarcodes() {
       // stop the downscale-blur, but a thinner bar is itself harder to
       // scan reliably, especially on a budget thermal/inkjet printer where
       // very thin bars smear together from dot-gain even at "correct" size
-      // — the printed photo confirms it: outer's bars are visibly bolder
-      // than inner's, and outer scans, inner doesn't.
-      // Real fix: keep ONE fixed, generously-thick bar width for every
-      // code (outer or inner), and instead give the barcode itself nearly
-      // the FULL label width to render at that width without needing to
-      // shrink — see the CSS below, where only the text (name/code/etc,
-      // not the barcode) gets the extra inset that protects against the
-      // printer's edge-trim. At width 1.8 even the longest inner code
-      // (~15 chars) comes out to ~95mm, which now fits inside the label.
-      const BAR_WIDTH = 1.8;
+      // — the printed photo confirmed it: outer's bars were visibly bolder
+      // than inner's, and outer scanned, inner didn't.
+      // v86 fixed that (one fixed, thick bar width for every code) but the
+      // carton codes themselves were still long (6 random hex chars, e.g.
+      // SP-01-E38232 / SP-01-E38232-01), so even at a sane bar width the
+      // printed barcode came out wider than it needed to. The carton code
+      // scheme itself is now shortened (backend: randomSuffix 6->4 hex
+      // chars — new cartons only, doesn't touch any already-printed code),
+      // so the SAME fixed bar width below now produces a visibly narrower
+      // barcode without going back to thin, hard-to-scan bars.
+      const BAR_WIDTH = 1.6;
       batch.cartons.filter((c) => !innerDuplicatesParent(c, batch.cartons)).forEach((c) => {
         const canvas = document.getElementById(`barcode-${c.code}`);
         if (canvas) {

@@ -13,15 +13,18 @@ const NOT_STOCKED = ['pending', 'unused']; // QR printed, not yet on a real cart
 const EVER_STOCKED = ['in_stock', 'used', 'dispatched', 'split']; // has been scanned in at some point, regardless of what happened since
 const AVAILABLE_FOR_DISPATCH = ['in_stock', 'used']; // physically in the warehouse right now, not yet gone
 
-// 6 hex chars (24 bits, ~16.7M combos) of randomness per carton, namespaced
-// under the product code. Shortened from 12 hex chars specifically so the
-// printed barcode fits a small 50x25mm thermal label — CODE128 width scales
-// directly with string length. Still comfortably collision-safe at this
-// business's volume (generateBatch caps a single batch at 2000, and
-// insertMany runs ordered:false so the one-in-millions duplicate just gets
-// skipped rather than aborting the batch — see generateBatch below).
+// 4 hex chars (16 bits, 65,536 combos) of randomness per carton, namespaced
+// under the product code. Shortened again from 6 hex chars (was 12 before
+// that) — a shorter code means a shorter, narrower barcode: CODE128 width
+// scales directly with string length, and the printed label was coming out
+// wider than it needed to once the inner suffix ("-01") was added on top.
+// Still safely collision-resistant at this business's volume per product
+// (insertMany runs ordered:false so the rare duplicate just gets silently
+// skipped rather than aborting the batch — see generateBatch below); if a
+// single product's lifetime carton count ever gets into the tens of
+// thousands, bump this back up.
 function randomSuffix() {
-  return crypto.randomBytes(3).toString('hex').toUpperCase();
+  return crypto.randomBytes(2).toString('hex').toUpperCase();
 }
 
 // POST /api/inventory/stock-in-batches  { code, cartonCount, qtyOverride? }
