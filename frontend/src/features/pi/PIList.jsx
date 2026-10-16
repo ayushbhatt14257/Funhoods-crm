@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, getToken, API_URL } from '../../api/client';
 import { piApi } from './api';
+import { useAuth } from '../../context/AuthContext';
 import Loading from '../../components/Loading';
 import Modal from '../../components/Modal';
 import { piStatusDisplay } from './statusDisplay';
@@ -13,6 +14,7 @@ const PENDING_APPROVAL_TAB = '__pendingApproval__'; // not a real PI status — 
 
 export default function PIList() {
   const nav = useNavigate();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [pis, setPis] = useState(null); // null = loading
   const [total, setTotal] = useState(0);
@@ -194,7 +196,9 @@ export default function PIList() {
               <thead><tr><th>PI no</th><th>Dealer</th><th>Assigned to</th><th>Items</th><th>Total ₹</th><th>Status</th><th>Created by</th><th>Created</th><th>Confirmed</th><th></th></tr></thead>
               <tbody>
                 {pis.map((p) => {
-                  const canEdit = ['Draft', 'Sent'].includes(p.status);
+                  const isCreator = p.createdBy && user?.id && String(p.createdBy) === String(user.id);
+                  const canEdit = ['Draft', 'Sent'].includes(p.status)
+                    || (p.status === 'Confirmed' && (isCreator || user?.role === 'masterAdmin'));
                   return (
                   <tr key={p.no}>
                     <td><Link to={`/pis/${p.no}`} className="mono"><b>{p.no}</b></Link></td>
@@ -204,6 +208,11 @@ export default function PIList() {
                     <td>{Math.round(p.total).toLocaleString('en-IN')}</td>
                     <td>
                       <span className={`badge ${piStatusDisplay(p).cls}`}>{piStatusDisplay(p).label}</span>
+                      {p.edited && (
+                        <span className="badge y" style={{ marginLeft: 6, padding: '2px 6px', fontSize: 10 }} title={`Edited by ${p.editedBy}`}>
+                          ✏️ edited
+                        </span>
+                      )}
                       {p.lines.some((l) => l.listRate != null && l.rate !== l.listRate) && (
                         <button
                           className="btn o sm"
@@ -224,7 +233,7 @@ export default function PIList() {
                       <button
                         className="btn o sm"
                         disabled={!canEdit}
-                        title={canEdit ? 'Edit this PI' : 'Can only edit while Draft or Sent'}
+                        title={canEdit ? 'Edit this PI' : 'Only Draft/Sent, or Confirmed with nothing dispatched yet (creator/Master Admin only)'}
                         style={!canEdit ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                         onClick={() => canEdit && nav(`/pis/${p.no}?edit=1`)}
                       >

@@ -344,13 +344,29 @@ async function getOne(req, res) {
   res.json({ ...pi.toObject(), repMobile: rep?.mobile || '' });
 }
 
-// PUT /api/pi/:no  — edit an existing PI (only allowed while Draft or Sent, before confirm/dispatch)
+// PUT /api/pi/:no  — edit an existing PI.
+// Draft/Sent: open to whoever could edit it before (no change there).
+// Confirmed, with nothing dispatched yet: allowed too, but ONLY for the
+// user who originally placed the order (createdBy) or Master Admin — and
+// any such edit sets the `edited` audit flag.
+// The instant any dispatch has happened (status is Partial/Fully
+// Dispatched, or anything further along), editing is closed for everyone,
+// no exceptions — there's no way to "un-dispatch" a line, so the only safe
+// point to stop allowing edits is before the first one goes out.
 async function update(req, res) {
   try {
     const pi = await PI.findOne({ no: req.params.no });
     if (!pi) return res.status(404).json({ message: 'PI not found' });
-    if (!['Draft', 'Sent'].includes(pi.status)) {
-      return res.status(400).json({ message: 'Only Draft or Sent PIs can be edited — this one is already confirmed/dispatched.' });
+    if (!['Draft', 'Sent', 'Confirmed'].includes(pi.status)) {
+      return res.status(400).json({ message: 'This PI can no longer be edited — it already has a dispatch against it.' });
+    }
+    const isPostConfirm = pi.status === 'Confirmed';
+    if (isPostConfirm) {
+      const isCreator = pi.createdBy && String(pi.createdBy) === String(req.user._id);
+      const isMasterAdmin = req.user.role === 'masterAdmin';
+      if (!isCreator && !isMasterAdmin) {
+        return res.status(403).json({ message: 'Only the user who placed this order, or Master Admin, can edit it after confirmation.' });
+      }
     }
 
     const { lines: inputLines, remark, transport, freightTerm } = req.body;
@@ -365,6 +381,12 @@ async function update(req, res) {
     if (['To Pay', 'Paid'].includes(freightTerm)) pi.freightTerm = freightTerm;
     pi.total = pi.subtotal + (pi.transport || 0);
     if (remark != null) pi.remark = remark;
+
+    if (isPostConfirm) {
+      pi.edited = true;
+      pi.editedBy = req.user.name;
+      pi.editedAt = new Date();
+    }
 
     await pi.save();
     res.json(pi);

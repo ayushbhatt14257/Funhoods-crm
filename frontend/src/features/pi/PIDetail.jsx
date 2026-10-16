@@ -109,15 +109,42 @@ export default function PIDetail() {
   }
 
   async function startEdit() {
-    setEditLines(pi.lines.map((l) => ({ code: l.code, name: l.name, photo: l.photo, pcs: l.pcs, rate: l.rate, listRate: l.listRate, gstPct: l.gstPct || 5 })));
+    const allProducts = products.length ? products : await api.get('/products');
+    if (!products.length) setProducts(allProducts);
+    const byCode = {};
+    allProducts.forEach((p) => { byCode[p.code] = p; });
+    setEditLines(pi.lines.map((l) => {
+      const p = byCode[l.code];
+      const cartonOuter = p?.cartonOuter || 0;
+      const cartonInner = p?.hasInner !== false ? (p?.cartonInner || 0) : 0;
+      const outers = l.outers || 0;
+      const inners = l.inners || 0;
+      // Whatever pieces aren't accounted for by the stored outer/inner
+      // cartons are loose pieces — same split the carton-aware fields below
+      // let the user edit directly.
+      const loosePcs = Math.max(0, l.pcs - outers * cartonOuter - inners * cartonInner);
+      return {
+        code: l.code, name: l.name, photo: l.photo,
+        outers, inners, loosePcs, pcs: l.pcs,
+        rate: l.rate, listRate: l.listRate, gstPct: l.gstPct || 5,
+        cartonOuter, cartonInner,
+      };
+    }));
     setEditRemark(pi.remark || '');
-    if (!products.length) setProducts(await api.get('/products'));
     setEditing(true);
   }
   function editField(i, field, val) {
     const next = [...editLines];
-    // Rate edits can carry paise (e.g. 25.01), same as pcs being a plain number.
-    next[i] = { ...next[i], [field]: +val || 0 };
+    const line = { ...next[i] };
+    if (field === 'rate') {
+      // Rate edits can carry paise (e.g. 25.01).
+      line.rate = +val || 0;
+    } else {
+      // outers / inners / loosePcs — recompute the derived total pcs.
+      line[field] = +val || 0;
+      line.pcs = line.outers * line.cartonOuter + line.inners * line.cartonInner + line.loosePcs;
+    }
+    next[i] = line;
     setEditLines(next);
   }
   function removeEditLine(i) {
@@ -127,18 +154,28 @@ export default function PIDetail() {
   // Same flow as New Order: pick a product (photo grid) -> confirm outer/inner cartons or exact pieces.
   function addConfirmedLine(product, outers, inners, directPcs) {
     if (!outers && !inners && !directPcs) return showToast('Enter outer/inner cartons, or exact pieces', 'err');
-    const pcs = directPcs ? directPcs : outers * product.cartonOuter + inners * product.cartonInner;
+    const cartonOuter = product.cartonOuter || 0;
+    const cartonInner = product.hasInner !== false ? (product.cartonInner || 0) : 0;
+    const pcs = directPcs ? directPcs : outers * cartonOuter + inners * cartonInner;
+    const loosePcs = directPcs ? directPcs : 0;
 
     const existingIdx = editLines.findIndex((l) => l.code === product.code);
     if (existingIdx >= 0) {
       const next = [...editLines];
-      next[existingIdx] = { ...next[existingIdx], pcs: next[existingIdx].pcs + pcs };
+      const ex = next[existingIdx];
+      next[existingIdx] = {
+        ...ex,
+        outers: ex.outers + outers, inners: ex.inners + inners, loosePcs: ex.loosePcs + loosePcs,
+        pcs: ex.pcs + pcs,
+      };
       setEditLines(next);
       showToast(`${product.name} was already on this PI — quantities combined`, 'g');
     } else {
       setEditLines([...editLines, {
         code: product.code, name: product.name, photo: product.photo,
-        pcs, rate: product.rate, listRate: product.rate, gstPct: product.gst_pct || 5,
+        outers, inners, loosePcs, pcs,
+        rate: product.rate, listRate: product.rate, gstPct: product.gst_pct || 5,
+        cartonOuter, cartonInner,
       }]);
     }
     setConfirmingProduct(null);
@@ -153,7 +190,7 @@ export default function PIDetail() {
     setSaving(true);
     try {
       const updated = await piApi.update(no, {
-        lines: editLines.map((l) => ({ code: l.code, pcs: l.pcs, rate: l.rate })),
+        lines: editLines.map((l) => ({ code: l.code, pcs: l.pcs, outers: l.outers, inners: l.inners, rate: l.rate })),
         remark: editRemark,
       });
       setPi(updated);
@@ -169,22 +206,39 @@ export default function PIDetail() {
   const canDispatch = ['Confirmed', 'Partial Dispatched'].includes(pi.status) && ['dispatch', 'accounts', 'admin', 'masterAdmin'].includes(user.role);
   const canCancel = !['Cancelled', 'Fully Dispatched', 'Closed'].includes(pi.status);
   const canCloseRemaining = pi.status === 'Partial Dispatched' && ['dispatch', 'accounts', 'admin', 'masterAdmin'].includes(user.role);
-  const canEdit = ['Draft', 'Sent'].includes(pi.status);
+  // After confirmation, editing stays open only up to the point nothing has
+  // dispatched yet, and only for whoever placed the order or Master Admin —
+  // once any dispatch happens the status itself moves past 'Confirmed' and
+  // this closes for everyone, no exceptions (see backend update()).
+  const isCreator = pi.createdBy && user?.id && String(pi.createdBy) === String(user.id);
+  const canEdit = ['Draft', 'Sent'].includes(pi.status)
+    || (pi.status === 'Confirmed' && (isCreator || user.role === 'masterAdmin'));
   const canDelete = ['admin', 'masterAdmin'].includes(user.role) && pi.status === 'Draft';
 
   if (editing) {
     return (
       <div>
         <div className="ph"><div className="eyebrow">Editing</div><h2>{pi.no}</h2><p>{pi.dealerName}</p></div>
+        {pi.status === 'Confirmed' && (
+          <div className="note y" style={{ fontSize: 12, marginBottom: 10 }}>
+            Editing a confirmed PI — this will be flagged as <b>"PI edited"</b> once saved.
+          </div>
+        )}
         <div className="tblwrap">
           <table className="dt">
-            <thead><tr><th></th><th>Item</th><th>Pieces</th><th>Rate ₹</th><th>GST%</th><th>Line total ₹</th><th></th></tr></thead>
+            <thead>
+              <tr>
+                <th></th><th>Item</th>
+                <th>Rate ₹ (ex-GST)</th><th>GST%</th>
+                <th>Outer ctns</th><th>Inner ctns</th><th>Loose pcs</th><th>Total pcs</th>
+                <th>Line total ₹</th><th></th>
+              </tr>
+            </thead>
             <tbody>
               {editLines.map((l, i) => (
                 <tr key={i}>
                   <td>{l.photo ? <img src={l.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : '📦'}</td>
                   <td>{l.name}<br /><span className="mono" style={{ fontSize: 10, color: 'var(--muted)' }}>{l.code}</span></td>
-                  <td><input type="number" style={{ width: 90 }} value={l.pcs} onChange={(e) => editField(i, 'pcs', e.target.value)} /></td>
                   <td>
                     <input
                       type="number" step="0.01" style={{ width: 90, borderColor: needsApproval && l.rate < l.listRate ? 'var(--orange)' : undefined }}
@@ -197,11 +251,23 @@ export default function PIDetail() {
                     )}
                   </td>
                   <td>{l.gstPct}</td>
+                  <td>
+                    {l.cartonOuter > 0
+                      ? <input type="number" min={0} style={{ width: 64 }} value={l.outers} onChange={(e) => editField(i, 'outers', e.target.value)} />
+                      : <span className="muted" style={{ fontSize: 11 }}>—</span>}
+                  </td>
+                  <td>
+                    {l.cartonInner > 0
+                      ? <input type="number" min={0} style={{ width: 64 }} value={l.inners} onChange={(e) => editField(i, 'inners', e.target.value)} />
+                      : <span className="muted" style={{ fontSize: 11 }}>—</span>}
+                  </td>
+                  <td><input type="number" min={0} style={{ width: 64 }} value={l.loosePcs} onChange={(e) => editField(i, 'loosePcs', e.target.value)} /></td>
+                  <td><b>{l.pcs}</b></td>
                   <td><b>{(l.pcs * l.rate * (1 + (l.gstPct || 5) / 100)).toFixed(2)}</b></td>
                   <td><button className="btn rd sm" onClick={() => removeEditLine(i)}>Delete</button></td>
                 </tr>
               ))}
-              {!editLines.length && <tr><td colSpan={7}><div className="empty">No items — add one below</div></td></tr>}
+              {!editLines.length && <tr><td colSpan={10}><div className="empty">No items — add one below</div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -236,7 +302,17 @@ export default function PIDetail() {
 
   return (
     <div>
-      <div className="ph"><div className="eyebrow">PI detail</div><h2>{pi.no}</h2><p>{pi.dealerName} · <span className={`badge ${piStatusDisplay(pi).cls}`}>{piStatusDisplay(pi).label}</span></p></div>
+      <div className="ph">
+        <div className="eyebrow">PI detail</div><h2>{pi.no}</h2>
+        <p>
+          {pi.dealerName} · <span className={`badge ${piStatusDisplay(pi).cls}`}>{piStatusDisplay(pi).label}</span>
+          {pi.edited && (
+            <span className="badge y" style={{ marginLeft: 6 }} title={`Last edited by ${pi.editedBy} on ${new Date(pi.editedAt).toLocaleString('en-IN')}`}>
+              ✏️ PI edited
+            </span>
+          )}
+        </p>
+      </div>
 
       <Letterhead
         kind="PI"
@@ -284,6 +360,11 @@ export default function PIDetail() {
 
       <div className="btnrow">
         {canEdit && <button className="btn o" onClick={startEdit}>Edit PI</button>}
+        {!canEdit && pi.status === 'Confirmed' && (
+          <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
+            Only the user who placed this order, or Master Admin, can edit it now.
+          </span>
+        )}
         {canSend && <button className="btn g" disabled={actionBusy} onClick={sendToCustomer}>{actionBusy ? 'Working…' : 'Save + send to customer'}</button>}
         {canConfirm && <button className="btn g" disabled={actionBusy} onClick={confirmPI}>{actionBusy ? 'Working…' : 'Mark confirmed by customer'}</button>}
         {canDispatch && <button className="btn" onClick={() => nav(`/dispatch?dealer=${pi.dealer}`)}>→ Book dispatch</button>}

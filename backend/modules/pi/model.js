@@ -73,6 +73,13 @@ const piSchema = new mongoose.Schema(
     by: String, // user name who created it
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     remark: { type: String, default: '' },
+    // Audit flag — set the moment someone edits a PI that's already past
+    // Confirmed (edits while still Draft/Sent are the normal pre-confirm
+    // flow and never set this). Never cleared once set, even by a later
+    // edit — it just gets overwritten with whoever/whenever edited last.
+    edited: { type: Boolean, default: false },
+    editedBy: { type: String, default: '' },
+    editedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
