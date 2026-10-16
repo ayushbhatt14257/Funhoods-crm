@@ -118,6 +118,17 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
   const scannedCodesRef = useRef(scannedCodes);
   useEffect(() => { selectionRef.current = selection; }, [selection]);
   useEffect(() => { scannedCodesRef.current = scannedCodes; }, [scannedCodes]);
+
+  // productCode -> rowKey — when the SAME product appears as more than one
+  // pending row (two different negotiated rates for this dealer), a scan is
+  // otherwise matched purely FIFO by which order was confirmed earliest,
+  // with no way to say "this carton is actually for the OTHER rate". This
+  // lets the dispatcher pin which row a product's scans should land in;
+  // matchRow() below prefers it over FIFO, falling back to FIFO only if the
+  // pinned row turns out to already be full.
+  const [scanTarget, setScanTarget] = useState({});
+  const scanTargetRef = useRef(scanTarget);
+  useEffect(() => { scanTargetRef.current = scanTarget; }, [scanTarget]);
   // Clean up any pending debounce timer on unmount so it never fires after
   // this screen's been navigated away from.
   useEffect(() => () => { if (autoTimerRef.current) clearTimeout(autoTimerRef.current); }, []);
@@ -213,6 +224,14 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
     return allRows.filter((r) => r.item.name.toLowerCase().includes(needle) || r.item.code.toLowerCase().includes(needle));
   }, [allRows, q]);
   useEffect(() => { rowsRef.current = allRows; }, [allRows]);
+  // Product codes that show up as more than one pending row (two different
+  // negotiated rates for this dealer) — only these need the scan-target
+  // picker, a product with just one row has nothing to disambiguate.
+  const multiRateCodes = useMemo(() => {
+    const counts = {};
+    allRows.forEach((r) => { counts[r.item.code] = (counts[r.item.code] || 0) + 1; });
+    return new Set(Object.keys(counts).filter((c) => counts[c] > 1));
+  }, [allRows]);
 
   // Fetched once per pool load — how many in_stock outer/inner cartons
   // actually exist for each product here, so a row with genuinely nothing
@@ -388,6 +407,19 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
       .filter((r) => r.item.code === productCode)
       .sort((a, b) => new Date(a.item.lastConfirmedAt) - new Date(b.item.lastConfirmedAt));
     if (!candidates.length) return null;
+    // A pinned scan target (see scanTarget above) wins over FIFO as long as
+    // it still has room for this kind — only falls through to the normal
+    // FIFO pick if the dispatcher pinned a row that's since filled up, so a
+    // scan is never simply rejected over a stale pin.
+    const targetKey = scanTargetRef.current[productCode];
+    if (targetKey) {
+      const targeted = candidates.find((r) => r.key === targetKey);
+      if (targeted) {
+        const current = selectionRef.current[targeted.key] || { outers: 0, inners: 0 };
+        const hasRoom = kind === 'outer' ? current.outers < targeted.max.outers : current.inners < targeted.max.inners;
+        if (hasRoom) return targeted;
+      }
+    }
     const withRoom = candidates.find((r) => {
       const current = selectionRef.current[r.key] || { outers: 0, inners: 0 };
       return kind === 'outer' ? current.outers < r.max.outers : current.inners < r.max.inners;
@@ -662,6 +694,22 @@ export default function CustomerPoolView({ pool, selection, onSelectionChange, s
                           {r.ordered.outers > 0 && r.ordered.inners > 0 && ', '}
                           {r.ordered.inners > 0 && `${r.ordered.inners} inner`}
                         </div>
+                      )}
+                      {/* This product has more than one pending row (two
+                          different negotiated rates) — a scan is otherwise
+                          matched FIFO by whichever order was confirmed
+                          earliest, with no way to say "this carton is for
+                          the OTHER rate". Pin which row this product's
+                          scans should land in. */}
+                      {multiRateCodes.has(r.item.code) && r.canScanPhysical && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, marginTop: 3, cursor: 'pointer' }}>
+                          <input
+                            type="radio" name={`scan-target-${r.item.code}`} style={{ width: 'auto' }}
+                            checked={scanTarget[r.item.code] === r.key}
+                            onChange={() => setScanTarget((prev) => ({ ...prev, [r.item.code]: r.key }))}
+                          />
+                          Scan target (₹{r.item.rate})
+                        </label>
                       )}
                     </td>
                     <td className="mono muted" style={{ fontSize: 11 }}>{new Date(r.item.lastConfirmedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
