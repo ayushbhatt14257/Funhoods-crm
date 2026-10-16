@@ -1,6 +1,6 @@
 // Renders the same letterhead format used in PIPreview, but read-only —
 // for viewing an already-saved PI or Invoice. kind: 'PI' | 'INVOICE'
-export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons, outerCartons, innerCartons, salesRep, gifts, cartonCodesByProduct }) {
+export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal, transport, freightGst, transporter, freightTerm, total, remark, settings, extraHeaderRight, cartons, outerCartons, innerCartons, salesRep, gifts, samples, cartonCodesByProduct }) {
   if (!settings || !dealer) return null;
   const s = settings;
   const isInvoice = kind === 'INVOICE';
@@ -131,6 +131,24 @@ export default function Letterhead({ kind, docNo, date, dealer, lines, subtotal,
                 <td><b>{g.name}</b>{g.code && <><br /><span className="mono muted" style={{ fontSize: 10 }}>{g.code}</span></>}</td>
                 <td className="r">{g.qtyLabel || '—'}</td>
                 <td className="r">{(g.worth || 0).toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {/* Samples — same separate-block treatment as gifts above, but with
+          no worth/amount column at all: a sample never carries any value
+          anywhere in the app, not even an informational one. */}
+      {samples?.length > 0 && (
+        <table className="lines" style={{ marginTop: 10 }}>
+          <thead><tr><th colSpan={3}>Samples (free — not billed)</th></tr></thead>
+          <tbody>
+            {samples.map((smp, i) => (
+              <tr key={i}>
+                <td style={{ width: 34 }}>{smp.photo ? <img src={smp.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 28, height: 28, background: 'var(--paper)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>📦</div>}</td>
+                <td><b>{smp.name}</b><br /><span className="mono muted" style={{ fontSize: 10 }}>{smp.code}</span></td>
+                <td className="r">{smp.pcs} pcs</td>
               </tr>
             ))}
           </tbody>

@@ -144,6 +144,7 @@ export default function InvoiceDetail() {
         innerCartons={inv.innerCartons}
         salesRep={{ name: inv.by, mobile: inv.repMobile }}
         gifts={inv.gifts}
+        samples={inv.samples}
         settings={settings}
         extraHeaderRight={inv.piRef ? <div>Against PI: <b>{inv.piRef}</b></div> : <div style={{ color: 'var(--orange)' }}>Manual dispatch (no PI)</div>}
       />

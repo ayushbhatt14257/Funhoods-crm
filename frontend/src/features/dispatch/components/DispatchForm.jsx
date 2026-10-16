@@ -4,6 +4,7 @@ import { ManualLinesStep } from './LineQuantityStep';
 import DealerPickerModal from '../../pi/components/DealerPickerModal';
 import ProductPickerModal from '../../pi/components/ProductPickerModal';
 import ConfirmLineModal from '../../pi/components/ConfirmLineModal';
+import SampleStep from '../../../components/SampleStep';
 
 // Manual (no-PI) dispatch entry form — kept exactly as it was before the
 // customer-pool dispatch flow was introduced. This is now the only mode
@@ -16,7 +17,7 @@ export default function DispatchForm({
   confirmingProduct, onPickProduct, onConfirmProduct, onCloseConfirmProduct,
   pendingSuggestion, onUsePendingPI,
   dispatchLines, onRemoveManualLine,
-  transportState, cartonState, onSubmit, submitting, onBack,
+  transportState, cartonState, samples, onSamplesChange, onSubmit, submitting, onBack,
 }) {
   return (
     <div>
@@ -64,6 +65,8 @@ export default function DispatchForm({
         onRemoveCartonItem={cartonState.onRemoveCartonItem}
         onRemoveCarton={cartonState.onRemoveCarton}
       />
+
+      <SampleStep products={products} samples={samples} onChange={onSamplesChange} />
 
       <div className="btnrow">
         <button className="btn g" disabled={submitting} onClick={onSubmit}>{submitting ? 'Saving…' : '→ Cross-check & generate Delivery Challan'}</button>

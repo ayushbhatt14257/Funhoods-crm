@@ -4,6 +4,7 @@ import { api } from '../../../api/client';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
 import { piApi } from '../api';
+import SampleStep from '../../../components/SampleStep';
 
 // dealer: dealer object. initialLines: [{code,name,photo,outers,inners,pcs,rate,gstPct}]
 // onBack: go back to editing the order (optional)
@@ -21,8 +22,11 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
   const [gstConfirmed, setGstConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remark, setRemark] = useState('');
+  const [products, setProducts] = useState([]); // for the sample product picker
+  const [samples, setSamples] = useState([]); // [{code,name,photo,pcs}] — free, never billed, see SampleStep
 
   useEffect(() => { api.get('/settings').then(setSettings); }, []);
+  useEffect(() => { api.get('/products').then(setProducts); }, []);
 
   useEffect(() => {
     setLines(initialLines.map((l, i) => ({
@@ -73,6 +77,7 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
         dealerCode: dealer.code,
         lines: computed.map((l) => ({ code: l.code, pcs: l.pcs, outers: l.outers, inners: l.inners, rate: l.rate })),
         remark,
+        samples: samples.map((s) => ({ code: s.code, pcs: s.pcs })),
       });
       if (status === 'Sent') await piApi.setStatus(pi.no, 'Sent');
       showToast(belowFloorLines.length ? `PI ${pi.no} saved — sent for Master Admin price approval` : `PI ${pi.no} saved`, 'g');
@@ -169,6 +174,25 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
         <div className="note b" style={{ fontSize: 12 }}>Rate column is editable per line — use this for special/negotiated discounts. Default is the Products master price; edited rates are flagged in orange.</div>
         <div className="note y" style={{ fontSize: 12 }}>Transport/freight isn't added here — it gets entered later at dispatch time, once the goods actually leave and the transporter is confirmed.</div>
 
+        {/* Samples — deliberately a separate block from the priced table
+            above, never touching subtotal/GRAND TOTAL: no rate/GST/amount
+            columns at all, just what's being given away free and how many
+            pieces. */}
+        {samples.length > 0 && (
+          <table className="lines" style={{ marginTop: 4 }}>
+            <thead><tr><th colSpan={3}>Samples (free — not billed)</th></tr></thead>
+            <tbody>
+              {samples.map((smp, i) => (
+                <tr key={i}>
+                  <td style={{ width: 34 }}>{smp.photo ? <img src={smp.photo} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 28, height: 28, background: 'var(--paper)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>📦</div>}</td>
+                  <td><b>{smp.name}</b><br /><span className="mono muted" style={{ fontSize: 10 }}>{smp.code}</span></td>
+                  <td className="r">{smp.pcs} pcs</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
         <div className="totals">
           <div className="line"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
           <div className="line grand"><span>GRAND TOTAL</span><span>₹{grandTotal.toFixed(2)}</span></div>
@@ -198,6 +222,8 @@ export default function PIPreview({ dealer, initialLines, onBack }) {
         <label>Remark (optional — internal note, prints on PI)</label>
         <textarea rows={2} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="e.g. Urgent delivery requested, or special packing instructions" />
       </div>
+
+      <SampleStep products={products} samples={samples} onChange={setSamples} />
 
       {hasNonStandardGst && (
         <div className="note r">

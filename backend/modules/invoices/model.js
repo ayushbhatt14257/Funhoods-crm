@@ -47,6 +47,15 @@ const giftSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// A sample riding along on this dispatch — see the matching sampleSchema
+// comment in pi/model.js. Deliberately no rate/worth/tax field at all (even
+// gifts carry an informational `worth`) — a sample is never meant to carry
+// any value anywhere, and never touches stock/Inventory either.
+const sampleSchema = new mongoose.Schema(
+  { code: String, name: String, photo: String, pcs: { type: Number, required: true } },
+  { _id: false }
+);
+
 // One entry per (PI, line) that this invoice actually drew pending pcs
 // from — recorded at dispatch time (see dispatchFromPool in
 // dispatch/controller.js) so a later "revert this dispatch" action knows
@@ -93,6 +102,7 @@ const invoiceSchema = new mongoose.Schema(
     freightTerm: { type: String, enum: ['To Pay', 'Paid'], default: 'To Pay' },
     packing: [packingCartonSchema],
     gifts: [giftSchema],
+    samples: [sampleSchema],
     dispatchDate: Date,
     deliveredDate: Date,
     builty: { url: { type: String, default: '' }, publicId: { type: String, default: '' } }, // LR/builty receipt for this dispatch

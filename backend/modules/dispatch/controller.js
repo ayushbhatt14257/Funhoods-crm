@@ -153,9 +153,26 @@ async function getCustomerPool(req, res) {
     .map((g) => ({ ...g, cartonOuter: productMap[g.code]?.cartonOuter || 0, cartonInner: productMap[g.code]?.cartonInner || 0 }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // Samples declared on this dealer's eligible PIs — pre-filled on the
+  // dispatch screen so what was promised at PI time doesn't have to be
+  // retyped. Same-product samples across multiple PIs are summed into one
+  // line (the dispatcher sees one total, not a pile of 1-pc entries). There
+  // is no "already sent" tracking here — a sample stays offered on every
+  // reload of this pool until the dispatcher removes or dispatches it, so a
+  // PI that gets dispatched in several partial batches may re-offer a
+  // sample already sent in an earlier batch; the dispatcher just removes it.
+  const sampleTotals = {};
+  for (const pi of eligible) {
+    for (const s of pi.samples || []) {
+      if (!sampleTotals[s.code]) sampleTotals[s.code] = { code: s.code, name: s.name, photo: s.photo, pcs: 0 };
+      sampleTotals[s.code].pcs += s.pcs;
+    }
+  }
+
   res.json({
     dealer: { code: dealer.code, name: dealer.name, assignedTo: dealer.assignedTo, dispatchHold: dealer.dispatchHold },
     items,
+    samples: Object.values(sampleTotals),
   });
 }
 
@@ -282,7 +299,7 @@ function validateOptionalCartonMap(dispatchLines, cartonMap) {
 // "against" any one PI, it's against the dealer's whole confirmed pool.
 async function dispatchFromPool(req, res) {
   try {
-    const { dealerCode, lines: requestedLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap, gifts: requestedGifts } = req.body;
+    const { dealerCode, lines: requestedLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap, gifts: requestedGifts, samples: requestedSamples } = req.body;
     const dealer = await Dealer.findOne({ code: dealerCode });
     if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
     if (dealer.dispatchHold?.active) {
@@ -350,6 +367,18 @@ async function dispatchFromPool(req, res) {
       });
     }
     if (!dispatchLines.length) return res.status(400).json({ message: 'Select at least one item with a whole-carton quantity' });
+
+    // Samples — same validation shape as PI create(): only pcs is trusted
+    // from the client, name/photo re-read from the product. Never touches
+    // stock/Inventory, never billed, no approval needed.
+    const samples = [];
+    for (const s of requestedSamples || []) {
+      const product = await Product.findOne({ code: String(s.code).toUpperCase() });
+      if (!product) return res.status(400).json({ message: `Sample product ${s.code} not found` });
+      const pcs = +s.pcs || 0;
+      if (pcs <= 0) continue;
+      samples.push({ code: product.code, name: product.name, photo: product.photo || '', pcs });
+    }
 
     const { gifts, giftPcsByCode } = await buildGiftLines(requestedGifts);
 
@@ -498,6 +527,7 @@ async function dispatchFromPool(req, res) {
       freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       packing,
       gifts,
+      samples,
       dispatchDate: todayISODate(),
       consumedFrom,
     });
@@ -598,11 +628,21 @@ async function dispatchFromPool(req, res) {
 // Dispatches without any PI. Tax Invoice generated the same way; piRef left blank.
 async function dispatchManual(req, res) {
   try {
-    const { dealerCode, lines: inputLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap } = req.body;
+    const { dealerCode, lines: inputLines, transporter, vehicle, lr, eway, driver, freight, freightTerm, cartonMap, samples: requestedSamples } = req.body;
     const dealer = await Dealer.findOne({ code: dealerCode });
     if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
     if (!transporter) return res.status(400).json({ message: 'Mode of transport is required' });
     if (!Array.isArray(inputLines) || !inputLines.length) return res.status(400).json({ message: 'At least one item required' });
+
+    // Samples — same shape/validation as the pool dispatch path above.
+    const samples = [];
+    for (const s of requestedSamples || []) {
+      const product = await Product.findOne({ code: String(s.code).toUpperCase() });
+      if (!product) return res.status(400).json({ message: `Sample product ${s.code} not found` });
+      const pcs = +s.pcs || 0;
+      if (pcs <= 0) continue;
+      samples.push({ code: product.code, name: product.name, photo: product.photo || '', pcs });
+    }
 
     const dispatchLines = [];
     for (let i = 0; i < inputLines.length; i++) {
@@ -680,6 +720,7 @@ async function dispatchManual(req, res) {
       freightGst: frtGst,
     freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',
       packing,
+      samples,
       dispatchDate: todayISODate(),
     });
 

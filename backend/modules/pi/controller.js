@@ -147,12 +147,23 @@ async function flagForPriceApproval(pi, lines, submittedBy) {
 // POST /api/pi  { dealerCode, lines: [{code, pcs?, outers?, inners?, rate?}], remark?, transport?, freightTerm? }
 async function create(req, res) {
   try {
-    const { dealerCode, lines: inputLines, remark, transport, freightTerm } = req.body;
+    const { dealerCode, lines: inputLines, remark, transport, freightTerm, samples: inputSamples } = req.body;
     const dealer = await Dealer.findOne({ code: dealerCode });
     if (!dealer) return res.status(400).json({ message: 'Dealer not found' });
     if (!Array.isArray(inputLines) || !inputLines.length) return res.status(400).json({ message: 'At least one line required' });
 
     const lines = await buildLines(inputLines, req.user.role);
+    // Samples: real catalog products, free, never billed — pcs is all that's
+    // trusted from the request; name/photo are re-read from the product so a
+    // stale/forged value from the client can't end up printed on the PI.
+    const samples = [];
+    for (const s of inputSamples || []) {
+      const product = await Product.findOne({ code: String(s.code).toUpperCase() });
+      if (!product) return res.status(400).json({ message: `Sample product ${s.code} not found` });
+      const pcs = +s.pcs || 0;
+      if (pcs <= 0) continue;
+      samples.push({ code: product.code, name: product.name, photo: product.photo || '', pcs });
+    }
     const subtotal = lines.reduce((s, l) => s + l.total, 0);
     const transportAmt = +transport || 0;
     const count = await PI.countDocuments();
@@ -163,6 +174,7 @@ async function create(req, res) {
       dealer: dealer.code,
       dealerName: dealer.name,
       lines,
+      samples,
       subtotal,
       transport: transportAmt,
       freightTerm: ['To Pay', 'Paid'].includes(freightTerm) ? freightTerm : 'To Pay',

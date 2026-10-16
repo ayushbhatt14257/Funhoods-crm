@@ -14,6 +14,7 @@ import TransportStep from './components/TransportStep';
 import CartonMappingStep from './components/CartonMappingStep';
 import DispatchForm from './components/DispatchForm';
 import Loading from '../../components/Loading';
+import SampleStep from '../../components/SampleStep';
 
 // Top-level orchestrator. Two modes:
 //  - 'pool' (default, the new primary flow): pick a customer, see every
@@ -64,6 +65,11 @@ export default function Dispatch() {
   const [vehicle, setVehicle] = useState(''); const [lr, setLr] = useState(''); const [eway, setEway] = useState(''); const [driver, setDriver] = useState('');
   const [cartonMap, setCartonMap] = useState([]);
   const [gifts, setGifts] = useState([]); // free items riding on this dispatch — see GiftingStep
+  // Free samples riding on this dispatch — unlike gifts, never worth
+  // anything, never approved, never touches stock. Shared between pool and
+  // manual modes, same as gifts; pool mode pre-fills it from whatever the
+  // PI(s) being cleared already declared (see loadPool below).
+  const [samples, setSamples] = useState([]); // [{code,name,photo,pcs}]
   const [submitting, setSubmitting] = useState(false);
   const [shortageConfirm, setShortageConfirm] = useState(null);
   const [giftApprovalPending, setGiftApprovalPending] = useState(false); // true once "send for approval" has been sent for the currently-staged gifts — reset whenever gifts change
@@ -88,9 +94,14 @@ export default function Dispatch() {
     setSelection({});
     setScannedCodes([]);
     setOverrides({});
+    setSamples([]);
     try {
       const res = await dispatchApi.getCustomerPool(code);
       setPool(res);
+      // Pre-fill from whatever this dealer's eligible PI(s) already
+      // declared as samples (see getCustomerPool on the backend) — the
+      // dispatcher can still edit/remove/add more below.
+      setSamples(res.samples || []);
     } catch (err) { showToast(err.message, 'err'); }
   }
 
@@ -107,13 +118,14 @@ export default function Dispatch() {
     setSelection({});
     setScannedCodes([]);
     setOverrides({});
+    setSamples([]);
     setShowCustomerPicker(true);
     nav('/dispatch', { replace: true });
   }
 
   function resetEntryFields() {
     setTransporter(''); setFreight(0); setFreightTerm('To Pay'); setShowAdvanced(false);
-    setVehicle(''); setLr(''); setEway(''); setDriver(''); setCartonMap([]); setGifts([]); setScannedCodes([]);
+    setVehicle(''); setLr(''); setEway(''); setDriver(''); setCartonMap([]); setGifts([]); setScannedCodes([]); setSamples([]);
   }
 
   // --- gifting (both modes) ---
@@ -280,6 +292,7 @@ export default function Dispatch() {
         dealerCode, lines, transporter, vehicle, lr, eway, driver, freight, freightTerm,
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
         gifts: giftsPayload,
+        samples: samples.map((smp) => ({ code: smp.code, pcs: smp.pcs })),
         scannedCartonCodes: scannedCodes.map((s) => s.code), // locked in as "dispatched" server-side only now, at this exact commit
         force,
       });
@@ -323,6 +336,7 @@ export default function Dispatch() {
         lines: valid.map((l) => ({ code: l.code, pcs: l.dispatchNow })),
         transporter, vehicle, lr, eway, driver, freight, freightTerm,
         cartonMap: cartonMap.map((c) => ({ no: c.no, items: c.items })),
+        samples: samples.map((smp) => ({ code: smp.code, pcs: smp.pcs })),
         force,
       });
       showToast('Manual dispatch complete · Delivery Challan raised', 'g');
@@ -392,6 +406,8 @@ export default function Dispatch() {
           onRemoveManualLine={removeManualLine}
           transportState={transportState}
           cartonState={cartonState}
+          samples={samples}
+          onSamplesChange={setSamples}
           onSubmit={() => submitManualDispatch()}
           submitting={submitting}
           onBack={backToPool}
@@ -432,6 +448,10 @@ export default function Dispatch() {
           )}
           <CustomerPoolView pool={pool} selection={selection} onSelectionChange={setSelection} scannedCodes={scannedCodes} onScannedCodesChange={setScannedCodes} overrides={overrides} onOverridesChange={setOverrides} />
           <GiftingStep products={products} gifts={gifts} onAddCatalogGift={addCatalogGift} onAddCustomGift={addCustomGift} onRemoveGift={removeGift} dealerCode={dealerCode} scannedCodes={scannedCodes} onScannedCodesChange={setScannedCodes} />
+          <SampleStep
+            products={products} samples={samples} onChange={setSamples}
+            subtitle="free — pre-filled from the PI(s) being cleared, edit or add more as needed"
+          />
           <TransportStep {...transportState} />
           <CartonMappingStep
             activeLines={activeLines}

@@ -21,6 +21,16 @@ const lineSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// A sample riding along on this PI — a real catalog product, given away free
+// for the customer to evaluate, never billed and never counted into
+// subtotal/total. Deliberately bare-bones: no rate/tax/gross/total fields at
+// all (unlike lineSchema and even unlike a gift's `worth`) since samples are
+// never meant to carry a value anywhere in the app.
+const sampleSchema = new mongoose.Schema(
+  { code: String, name: String, photo: String, pcs: { type: Number, required: true } },
+  { _id: false }
+);
+
 const piSchema = new mongoose.Schema(
   {
     no: { type: String, required: true, unique: true },
@@ -28,6 +38,7 @@ const piSchema = new mongoose.Schema(
     dealer: { type: String, required: true, ref: 'Dealer' }, // Dealer.code
     dealerName: String,
     lines: [lineSchema],
+    samples: [sampleSchema],
     subtotal: { type: Number, default: 0 },
     transport: { type: Number, default: 0 },
     freightTerm: { type: String, enum: ['To Pay', 'Paid'], default: 'To Pay' },

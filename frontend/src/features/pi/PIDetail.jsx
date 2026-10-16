@@ -249,6 +249,7 @@ export default function PIDetail() {
         remark={pi.remark}
         settings={settings}
         salesRep={{ name: pi.by, mobile: pi.repMobile }}
+        samples={pi.samples}
       />
 
       <div className="card" style={{ marginTop: 10 }}>
