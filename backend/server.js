@@ -20,6 +20,7 @@ const userRoutes = require('./modules/users/routes');
 const notificationRoutes = require('./modules/notifications/routes');
 const analyticsRoutes = require('./modules/analytics/routes');
 const giftApprovalRoutes = require('./modules/giftApprovals/routes');
+const oemRoutes = require('./modules/oem/routes');
 
 const app = express();
 
@@ -56,6 +57,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/gift-approvals', giftApprovalRoutes);
+app.use('/api/oem', oemRoutes);
 
 // Central error handler (catches thrown errors from async routes not already try/caught)
 app.use((err, req, res, next) => {

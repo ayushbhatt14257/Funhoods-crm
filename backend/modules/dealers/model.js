@@ -33,6 +33,8 @@ const dealerSchema = new mongoose.Schema(
     notes: { type: String, default: '' },
     referenceName: { type: String, default: '' }, // who referred/introduced this dealer, if anyone
     active: { type: Boolean, default: true },
+    // OEM/private-label customer — only these can be picked on an OEM Order.
+    isOEM: { type: Boolean, default: false },
     createdByName: { type: String, default: '' },
     assignedTo: { type: String, default: '' }, // name of the field/sales user this party belongs to
     // A real dispatch block — usually requested by the marketing/sales

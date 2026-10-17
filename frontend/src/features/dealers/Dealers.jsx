@@ -9,7 +9,7 @@ import NewDealerModal from './components/NewDealerModal';
 import Loading from '../../components/Loading';
 import { INDIA_STATES, STATE_CITIES } from './indiaStates';
 
-const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '', type: 'Retailer', payment: 'Advance', creditLimit: 0, slab: 'C', assignedTo: '', referenceName: '' };
+const emptyForm = { code: '', name: '', contact: '', mobile: '', addr: '', city: '', state: '', pin: '', gstin: '', type: 'Retailer', payment: 'Advance', creditLimit: 0, slab: 'C', assignedTo: '', referenceName: '', isOEM: false };
 
 export default function Dealers() {
   const { showToast } = useToast();
@@ -144,7 +144,7 @@ export default function Dealers() {
                   <td className="mono">{d.code}</td>
                   <td><Link to={`/dealers/${d.code}`}><b>{d.name}</b></Link></td>
                   <td>{d.city}</td>
-                  <td><span className="badge">{d.payment}</span></td><td>{d.type}</td>
+                  <td><span className="badge">{d.payment}</span></td><td>{d.type}{d.isOEM && <span className="badge y" style={{ marginLeft: 6 }}>OEM</span>}</td>
                   <td>{d.assignedTo || '—'}</td>
                   <td>
                     {d.gstCertUrl ? <span className="badge g" style={{ marginRight: 4 }}>GST ✓</span> : <span className="badge r" style={{ marginRight: 4 }}>GST ✕</span>}
@@ -219,6 +219,10 @@ export default function Dealers() {
             </div>
             <div className="fg"><label>Credit limit ₹</label><input type="number" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} /></div>
           </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, margin: '6px 0 10px' }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={!!form.isOEM} onChange={(e) => setForm({ ...form, isOEM: e.target.checked })} />
+            OEM / private-label customer (can be used on OEM Orders)
+          </label>
 
           <div className="row2">
             <div className="fg">

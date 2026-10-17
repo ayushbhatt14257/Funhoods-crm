@@ -28,6 +28,9 @@ import Profile from './features/users/Profile';
 import Notifications from './features/notifications/Notifications';
 import Import from './features/import/Import';
 import Analytics from './features/analytics/Analytics';
+import OemList from './features/oem/OemList';
+import OemForm from './features/oem/OemForm';
+import OemDetail from './features/oem/OemDetail';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -64,6 +67,10 @@ function AppRoutes() {
         <Route path="pipeline" element={<Pipeline />} />
         <Route path="approvals" element={<PendingApprovals />} />
         <Route path="pis/:no" element={<PIDetail />} />
+        <Route path="oem" element={<OemList />} />
+        <Route path="oem/new" element={<OemForm />} />
+        <Route path="oem/:no/edit" element={<OemForm />} />
+        <Route path="oem/:no" element={<OemDetail />} />
         <Route path="dispatch" element={<Dispatch />} />
         <Route path="invoices" element={<Invoices />} />
         <Route path="invoices/:no" element={<InvoiceDetail />} />

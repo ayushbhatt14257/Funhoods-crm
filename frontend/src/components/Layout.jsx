@@ -11,6 +11,7 @@ const NAV = [
   { to: '/pis', label: 'PIs', icon: '📋', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
   { to: '/pipeline', label: 'Pipeline', icon: '🧭', roles: ['field', 'mhead', 'accounts', 'dispatch', 'admin', 'masterAdmin'] },
   { to: '/approvals', label: 'Price Approvals', icon: '✅', roles: ['masterAdmin'] },
+  { to: '/oem', label: 'OEM Orders', icon: '🏭', roles: ['mhead', 'accounts', 'admin', 'masterAdmin'] },
   { group: 'Fulfilment' },
   { to: '/dispatch', label: 'Dispatch', icon: '🚚', roles: ['dispatch', 'accounts', 'admin', 'masterAdmin'] },
   { to: '/invoices', label: 'Delivery Challans', icon: '🧾', roles: ['mhead', 'accounts', 'dispatch', 'delivery', 'admin', 'masterAdmin'] },
